@@ -3,10 +3,10 @@ import { writeFileSync } from "node:fs";
 import { region } from "./mk.mjs";
 const M = "window.FACTORY.machines";
 const sheet = (name, slow, every, count, cols = 6, scale = 3, size = [150, 110]) => [
-  ["slow", slow], ["sheet", `shots/sheet-${name}.png`, every, count, null, scale, region(name, ...size), cols], ["slow", 1],
+  ["slow", slow], ["sheet", `shots/sheet-${name}.png`, every, count, "body", scale, region(name, ...size), cols], ["slow", 1],
 ];
 const acts = [
-  ["wait", 1500],
+  ["key", "End"], ["wait", 4000],
   ["until", `${M}.beltA.items().some((i) => i.run === "air")`, 20000], ...sheet("dispenser-A", 0.08, 250, 18, 6, 2),
   ["until", `${M}.beltA.items().some((i) => i.run === "top" && i.pos[0] > 52)`, 20000], ...sheet("A-packer", 0.1, 200, 18),
   ["until", `${M}.beltB.items().some((i) => i.run === "air")`, 40000], ...sheet("packer-B", 0.1, 200, 18),

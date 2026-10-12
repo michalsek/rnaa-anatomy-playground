@@ -3,17 +3,17 @@
 import earcut, { deviation } from "earcut";
 import libtess from "libtess";
 
-const EPS = 1e-9;
+export const EPS = 1e-9;
+const EARCUT_MAX_DEVIATION = 1e-6; // earcut's relative area error above which the ring goes to libtess instead
+
+export const samePoint = (p, q) => Math.abs(p[0] - q[0]) <= EPS && Math.abs(p[1] - q[1]) <= EPS;
+export const withoutRepeats = (points) => points.filter((p, i) => i === 0 || !samePoint(p, points[i - 1]));
 
 // cleanRing(points) → the ring without repeated consecutive points or a closing duplicate of the first point
 export function cleanRing(points) {
-  const out = [];
-  for (const p of points) {
-    const q = out[out.length - 1];
-    if (!q || Math.abs(p[0] - q[0]) > EPS || Math.abs(p[1] - q[1]) > EPS) out.push(p);
-  }
-  while (out.length > 1 && Math.abs(out[0][0] - out[out.length - 1][0]) <= EPS && Math.abs(out[0][1] - out[out.length - 1][1]) <= EPS) out.pop();
-  return out;
+  const ring = withoutRepeats(points);
+  while (ring.length > 1 && samePoint(ring[0], ring[ring.length - 1])) ring.pop();
+  return ring;
 }
 
 export const signedArea = (ring) => {
@@ -51,7 +51,7 @@ export function isSimpleRing(ring) {
 function earcutRing(ring) {
   const flat = ring.flat();
   const indices = earcut(flat);
-  if (deviation(flat, undefined, 2, indices) > 1e-6) return null;
+  if (deviation(flat, undefined, 2, indices) > EARCUT_MAX_DEVIATION) return null;
   return { positions: ring, indices };
 }
 
@@ -89,28 +89,38 @@ function libtessRings(rings) {
   return { positions, indices };
 }
 
-// triangulate(subpaths) → { positions: [[x, y]…], indices: [i…] (triangles, all with positive cross product in SVG
-// coordinates, zero-area ones dropped), method: "earcut" | "libtess" | "empty" }
+// triangulate(subpaths) → { positions: [[x, y]…], indices: [i…], method: "earcut" | "libtess" | "empty", rings,
+// simpleRings }. A triangle is dropped when its area is zero in f64 or after rounding to f32 (what the binary stores);
+// the kept ones are oriented so their f32 cross product is positive in SVG coordinates. Positions no kept triangle
+// uses are dropped. rings are the
+// cleaned input rings (≥ 3 points) and simpleRings[i] tells whether ring i has no touching non-adjacent edges.
 export function triangulate(subpaths) {
   const rings = subpaths.map((s) => cleanRing(s.points ?? s)).filter((ring) => ring.length >= 3);
-  if (!rings.length) return { positions: [], indices: [], method: "empty" };
+  const simpleRings = rings.map(isSimpleRing);
+  if (!rings.length) return { positions: [], indices: [], method: "empty", rings, simpleRings };
   let mesh = null;
   let method = "earcut";
-  if (rings.length === 1 && isSimpleRing(rings[0])) mesh = earcutRing(rings[0]);
+  if (rings.length === 1 && simpleRings[0]) mesh = earcutRing(rings[0]);
   if (!mesh) {
     mesh = libtessRings(rings);
     method = "libtess";
   }
-  const { positions } = mesh;
-  const indices = [];
+  const stored = mesh.positions.map(([x, y]) => [Math.fround(x), Math.fround(y)]);
+  const kept = [];
   for (let t = 0; t < mesh.indices.length; t += 3) {
     let [a, b, c] = mesh.indices.slice(t, t + 3);
-    const area = cross(positions[a], positions[b], positions[c]);
-    if (Math.abs(area) <= EPS) continue;
-    if (area < 0) [b, c] = [c, b];
-    indices.push(a, b, c);
+    const storedArea = cross(stored[a], stored[b], stored[c]);
+    if (Math.abs(cross(mesh.positions[a], mesh.positions[b], mesh.positions[c])) <= EPS || Math.abs(storedArea) <= EPS) continue;
+    if (storedArea < 0) [b, c] = [c, b];
+    kept.push(a, b, c);
   }
-  return { positions, indices, method };
+  // drop the positions no kept triangle uses (collinear or zero-area leftovers), keeping the original order
+  const isUsed = new Array(mesh.positions.length).fill(false);
+  for (const i of kept) isUsed[i] = true;
+  const positions = [];
+  const compactedIndex = isUsed.map((used, i) => (used ? positions.push(mesh.positions[i]) - 1 : -1));
+  const indices = kept.map((i) => compactedIndex[i]);
+  return { positions, indices, method, rings, simpleRings };
 }
 
 export const triangleArea = (positions, indices) => {

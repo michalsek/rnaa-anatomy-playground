@@ -1,9 +1,22 @@
 // v3 copy of v2-factory/parts/centrifuge/build.mjs: the original writes its page at import, so it is copied here and
-// wrapped in run({ out }). Scene content is unchanged; only the imports (read-only v2 modules) and the output path differ.
+// wrapped in run({ out }). The only edits: the imports point at the read-only v2 modules (HERE dropped), STUB_LIVE is
+// hoisted above run(), the scene body is indented into run() and ends with `return ctx`, and page() writes to `out`.
+// tools/gate.mjs ("scene copy matches v2") diffs the two files modulo exactly these edits.
 // Standalone page for the centrifuge: a stub of belt B above feeds it packets, a stub of the audio belt below
 // catches the releases and gives the centrifuge its slat phase through syncTo().
 import { scene, page, k, G, A } from "../../v2-factory/shared/kit.mjs";
 import { build, LIVE, CSS } from "../../v2-factory/parts/centrifuge/centrifuge.mjs";
+
+// v2 source of this copy (relative to this file), for the gate's drift check
+export const V2_SOURCE = "../../v2-factory/parts/centrifuge/build.mjs";
+
+// What the gate expects from this scene's export: the exporter census (every key of build-dl CENSUS_KEYS) and the
+// DL counts. After an intended scene or kit change, run `node export/export.mjs`, check the printed census and counts
+// against the figure (and notes/ROADMAP.md), then copy them here.
+export const EXPECTED = {
+  census: { fillPaths: 1136, fillSubpaths: 1956, fillRingVerts: 31191, multiSubpath: 379, mixedOrientation: 11, nonSimpleFills: 93, earcut: 737, libtess: 397, emptyFills: 2, strokeElements: 610, strokePaths: 525, polylines: 1025, pathSegments: 15182, closedPolylines: 90, dotCircles: 209, dotGroups: 37, opacityGroups: 3, seamlessSolids: 17, halos: 1, blends: 0 },
+  counts: { items: 240, slots: 15, gradients: 1 },
+};
 
 const STUB_LIVE = `
 MACHINES.stubFeed = (api) => {

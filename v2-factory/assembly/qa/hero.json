@@ -1,0 +1,1 @@
+[["key","End"],["wait",34000],["eval","document.querySelectorAll('.fx-ui,.fx-readout,.fx-info').forEach(n=>n.style.display='none'),'hidden'"],["shot","hero.png","body",1]]

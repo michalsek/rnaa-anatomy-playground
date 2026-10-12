@@ -1,0 +1,1 @@
+[["wait",3000],["shot","shots/reduced-light.png","body",1],["eval","document.querySelector('.fx-readout').textContent"]]

@@ -1,0 +1,4 @@
+[["wait",200],["sheet","shots/sheet-tour-light.png",450,15,"body",0.35,null,5],
+ ["key","Home"],["wait",3500],["shot","shots/x-closed-light.png","body",1],
+ ["key","ArrowRight"],["key","ArrowRight"],["key","ArrowRight"],["key","ArrowRight"],["key","ArrowRight"],["wait",3500],["shot","shots/x-half-light.png","body",1],
+ ["key","End"],["wait",4000],["shot","shots/x-open-light.png","body",1]]

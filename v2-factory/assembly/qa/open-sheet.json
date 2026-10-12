@@ -1,0 +1,1 @@
+[["wait",300],["sheet","shots/sheet-open-light.png",280,15,".fx-full",0.5,null,5],["wait",3000],["shot","shots/x-open-light.png",".fx-full",1]]

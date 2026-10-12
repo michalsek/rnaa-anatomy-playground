@@ -1,0 +1,1 @@
+[load 257.2] factory-svg-desktop-r1: frame p50 33.3 p95 49.9 p99 83.4 ms, dropped 45.5% | rAF cb 16.10 · script 16.96 · style 3.67 · layout 1.93 · task 31.80 ms/f | trace main 25.00 (paint 4.79) raster 6.48 gpu 26.14 (raster 15.12) ms/f | LoAF 5 | nodes 194856 | page-frames 100%

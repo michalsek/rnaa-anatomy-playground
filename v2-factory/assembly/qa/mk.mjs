@@ -1,7 +1,8 @@
 // helpers: card-px regions around each junction, and drive action lists
 import { readFileSync, writeFileSync } from "node:fs";
 const { pairs } = JSON.parse(readFileSync(new URL("./ports.json", import.meta.url)));
-const OX = 24, OY = 52, S = 1.0133;
+// viewBox → viewport px at --width 1200 --height 1000 (full-viewport page; qa/rect2.json measures it)
+const OX = 158.82, OY = 0, S = 0.98039;
 // a card-px box round both ends of a hand-off, padded, at least w × h
 export const region = (name, w = 130, h = 100, pad = 34) => {
   const xs = pairs[name].map((p) => OX + p.vb[0] * S);
@@ -14,8 +15,8 @@ export const names = Object.keys(pairs);
 const mode = process.argv[2];
 if (mode === "zooms") {
   const theme = process.argv[3] ?? "light";
-  const acts = [["wait", Number(process.argv[4] ?? 20000)]];
-  for (const n of names) acts.push(["shot", `shots/z-${n.replace(/[→ ]/g, "-")}-${theme}.png`, null, 4, region(n)]);
+  const acts = [["key", "End"], ["wait", Number(process.argv[4] ?? 20000)]];
+  for (const n of names) acts.push(["shot", `shots/z-${n.replace(/[→ ]/g, "-")}-${theme}.png`, "body", 4, region(n)]);
   writeFileSync(new URL(`./zooms-${theme}.json`, import.meta.url), JSON.stringify(acts));
 }
 if (mode === "timed") {

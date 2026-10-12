@@ -1,0 +1,8 @@
+file:///Users/michalsek/Documents/rnaa-anatomy/v3-gpu/bench/run-baselines.mjs:46
+      if (ONLY && !label.includes(ONLY)) continue;
+      ^
+
+ReferenceError: ONLY is not defined
+    at file:///Users/michalsek/Documents/rnaa-anatomy/v3-gpu/bench/run-baselines.mjs:46:7
+
+Node.js v25.9.0

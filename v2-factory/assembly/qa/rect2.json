@@ -1,0 +1,1 @@
+[["wait",300],["eval","(() => { const s = document.querySelector('.iso-svg'); const r = s.getBoundingClientRect(); const vb = s.viewBox.baseVal; const k = Math.min(r.width / vb.width, r.height / vb.height); return [r.left + (r.width - vb.width * k) / 2 - vb.x * k, r.top + (r.height - vb.height * k) / 2 - vb.y * k, k, vb.x, vb.y, vb.width, vb.height]; })()"]]

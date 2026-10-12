@@ -1,18 +1,27 @@
 // Browser-side palette resolution: rebuild each palette entry's class chain as hidden probe elements under the page's
 // svg.iso-svg and read getComputedStyle, so light/dark (and any CSS change) come from the page's own tokens.
-// Dependency-free (inlined into the gate page; the renderer imports it).
+// Dependency-free (bundled into the gate page; the renderer imports it).
 
 const NS = "http://www.w3.org/2000/svg";
 
-// parseColor("rgb(1, 2, 3)" | "rgba(1 2 3 / 0.5)" | "none") → [r, g, b, a] in 0..1, or null
+// parseColor(computed colour) → [r, g, b, a] in 0..1 for "rgb(…)" / "rgba(…)" (alpha as a number or a percentage),
+// null for "none" and paint servers ("url(…)", resolved through json.gradients). Any other syntax (oklch(), color(),
+// a keyword) throws: the renderer would otherwise draw it as none.
 export function parseColor(text) {
-  const match = /^rgba?\(([^)]+)\)$/.exec(text.trim());
-  if (!match) return null;
-  const parts = match[1].split(/[\s,/]+/).filter(Boolean).map(Number);
-  return [parts[0] / 255, parts[1] / 255, parts[2] / 255, parts.length > 3 ? parts[3] : 1];
+  const trimmed = text.trim();
+  if (trimmed === "none" || trimmed.startsWith("url(")) return null;
+  const match = /^rgba?\(([^)]+)\)$/.exec(trimmed);
+  if (!match) throw new Error(`palette-probe: unsupported computed colour "${text}"`);
+  const parts = match[1].split(/[\s,/]+/).filter(Boolean);
+  const alpha = parts.length > 3 ? (parts[3].endsWith("%") ? Number(parts[3].slice(0, -1)) / 100 : Number(parts[3])) : 1;
+  const color = [Number(parts[0]) / 255, Number(parts[1]) / 255, Number(parts[2]) / 255, alpha];
+  if (parts.length < 3 || color.some((c) => !Number.isFinite(c))) throw new Error(`palette-probe: unparsable computed colour "${text}"`);
+  return color;
 }
 
-function build(entry, root, extraAttrs = {}) {
+// buildProbeChain(entry, root, extraAttrs) → the probe nodes for ancestors… el, appended under root. extraAttrs maps a
+// chain depth (-1 = el) to attributes added on top of the recipe's.
+function buildProbeChain(entry, root, extraAttrs = {}) {
   let parent = root;
   const nodes = [];
   [...entry.ancestors, entry.el].forEach((spec, depth) => {
@@ -26,62 +35,70 @@ function build(entry, root, extraAttrs = {}) {
   return nodes;
 }
 
-function probeRoot(host) {
+// withProbeRoot(host, use) → use(root): a hidden <g> under host for probe chains, removed afterwards even on throw
+function withProbeRoot(host, use) {
   const root = document.createElementNS(NS, "g");
   root.setAttribute("data-dl-probe", "");
   host.appendChild(root);
-  return root;
+  try {
+    return use(root);
+  } finally {
+    root.remove();
+  }
 }
 
-// resolvePalette(palette, host) → [{ color: [r, g, b, a] | null, alpha, width, cap, join, blend, filter, transform, raw }]
-// alpha = CSS opacity of the element and every probe ancestor × the prop's own -opacity (markup alpha is in the DL).
+const OWN_OPACITY = { fill: "fill-opacity", stroke: "stroke-opacity", "stop-color": "stop-opacity" };
+const OTHER_PAINT = { fill: "stroke", stroke: "fill" };
+
+// resolvePalette(palette, host) → per entry { id, prop, raw, color: [r, g, b, a] | null, alpha, width, cap, join,
+// blend, filter, transform, other, fillRule, dashArray, clipPath, mask }. alpha = CSS opacity of the element and every
+// probe ancestor × the prop's own -opacity (markup alpha is in the DL); other = the computed opposite paint (fill for
+// a stroke entry and vice versa). Every chain is built before any style is read, so the page recalculates style once.
 export function resolvePalette(palette, host) {
-  const root = probeRoot(host);
-  try {
-    return palette.map((entry) => {
-      const nodes = build(entry, root);
-      const el = nodes[nodes.length - 1];
-      const style = getComputedStyle(el);
+  return withProbeRoot(host, (root) => {
+    const chains = palette.map((entry) => buildProbeChain(entry, root));
+    return palette.map((entry, i) => {
+      const nodes = chains[i];
+      const style = getComputedStyle(nodes[nodes.length - 1]);
       const chainOpacity = nodes.reduce((product, node) => product * Number(getComputedStyle(node).opacity), 1);
-      const own = { fill: "fill-opacity", stroke: "stroke-opacity", "stop-color": "stop-opacity" }[entry.prop];
       const raw = style.getPropertyValue(entry.prop);
-      const resolved = {
+      return {
         id: entry.id,
         prop: entry.prop,
         raw,
         color: parseColor(raw),
-        alpha: (entry.prop === "stop-color" ? 1 : chainOpacity) * Number(style.getPropertyValue(own)),
+        alpha: (entry.prop === "stop-color" ? 1 : chainOpacity) * Number(style.getPropertyValue(OWN_OPACITY[entry.prop])),
         width: parseFloat(style.strokeWidth),
         cap: style.strokeLinecap,
         join: style.strokeLinejoin,
         blend: style.mixBlendMode,
         filter: style.filter,
         transform: style.transform,
-        other: entry.prop === "fill" ? style.stroke : entry.prop === "stroke" ? style.fill : "",
+        other: OTHER_PAINT[entry.prop] ? style.getPropertyValue(OTHER_PAINT[entry.prop]) : "",
+        fillRule: style.fillRule,
+        dashArray: style.strokeDasharray,
+        clipPath: style.clipPath,
+        mask: style.mask,
       };
-      nodes[0].remove();
-      return resolved;
     });
-  } finally {
-    root.remove();
-  }
+  });
 }
 
-// alphaAttrsHonoured(palette, host) → entries whose markup opacity attributes are overridden by CSS (should be [])
+// alphaAttrsOverridden(palette, host) → [{ id, at, name }] where CSS overrides an opacity attribute the markup carried
+// (should be []: the DL assumes markup opacity attributes take effect)
 export function alphaAttrsOverridden(palette, host) {
-  const root = probeRoot(host);
-  const bad = [];
-  for (const entry of palette) {
-    if (!entry.alphaAttrs.length) continue;
-    const extra = {};
-    for (const { at, name } of entry.alphaAttrs) (extra[at] ??= {})[name] = "0.5";
-    const nodes = build(entry, root, extra);
-    for (const { at, name } of entry.alphaAttrs) {
-      const node = nodes[at < 0 ? nodes.length - 1 : at];
-      if (Number(getComputedStyle(node).getPropertyValue(name)) !== 0.5) bad.push({ id: entry.id, at, name });
-    }
-    nodes[0].remove();
-  }
-  root.remove();
-  return bad;
+  return withProbeRoot(host, (root) => {
+    const probed = palette.filter((entry) => entry.alphaAttrs.length).map((entry) => {
+      const extra = {};
+      for (const { at, name } of entry.alphaAttrs) (extra[at] ??= {})[name] = "0.5";
+      return { entry, nodes: buildProbeChain(entry, root, extra) };
+    });
+    const overridden = [];
+    for (const { entry, nodes } of probed)
+      for (const { at, name } of entry.alphaAttrs) {
+        const node = nodes[at < 0 ? nodes.length - 1 : at];
+        if (Number(getComputedStyle(node).getPropertyValue(name)) !== 0.5) overridden.push({ id: entry.id, at, name });
+      }
+    return overridden;
+  });
 }

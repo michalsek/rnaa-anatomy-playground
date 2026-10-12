@@ -1,0 +1,4 @@
+[["key","Home"],["wait",3500],["lines","shots/lines-closed.png",".fx-stage"],
+ ["key","ArrowRight"],["key","ArrowRight"],["key","ArrowRight"],["key","ArrowRight"],["key","ArrowRight"],["wait",4000],["lines","shots/lines-half.png",".fx-stage"],["shot","shots/x-half-light.png",null,1],
+ ["key","End"],["wait",4000],["lines","shots/lines-open.png",".fx-stage"],
+ ["key","Home"],["wait",700],["lines","shots/lines-closing.png",".fx-stage"],["wait",3500],["shot","shots/x-closed-light.png",null,1]]

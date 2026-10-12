@@ -131,9 +131,10 @@ export function packetPaths(ctx, [x, y, z], { w = 10, d = 8, h = 7 } = {}) {
 // - explode: true → every item is wrapped as <g class="xw" data-p data-k data-l><g class="xm">slots + item</g></g>
 //   (piece, settled key, lift = move · V), so the page can move pieces and re-sort them (key + lift · share);
 //   slots travel and sort with the item they are anchored to.
-export function page(ctx, { out, title, fig = "Fig", hint = "", readout = "", keys = [], caption = "", live = [], boot = "", css = "", audit = {}, frame = true, overlay = "", describe = "", explode = false }) {
+export function page(ctx, { out, title, fig = "Fig", hint = "", readout = "", keys = [], caption = "", live = [], boot = "", css = "", audit = {}, frame = true, overlay = "", describe = "", explode = false, settleStates = null }) {
   const { R, A: AA, P } = ctx;
-  AA.settle(R, P);
+  // settleStates: the explode states the depth keys are solved (and depth order audited) in; default: the kit's full set
+  AA.settle(R, P, settleStates ? { states: settleStates } : undefined);
   R.items.sort((a, b) => a.key - b.key);
   const after = new Map();
   const before = new Map();

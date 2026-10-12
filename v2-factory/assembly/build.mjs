@@ -9,7 +9,7 @@
 // table in NOTES.md is the single place the layout is chosen (LAYOUT below).
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { scene, page, k } from "../shared/kit.mjs";
+import { scene, page, k, A } from "../shared/kit.mjs";
 import * as phone from "../parts/screen/phone.mjs";
 import * as speaker from "../parts/screen/speaker.mjs";
 import * as conveyor from "../parts/conveyor/conveyor.mjs";
@@ -25,23 +25,24 @@ const CASE = { w: 360, d: 760, r: 44, depth: 280, cut: 36, walls: "low", display
 // the explode (home = open, the build's geometry; share 1 = closed). Closed, the factory is packed down into a deep
 // well under the band, level by level, and the display slides back over the case and seats on the lip. Moves are
 // vertical: every hand-off is a near-touching pair and the tower is full height, so any sideways pull would carry one
-// machine through its neighbour in a visible frame. Closing, the floor drops first, then the low level, mid, high,
-// the tower, and the display last (so a lower level always leads downward and a stacked hand-off only separates);
-// opening runs the other way: the display lifts first, then the tower, high, mid and low levels rise in turn.
+// machine through its neighbour in a visible frame. Closing, the floor drops first, then the low level, the high
+// level and the display last (so a lower level always leads downward and a stacked hand-off only separates); opening
+// runs the other way: the display lifts first, then the high level rises, then the low level, then the floor.
 const SINK = 400;
 const PIECES = {
   floor: [0, 0, -SINK - 40],
   low: [0, 0, -SINK],
-  mid: [0, 0, -SINK],
   high: [0, 0, -SINK],
-  tower: [0, 0, -SINK],
   display: [-CASE.displayShift[0], -CASE.displayShift[1], CASE.cut - CASE.displayZ],
   case: [0, 0, 0],
 };
-const ORDER = ["floor", "low", "mid", "high", "tower", "display"];
-const SPRING = { stagger: 0.2, stiffness: 20, damping: 9.4, substeps: 4 };
+const ORDER = ["floor", "low", "high", "display"];
+const SPRING = { stagger: 0.25, stiffness: 20, damping: 9.4, substeps: 4 };
 // which level each machine rides
-const LEVEL = { audio: "low", beltC: "low", crusher: "low", scanner: "low", beltD: "low", centrifuge: "mid", beltB: "mid", packer: "high", beltA: "high", elevator: "tower", speaker: "tower", phone: "display" };
+// (two machine levels: the depth settle solves every pair of pieces at every relative shift, and five independent
+// levels ran out of memory; the low level holds the render loop and everything below belt B, the high level the
+// packer, belt A, the elevator and the speaker)
+const LEVEL = { audio: "low", beltC: "low", crusher: "low", scanner: "low", beltD: "low", centrifuge: "low", beltB: "low", packer: "high", beltA: "high", elevator: "high", speaker: "high", phone: "display" };
 const PACKER = [100, -190, 0]; // floor under the lane axis on the gutter line
 const AUDIO_Y = 120; // the render loop runs low across the front half
 const CENTRI = [100, AUDIO_Y - 51.2, 0]; // its spout hangs over the audio belt // axis on the floor; belt B runs between the packer's lane nose and the funnel
@@ -130,6 +131,12 @@ for (const item of ctx.R.items) {
   for (const shape of item.shapes) Object.assign(shape, { piece: item.piece, ride: item.piece, move: item.move });
 }
 for (const tube of [...ctx.R.tubes, ...ctx.R.routes]) Object.assign(tube, { piece: pieceOf(tube.name), ride: pieceOf(tube.name), move: PIECES[pieceOf(tube.name)] });
+// solids recorded without a drawn item (the packer's arm rest poses, the shop floor) move with their machine too
+for (const shape of ctx.R.solids) {
+  if (shape.piece !== undefined || !shape.name || shape.name.startsWith("stand.")) continue;
+  const piece = pieceOf(shape.name);
+  Object.assign(shape, { piece, ride: piece, move: PIECES[piece] });
+}
 ctx.R.order = ORDER;
 ctx.R.spring = SPRING;
 
@@ -166,19 +173,28 @@ MACHINES.explode = (api) => {
   const parts = api.el(".fx-parts");
   const all = [...parts.children].filter((n) => n.classList.contains("xw")).map((n) => ({ n, p: n.dataset.p, k: +n.dataset.k, l: +n.dataset.l, m: n.firstElementChild }));
   // everything that sinks into the well is clipped at the band's near bottom edge
-  for (const w of all) if (w.p !== "display" && w.p !== "case") w.n.setAttribute("clip-path", "url(#fx-well)");
+  // (and the dispenser, which hangs into the well when the display is seated)
+  for (const w of all) if ((w.p !== "display" && w.p !== "case") || w.n.querySelector('[data-name^="phone.feed"]')) w.n.setAttribute("clip-path", "url(#fx-well)");
   const backs = api.els(".xback").map((n) => ({ p: n.dataset.p, m: n.firstElementChild }));
   let order = all.slice();
   const springs = Object.fromEntries(X.order.map((id) => [id, { x: 1, v: 0, target: 1, pending: null, drawn: null }]));
   let clock = 0;
   const shiftOf = (id, s) => { const m = X.pieces[id]; const a = api.at([m[0] * s, m[1] * s, m[2] * s]); const o = api.at([0, 0, 0]); return [a[0] - o[0], a[1] - o[1]]; };
-  function goal(share) {
-    const ids = Object.values(springs).some((sp) => share > sp.target) ? X.order : [...X.order].reverse();
+  // the slider stages the opening: the display lifts first, then the high level, the low level, the floor; every
+  // piece's share stays monotone along the stagger order (floor ≥ low ≥ high ≥ display), as in the audited frames
+  const STAGE = { display: [0, 0.4], high: [0.3, 0.7], low: [0.5, 0.9], floor: [0.7, 1] };
+  const sharesFor = (open) => Object.fromEntries(X.order.map((id) => [id, 1 - api.smooth(STAGE[id][0], STAGE[id][1], open)]));
+  function goal(open) {
+    const want = sharesFor(open);
+    const closing = X.order.some((id) => want[id] > springs[id].target + 1e-6);
     let index = 0;
-    for (const id of ids) {
+    for (const id of closing ? X.order : [...X.order].reverse()) {
       const sp = springs[id];
-      if (Math.abs(sp.target - share) < 1e-6 && !sp.pending) continue;
-      sp.pending = { value: share, at: clock + index++ * X.spring.stagger };
+      const pendingValue = sp.pending ? sp.pending.value : sp.target;
+      if (Math.abs(pendingValue - want[id]) < 1e-6) continue;
+      // a big jump (the tour, Home/End) is staggered like the audited toggles; a drag follows at once
+      const at = Math.abs(pendingValue - want[id]) > 0.3 ? clock + index++ * X.spring.stagger : clock;
+      sp.pending = { value: want[id], at };
     }
   }
   function place() {
@@ -204,13 +220,14 @@ MACHINES.explode = (api) => {
     }
   }
   const self = {
-    get open() { return 1 - springs.display.x; },
+    // how open the phone looks (for the slider thumb): the mean of the pieces' open amounts
+    get open() { return X.order.reduce((sum, id) => sum + 1 - springs[id].x, 0) / X.order.length; },
     // the world offset of a piece right now (move · share)
     offsetOf(id) { const sp = springs[id]; const m = X.pieces[id]; return sp && m ? [m[0] * sp.x, m[1] * sp.x, m[2] * sp.x] : [0, 0, 0]; },
     get resting() { return Object.values(springs).every((sp) => !sp.pending && Math.abs(sp.x - sp.target) < 1e-3 && Math.abs(sp.v) < 1e-3); },
     target: 1,
-    set(openAmount) { self.target = 1 - openAmount; goal(self.target); },
-    jump(openAmount) { self.target = 1 - openAmount; for (const sp of Object.values(springs)) { sp.x = sp.target = self.target; sp.v = 0; sp.pending = null; } place(); },
+    set(openAmount) { self.target = 1 - openAmount; goal(openAmount); },
+    jump(openAmount) { self.target = 1 - openAmount; const want = sharesFor(openAmount); for (const id of X.order) { const sp = springs[id]; sp.x = sp.target = want[id]; sp.v = 0; sp.pending = null; } place(); },
     frame(dt) {
       clock += dt;
       const calm = api.calm();
@@ -349,8 +366,8 @@ document.addEventListener("keydown", (e) => {
   if (e.key === " ") { e.preventDefault(); togglePlay(); }
   else if (e.key === "[") stepSpeed(-1);
   else if (e.key === "]") stepSpeed(1);
-  else if (!onSlider && (e.key === "ArrowRight" || e.key === "ArrowUp")) { e.preventDefault(); setOpen(explode.open + (e.shiftKey ? 0.25 : 0.1), true); slider.value = 1 - explode.target; }
-  else if (!onSlider && (e.key === "ArrowLeft" || e.key === "ArrowDown")) { e.preventDefault(); setOpen(explode.open - (e.shiftKey ? 0.25 : 0.1), true); slider.value = 1 - explode.target; }
+  else if (!onSlider && (e.key === "ArrowRight" || e.key === "ArrowUp")) { e.preventDefault(); setOpen(1 - explode.target + (e.shiftKey ? 0.25 : 0.1), true); }
+  else if (!onSlider && (e.key === "ArrowLeft" || e.key === "ArrowDown")) { e.preventDefault(); setOpen(1 - explode.target - (e.shiftKey ? 0.25 : 0.1), true); }
   else if (!onSlider && e.key === "Home") setOpen(0, true);
   else if (!onSlider && e.key === "End") setOpen(1, true);
 });
@@ -397,6 +414,9 @@ page(ctx, {
   readout: "0 quanta",
   frame: false,
   explode: true,
+  // depth keys solved on a coarser sample of the replayed springs (every 8th frame, 6 uniform shares, the prefix
+  // states); clearance is still checked on every replayed frame
+  settleStates: A.explodeStates(ORDER, SPRING, { uniform: 6, stride: 8 }).depth,
   overlay: OVERLAY,
   describe: CAPTION + " " + HELP,
   css: centrifuge.CSS + crusher.CSS + packer.CSS + FULL_CSS,

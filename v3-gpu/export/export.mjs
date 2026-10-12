@@ -7,41 +7,52 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { buildDisplayList } from "./build-dl.mjs";
-import { pack } from "./dl-format.mjs";
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const SCENES = { centrifuge: "../scenes/centrifuge.scene.mjs" };
+const SVG_DIR = join(ROOT, "out/svg");
 
-export const svgPageOf = (scene, theme) => join(ROOT, "out/svg", `${scene}${theme === "light" ? "-light" : ""}.html`);
+export const svgPageOf = (scene, theme, svgDir = SVG_DIR) => join(svgDir, `${scene}${theme === "light" ? "-light" : ""}.html`);
+export const dlFilesOf = (scene) => ({ json: join(ROOT, "out/dl", `${scene}.dl.json`), bin: join(ROOT, "out/dl", `${scene}.dl.bin`) });
 
-// exportScene(scene, { collect }) → { dl json, buffer, table, stats, checks, timings }
-export async function exportScene(scene = "centrifuge", { collect = false } = {}) {
+// cliOption(args, "--scene", "centrifuge") → the value after the flag, the fallback when the flag is absent
+export function cliOption(args, name, fallback) {
+  const at = args.indexOf(name);
+  if (at < 0) return fallback;
+  const value = args[at + 1];
+  if (value === undefined || value.startsWith("--")) throw new Error(`${name} needs a value`);
+  return value;
+}
+
+export const sceneModule = (scene) => {
   if (!SCENES[scene]) throw new Error(`unknown scene ${scene} (have: ${Object.keys(SCENES).join(", ")})`);
-  const { run } = await import(SCENES[scene]);
-  mkdirSync(join(ROOT, "out/svg"), { recursive: true });
+  return import(SCENES[scene]);
+};
+
+// exportScene(scene, { collectFillChecks, svgDir }) → { json, buffer, stats, fillChecks, items, timings }. page()
+// writes its two theme pages into svgDir; items are the scene's settled and sorted recorder items.
+export async function exportScene(scene = "centrifuge", { collectFillChecks = false, svgDir = SVG_DIR } = {}) {
+  const { run } = await sceneModule(scene);
+  mkdirSync(svgDir, { recursive: true });
   const t0 = performance.now();
-  const ctx = run({ out: svgPageOf(scene, "dark") });
+  const ctx = run({ out: svgPageOf(scene, "dark", svgDir) });
   const t1 = performance.now();
-  const { json, sections, stats, checks } = buildDisplayList({ scene, items: ctx.R.items, back: ctx.back, slots: ctx.slots, V: ctx.V, width: ctx.W, height: ctx.H, collect });
-  const { buffer, table } = pack(sections);
-  json.sections = table;
-  json.counts = { items: json.items.length, prims: sections.prims.length, triangles: sections.fillIndices.length / 3, fillVertices: sections.fillVertices.length, segments: sections.segments.length, dots: sections.dots.length, palette: json.palette.length, gradients: json.gradients.length, slots: json.slots.length };
+  const { json, buffer, stats, fillChecks } = buildDisplayList({ scene, items: ctx.R.items, back: ctx.back, slots: ctx.slots, V: ctx.V, width: ctx.W, height: ctx.H, collectFillChecks });
   const t2 = performance.now();
-  return { json, buffer, table, stats, checks, timings: { pageMs: t1 - t0, exportMs: t2 - t1 } };
+  return { json, buffer, stats, fillChecks, items: ctx.R.items, timings: { pageMs: t1 - t0, exportMs: t2 - t1 } };
 }
 
 async function main() {
   const args = process.argv.slice(2);
-  const option = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
-  const scene = option("--scene", "centrifuge");
-  const theme = option("--theme", "light");
+  const scene = cliOption(args, "--scene", "centrifuge");
+  const theme = cliOption(args, "--theme", "light");
   const { json, buffer, stats, timings } = await exportScene(scene);
-  const dir = join(ROOT, "out/dl");
-  mkdirSync(dir, { recursive: true });
+  const files = dlFilesOf(scene);
+  mkdirSync(dirname(files.json), { recursive: true });
   const text = JSON.stringify(json);
   const bin = new Uint8Array(buffer);
-  writeFileSync(join(dir, `${scene}.dl.json`), text);
-  writeFileSync(join(dir, `${scene}.dl.bin`), bin);
+  writeFileSync(files.json, text);
+  writeFileSync(files.bin, bin);
   const kb = (n) => `${(n / 1024).toFixed(1)} KB`;
   console.log(`baseline ${svgPageOf(scene, theme)}`);
   console.log(`dl json ${kb(text.length)} (gzip ${kb(gzipSync(text).length)}) · bin ${kb(bin.length)} (gzip ${kb(gzipSync(bin).length)})`);
