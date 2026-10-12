@@ -27,6 +27,20 @@ along `axis` for `length` (drum centre to drum centre); `+c` is the near side (`
 | `speed`, `pitch` (slat spacing) | 14, 4 | 32, 3 | |
 | `cleatEvery` (slats per cleat) | – | 6 | |
 | `drop`, `autoSpend` | – | true, true | |
+| `legs` | yes | yes | true |
+
+### `legs: false` (hang the belt in the air)
+
+For the assembly, where belt supports hide the mechanism. Default `true` builds exactly as before.
+
+- top: drops legs, feet (and their anchor screws), cross braces and the near stretchers. Guide-bar posts stay: the
+  arms touch only the posts and the bar (arm top T+3.8, rail top T−2.2), so without posts the bars would float.
+  Rails, lips, idlers, drums, bearings, motor, lamp, guides and label plate are unchanged.
+- loop: drops legs, feet and the cross beams. Truss, drums, take-up, drive, read lamp, return rollers unchanged
+  (roller positions still dodge the would-be leg stations, so nothing else moves).
+- Grounded (`ground: true` in the recorded slab meta, only when `legs: false`): top `<id>.railN`, `<id>.railF`;
+  loop `<id>.chordTopN/F`, `<id>.chordBotN/F`. Everything else reaches them through real contacts (a probe with the
+  flags cleared fails `support`). Ports, slots, data and live code are identical either way.
 
 Brief layout, translated: `build(ctx, [-60, -118, 0], { id: "beltA", type: "top", axis: "x", dir: 1, length: 132, top: 232, inAt: 20, outAt: 132 })`,
 `build(ctx, [-130, 74, 0], { id: "audio", type: "loop", axis: "x", dir: -1, length: 216, top: 92, drum: 15, inAt: 204, readAt: 100 })`
@@ -85,6 +99,8 @@ parcel's normal so it never jumps) and strap; a released parcel's bail stays on 
 ## Verification
 
 - `node build.mjs --audit` → `audit passed` (340 items).
+- `legs: false` (scratch copy of `build.mjs` with all three belts hanging): audit passed (285 items), line ends 0,
+  capture read (no floating fragments).
 - Line ends 0: `lines.mjs` light at 20 s, dark at 21.5 s; `drive.mjs ["lines"]` at 3, 7.5, 13.5, 21.5, 30.5 s all 0
   (the take-up spring float is fixed).
 - A parametric page (scratch, not shipped): top belt y/dir −1/top 70/width 14 on a 20-high plinth (origin z 20),
@@ -101,3 +117,10 @@ parcel's normal so it never jumps) and strap; a released parcel's bail stays on 
 - `drum` overhang: flanges are `drum + 2.2`; the drive (gearbox + motor) sits on the near side out to about
   `width/2 + 4.6 + 4.2 + 0.53·drum` and runs `0.43·drum + max(16, 1.6·drum)` inward from the head along the belt.
 - The demo hopper is a closed box parcels appear from (demo furniture only).
+
+## Assembly changes (assembly agent, 2026-10-12)
+- top belts: `self.hold` hook. Set `FACTORY.machines.<id>.hold = () => bool`; while true the front parcel waits just
+  short of where it would leave and the ones behind queue a parcel length apart (belt B ← `!centrifuge.canAccept()`).
+  `held()` reports it.
+- loop: `canTake(after)` → whether a free cleat will be under the in point for a parcel arriving `after` s from now
+  (+0.2 s fall). A sender that asks first never has a parcel refused (the centrifuge uses it through `releaseWhen`).

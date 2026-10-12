@@ -122,14 +122,14 @@ export function build(ctx, origin = [0, 0, 0], opts = {}) {
       box(name, [X, y0, 10], [X + 1.8, y1, 26], { tone: "mid" }, { r: 0.8, steps: 3, bevel: 0.3 });
     const sim = pl.roundRect(-d / 2 + 250, -24, -d / 2 + 300, -12, 6, 6);
     const m = pl.planeMatrix(T(X + 0.02, 0, 0), [0, 1, 0], [0, 0, -1]);
-    const shape = ctx.record(ctx.A.box(T(X, -d / 2 + 248, 10), T(X + 0.04, -d / 2 + 302, 26), { name: N("sim") }));
-    ctx.put(N("sim"), T(X + 0.02, -d / 2 + 275, 18), `<g transform="${m}"><path class="iso-line" data-tone="lo" d="${sim}"/><path class="iso-line" data-tone="faint" d="${pl.roundRect(-d / 2 + 253, -22, -d / 2 + 297, -14, 4, 6)}"/></g>` + Dots([at(T(X + 0.04, -d / 2 + 292, 18))], { size: 0.7, tone: "lo" }), [shape], { bias: 0.05 });
+    const shape = LOW ? null : ctx.record(ctx.A.box(T(X, -d / 2 + 248, 10), T(X + 0.04, -d / 2 + 302, 26), { name: N("sim") }));
+    if (!LOW) ctx.put(N("sim"), T(X + 0.02, -d / 2 + 275, 18), `<g transform="${m}"><path class="iso-line" data-tone="lo" d="${sim}"/><path class="iso-line" data-tone="faint" d="${pl.roundRect(-d / 2 + 253, -22, -d / 2 + 297, -14, 4, 6)}"/></g>` + Dots([at(T(X + 0.04, -d / 2 + 292, 18))], { size: 0.7, tone: "lo" }), [shape], { bias: 0.05 });
     const Y = d / 2;
     const usb = pl.recess("y", { u0: ox - 14, u1: ox + 14, z0: oz + 13, z1: oz + 22, r: 4.5, depth: 5 }, oy + Y + 0.02, { id: `${id}-usb`, backStyle: "fill:#141518", back: `<path class="iso-line" data-tone="mid" d="${pl.roundRect(ox - 8, -(oz + 18.6), ox + 8, -(oz + 16.4), 1.1, 4)}"/>` });
     const grille = [];
     for (const s of [-1, 1]) for (let i = 0; i < 8; i++) grille.push(at(T(s * (34 + i * 6), Y + 0.04, 17.5)));
     const end = ctx.record(ctx.A.box(T(-84, Y, 10), T(84, Y + 0.04, 26), { name: N("end") }));
-    ctx.put(N("end"), T(0, Y + 0.02, 18), usb.svg + Dots(grille, { size: 1.1, tone: "lo" }) + screwsY(Y + 0.04, [[-22, 17.5], [22, 17.5]], 1.1, 0.5), [end], { bias: 0.05 });
+    ctx.put(N("end"), T(0, Y + 0.02, 18), usb.svg + (LOW ? "" : Dots(grille, { size: 1.1, tone: "lo" }) + screwsY(Y + 0.04, [[-22, 17.5], [22, 17.5]], 1.1, 0.5)), [end], { bias: 0.05 }); // low tray: just the port
   }
   // the floor: a vapour-chamber plate, standoffs and screw bosses along the walls, a label plate (all low and flat,
   // so the machines put in at assembly stand over them)
@@ -203,11 +203,25 @@ export function build(ctx, origin = [0, 0, 0], opts = {}) {
       `<rect x="${f2(41 * s)}" y="${f2(sb - 5.2 * s)}" width="${f2(9.6 * s)}" height="${f2(4.8 * s)}" rx="${f2(1.3 * s)}" style="fill:none;stroke:#f2f3f5;stroke-width:.5;opacity:.7;vector-effect:none"/><rect x="${f2(42 * s)}" y="${f2(sb - 4.2 * s)}" width="${f2(6.4 * s)}" height="${f2(2.8 * s)}" rx="${f2(0.7 * s)}" style="fill:#f2f3f5;stroke:none"/>`;
     const home = rr(-22 * s, SD / 2 - 7.2 * s, 22 * s, SD / 2 - 5 * s, 1.1 * s, "fill:#e9eaee;stroke:none;opacity:.85");
     const glare = `<path d="M${f2(SW / 2 - 46 * s)} ${f2(top)}L${f2(SW / 2)} ${f2(top)}L${f2(SW / 2)} ${f2(top + 70 * s)}Z" style="fill:#fff;opacity:.05;stroke:none"/>`;
+    // opts.controls: playback controls on the screen under the logo (real click targets, data-ctl="play" | "speed";
+    // the page drives their state): a speed pill, a play/pause button, a four-cell device-buffer meter
+    const ctl = (() => {
+      if (!opts.controls) return "";
+      const Y = LY + 64 * s;
+      const r = 7.2 * s;
+      const ink = "#f2f3f5";
+      const pill = `<g data-ctl="speed" role="button" aria-label="speed"><rect x="${f2(-38 * s)}" y="${f2(Y - 5.4 * s)}" width="${f2(21 * s)}" height="${f2(10.8 * s)}" rx="${f2(5.4 * s)}" style="fill:#ffffff12;stroke:${ink};stroke-width:.8;stroke-opacity:.55"/><text data-ctl-text="speed" x="${f2(-27.5 * s)}" y="${f2(Y + 1.9 * s)}" text-anchor="middle" style="font:600 ${f2(5.4 * s)}px ui-sans-serif,system-ui,sans-serif;fill:${ink}">1×</text></g>`;
+      const play = `<g data-ctl="play" role="button" aria-label="play or pause"><circle cx="0" cy="${f2(Y)}" r="${f2(r)}" style="fill:#ffffff12;stroke:${ink};stroke-width:.8;stroke-opacity:.55"/>` +
+        `<g data-ctl-icon="pause"><rect x="${f2(-2.6 * s)}" y="${f2(Y - 3 * s)}" width="${f2(1.7 * s)}" height="${f2(6 * s)}" rx="${f2(0.4 * s)}" style="fill:${ink}"/><rect x="${f2(0.9 * s)}" y="${f2(Y - 3 * s)}" width="${f2(1.7 * s)}" height="${f2(6 * s)}" rx="${f2(0.4 * s)}" style="fill:${ink}"/></g>` +
+        `<path data-ctl-icon="play" d="M${f2(-2 * s)} ${f2(Y - 3.4 * s)}L${f2(3.4 * s)} ${f2(Y)}L${f2(-2 * s)} ${f2(Y + 3.4 * s)}Z" style="fill:${ink};display:none"/></g>`;
+      const cells = [0, 1, 2, 3].map((i) => `<rect data-ctl-cell="${i}" x="${f2((17 + i * 6.2) * s)}" y="${f2(Y - 1.8 * s)}" width="${f2(5.2 * s)}" height="${f2(3.6 * s)}" rx="${f2(0.8 * s)}" style="fill:#ffffff14;stroke:${ink};stroke-width:.6;stroke-opacity:.4"/>`).join("");
+      return `<g data-part="${id}-controls">${pill}${play}<g data-ctl-meter="buffer">${cells}</g></g>`;
+    })();
     const clipId = `${id}-display-clip`;
     const G0 = k.insetPlan({ x: -w / 2, y: -d / 2, w, d, r: R }, 0.8);
     const art = `<defs>${glow}<clipPath id="${clipId}"><path d="${pl.roundRect(-SW / 2, -SD / 2, SW / 2, SD / 2, SR, 8)}"/></clipPath></defs><g transform="${m}">` +
       `<path d="${pl.roundRect(G0.x, G0.y, G0.x + G0.w, G0.y + G0.d, G0.r, 8)}" style="fill:#16171b;stroke:none"/>` +
-      `<g clip-path="url(#${clipId})"><path d="${pl.roundRect(-SW / 2, -SD / 2, SW / 2, SD / 2, SR, 8)}" style="fill:#0a0b0e;stroke:none"/><rect x="${f2(-SW / 2)}" y="${f2(-SD / 2)}" width="${SW}" height="${SD}" style="fill:url(#${id}-glow);stroke:none"/>${ripple}${logo}${status}${island}${home}${glare}</g>` +
+      `<g clip-path="url(#${clipId})"><path d="${pl.roundRect(-SW / 2, -SD / 2, SW / 2, SD / 2, SR, 8)}" style="fill:#0a0b0e;stroke:none"/><rect x="${f2(-SW / 2)}" y="${f2(-SD / 2)}" width="${SW}" height="${SD}" style="fill:url(#${id}-glow);stroke:none"/>${ripple}${logo}${status}${island}${home}${ctl}${glare}</g>` +
       `<path class="iso-line" data-tone="faint" d="${pl.roundRect(-SW / 2, -SD / 2, SW / 2, SD / 2, SR, 8)}"/></g>`;
     ctx.slab(N("display.glass"), GLASS, oz + Z1, Z2 - Z1, { tone: "hi" }, { steps: 10, bevel: 0.6, extra: art });
     ctx.data[`${id}:logo`] = { y: LY, s };
@@ -341,6 +355,7 @@ MACHINES.phone = (api) => {
   let tap = 9;
   let sent = 0;
   let stillDrawn = false;
+  let holdBeads = false;
   const rand = (a, b) => a + Math.random() * (b - a);
   const LS = D.logo.s;
   function drawScreen() {
@@ -360,6 +375,10 @@ MACHINES.phone = (api) => {
     get sent() { return sent; },
     // a tap on the screen from outside (the assembly's Space key): the next tick sends a burst
     tap() { nextBurst = 0; },
+    // the assembly holds the valve while the display is not at rest above the case (a bead must not fall between
+    // two parts that are moving apart)
+    set hold(v) { holdBeads = !!v; },
+    get hold() { return holdBeads; },
     tick(dt, t) {
       if (api.calm()) {
         // reduced motion: one representative still frame (three calls waiting in the tube), nothing moves or leaves
@@ -398,7 +417,7 @@ MACHINES.phone = (api) => {
       });
       // the star valve takes the bottom bead: one pocket per bead
       const bottom = queue[0];
-      if (bottom && t >= nextRelease && bottom.z <= D.tube.z0 + 0.01) {
+      if (bottom && t >= nextRelease && !holdBeads && bottom.z <= D.tube.z0 + 0.01) {
         nextRelease = t + rand(0.9, 1.25);
         queue.shift();
         rotorTarget += Math.PI / 3;

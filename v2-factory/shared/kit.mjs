@@ -125,7 +125,13 @@ export function packetPaths(ctx, [x, y, z], { w = 10, d = 8, h = 7 } = {}) {
 }
 
 // page(ctx, opts): settle the order, insert the slots, write a standalone page (and its light twin).
-export function page(ctx, { out, title, fig = "Fig", hint = "", readout = "", keys = [], caption = "", live = [], boot = "", css = "", audit = {} }) {
+// Options for the assembly (defaults keep every part page as it was):
+// - frame: false → no card, legend or caption block: the stage fills the viewport, `overlay` (HTML) is laid over it,
+//   `describe` becomes the stage's accessible description.
+// - explode: true → every item is wrapped as <g class="xw" data-p data-k data-l><g class="xm">slots + item</g></g>
+//   (piece, settled key, lift = move · V), so the page can move pieces and re-sort them (key + lift · share);
+//   slots travel and sort with the item they are anchored to.
+export function page(ctx, { out, title, fig = "Fig", hint = "", readout = "", keys = [], caption = "", live = [], boot = "", css = "", audit = {}, frame = true, overlay = "", describe = "", explode = false }) {
   const { R, A: AA, P } = ctx;
   AA.settle(R, P);
   R.items.sort((a, b) => a.key - b.key);
@@ -140,13 +146,23 @@ export function page(ctx, { out, title, fig = "Fig", hint = "", readout = "", ke
     const map = slot.after ? after : before;
     map.set(index, [...(map.get(index) ?? []), `<g data-slot="${slot.name}"></g>`]);
   }
-  const groups = R.items.map((item, index) => `${(before.get(index) ?? []).join("")}<g class="it${item.material ? ` ${item.material}` : ""}" data-name="${item.name}"${item.attrs ?? ""}>${item.svg}</g>${(after.get(index) ?? []).join("")}`);
+  const V = ctx.V;
+  const groups = R.items.map((item, index) => {
+    const inner = `${(before.get(index) ?? []).join("")}<g class="it${item.material ? ` ${item.material}` : ""}" data-name="${item.name}"${item.attrs ?? ""}>${item.svg}</g>${(after.get(index) ?? []).join("")}`;
+    if (!explode) return inner;
+    const m = item.move ?? [0, 0, 0];
+    const lift = m[0] * V[0] + m[1] * V[1] + m[2] * V[2];
+    return `<g class="xw" data-p="${item.piece ?? ""}" data-k="${item.key.toFixed(4)}" data-l="${lift.toFixed(4)}"><g class="xm">${inner}</g></g>`;
+  });
   const svg = ctx.k.figureSvg({ width: ctx.W, height: ctx.H, label: title, body: [...ctx.back, `<g class="fx-parts">${groups.join("")}</g>`, `<g data-slot="overlay"></g>`] });
   const latheSource = readFileSync(join(ANATOMY, "kit", "lathe.mjs"), "utf8").replace(/^import .*$/m, "").replace(/^export /gm, "");
   const latheScript = `const G = (() => {${latheSource}\nreturn { spokesOf, ribsOf, frameOf, frameAlong, pointOf, dotsOf, arcOf, circleOf, disc, sphereOf, lathe, solidOf, prismOf, viewOf, lightOf, toneOf, scaleOf, add3, sub3, mul3, dot3, unit3, cross3, len3 };})();\n`;
   const runtime = readFileSync(join(SHARED, "runtime.js"), "utf8").replace("__FACTORY_DATA__", JSON.stringify({ P, KS: ctx.KS, V: ctx.V, data: ctx.data, routes: Object.fromEntries(Object.entries(ctx.routes).map(([n, pts]) => [n, pts])) }));
   const style = readFileSync(join(SHARED, "factory.css"), "utf8") + css;
-  const body = `<style>${style}</style>` + ctx.k.plateHtml({ fig, title, hint, readout, keys, caption, body: `<div class="iso-stage fx-stage" tabindex="0" role="group" aria-label="${title}">${svg}<span class="fx-sr" role="status" aria-live="polite" data-status></span></div>` });
+  const stage = `<div class="iso-stage fx-stage" tabindex="0" role="group" aria-label="${title}"${describe ? ` aria-describedby="fx-describe"` : ""}>${svg}<span class="fx-sr" role="status" aria-live="polite" data-status></span></div>`;
+  const body = frame
+    ? `<style>${style}</style>` + ctx.k.plateHtml({ fig, title, hint, readout, keys, caption, body: stage })
+    : `<style>${style}</style><div class="fx-full">${stage}${overlay}<span class="fx-readout" data-readout aria-hidden="true">${readout}</span>${describe ? `<p class="fx-sr" id="fx-describe">${describe}</p>` : ""}</div>`;
   const script = kitScript() + latheScript + runtime + live.join("\n") + `\n${boot}\nFACTORY.start();`;
   for (const theme of ["light", "dark"]) {
     const file = theme === "light" ? out.replace(/\.html$/, "-light.html") : out;

@@ -2091,9 +2091,15 @@ const FACTORY = (() => {
   let frame = 0;
   let last = 0;
   let visible = false;
+  // playback: speed scales the factory clock, paused freezes it (machines still tick with dt 0 and redraw)
+  let speed = 1;
+  let paused = false;
+  const frameHooks = [];
   function tick(now) {
-    const dt = last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60;
+    const real = last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60;
     last = now;
+    for (const fn of frameHooks) fn(real);
+    const dt = paused ? 0 : real * speed;
     clock += dt;
     for (const f of feeds) {
       if (clock >= f.next) {
@@ -2128,6 +2134,13 @@ const FACTORY = (() => {
     onEmit: (id, port, fn) => (sinks[`${id}:${port}`] ??= []).push(fn),
     item: (kind) => ({ id: nextId++, kind, born: clock }),
     readout: (fn) => (readoutFn = fn),
+    // assembly hooks: the build's data, the factory clock's speed and pause, and a per-frame hook on real time
+    data: D.data,
+    get speed() { return speed; },
+    set speed(v) { speed = v; },
+    get paused() { return paused; },
+    set paused(v) { paused = !!v; },
+    onFrame: (fn) => frameHooks.push(fn),
     stage,
     svg,
     slots,

@@ -60,6 +60,14 @@ Both builds are **relative to `origin`** (phone-case pivot). Frames and ports ar
   well below the spout (stub: 10 below), clear of the back run (cradles reach local y −23.4) and the boot housing
   (y ≥ −26 below z 42).
 - Audited variants: lift 150/−x/16, 210/−y/14, 230/−y/0, 300/+x/18 all `audit passed`.
+- **`access: false`** (default `true`) leaves off the access steel that hides the mechanism: the ladder (stiles, rungs,
+  standoff brackets), the safety cage (hoops, straps), the intermediate landings, the head platform (grating, beams,
+  toe boards, posts, rails) and the alternating diagonal braces on the side faces. Kept: posts, base plates, splice
+  plates, all girts and gussets, chain guides, boot, head with sprockets, hopper/duct/spout, gearbox/motor, drive lamp.
+  The gearbox's torque arm, which stood on the head platform, then rests on `elevator.drive.beam`, a short cantilever
+  from the right back post at z lift + 5.1…+7.5 (local x +11…+19, y −10.5…−7.5). No slot was anchored to a removed
+  item, so slots, ports and live code are unchanged; the footprint shrinks to x −11…+22 (motor). Audited: lift 210/−y/14 and /40 with
+  `access: false` → `audit passed`, `line ends: 0` at rest and at 6 s. The default output is byte-identical.
 
 ## What they mean
 - Scanner = the platform audio callback (CoreAudio / Oboe) reading each finished 128-frame quantum. A hard-disk read
@@ -138,3 +146,7 @@ its only remaining problem is the throwaway belt-D stand-in, which still uses th
   the queue never exceeds one.
 - Out of scope: `shared/kit.mjs` `page()` takes `css`, but the assembly contract doesn't say how part CSS is merged,
   so I used inline styles (`var(--pk-audio-*)`) for pulses and openings instead of classes.
+
+## Assembly changes (assembly agent, 2026-10-12)
+- build.mjs (standalone): `readAt: S[0] - AUDIO[0]` (a distance along the belt). It passed the world x, so the read lamp
+  sat off the belt after the conveyor's switch to relative opts and the audit failed (3 loose solids).

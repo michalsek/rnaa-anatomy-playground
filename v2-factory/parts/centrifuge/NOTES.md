@@ -10,6 +10,16 @@ read index; in sync both run at once (packets drop into free pockets as they pas
 - `import { build, LIVE, CSS } from "../parts/centrifuge/centrifuge.mjs"`
 - `build(ctx, origin, { id: "centrifuge" })` — origin is the machine's axis on the case floor; everything is built
   relative to it. Tallest point: funnel mouth at origin z + 186 (pulleys and motor cable + 183), under the ≈ 280 case top.
+- `stand` (default `true`). `build(ctx, origin, { id, stand: false })` (assembly: the stand hid the mechanism) leaves
+  out the whole stand — skids, lifting eyes, feet, levellers, legs, leg pads, isolators, lower and upper rails, the
+  cooler shelf with its gussets and label plate, the floor halo — and the coolant loop that had nowhere else to mount
+  (cooler, caps, cradles, bowl coolant pads, both pipes with their flanges, cooler port saddles). The base flange then
+  hangs at origin z + 100; its recorded shape `<id>.base-flange` carries `ground: true` (only then). Kept unchanged:
+  bowl, ribs, rotor, rim, gate, spout, cage, drive, funnel, instruments, the drain valve (it sits on the bowl wall,
+  no line), the oiler, all ports, slots and live code, and the floor-standing drive cabinet with its motor cable
+  (it runs from the cabinet gland to the terminal box, never touched the stand, so it does not dangle). No slot
+  was anchored to a removed item. Verified on a scratch copy of build.mjs: `--audit` passed (126 solids, 4 tubes),
+  `lines.mjs` light/dark 0, `drive.mjs [["wait",8000],["lines"]]` 0. The default build is byte-identical to before.
 - `page(ctx, { css: CSS + …, live: [LIVE, …] })` — **CSS is required** (funnel interior gradient, strobe, lamp glow).
 - Boot: `FACTORY.define("centrifuge", MACHINES.centrifuge)`, then
   `FACTORY.machines.centrifuge.syncTo(() => FACTORY.machines.audio.quanta())`. `fn()` may return the conveyor's
@@ -99,3 +109,8 @@ parcels tip off. Boot exposes `window.FACTORY` for drive.mjs.
 - `FACTORY.feed` calls `accept(port, item)` with no `from`; machines must default it.
 - The page script is a module, so `FACTORY` is not global; drive.mjs `eval` needs `window.FACTORY = FACTORY` in boot.
 - Belt B's end roller must stay out of the funnel lip (lip spans local y −35.2…−10.8, x ±12.2 at z 184–186).
+
+## Assembly changes (assembly agent, 2026-10-12)
+- `releaseWhen(fn)`: in sync, a full pocket at the gate is released only when `fn(LEAD)` is true; otherwise it stays in
+  its pocket and comes round again (the ring keeps it, nothing is dropped). The assembly passes
+  `(lead) => audio.canTake(lead)`, which removed the conveyor's "belt full: parcel refused" losses.

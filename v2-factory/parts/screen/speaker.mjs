@@ -4,6 +4,8 @@
 // with two wires. Mint audio packets slide into a throat on the basket's +x side; each one pumps the cone up (+z)
 // with a decaying wobble and lights the level LEDs in a dark window on the baffle.
 // Built relative to `origin` = the centre of the stand's base plate (its underside).
+// `opts.stand: false` drops the base plate and posts: the driver hangs on its baffle (recorded as grounded), the
+// baffle keeps four short mounting ears, and the terminal wires run up to a connector under the baffle.
 import { planes } from "./planes.mjs";
 
 export function build(ctx, origin = [0, 0, 0], opts = {}) {
@@ -12,6 +14,7 @@ export function build(ctx, origin = [0, 0, 0], opts = {}) {
   const pl = planes(ctx);
   const [ox, oy, oz] = origin;
   const ZB = opts.height ?? 64; // baffle top
+  const STAND = opts.stand ?? true;
   const HB = 46; // baffle half size
   const T = (x, y, z) => [ox + x, oy + y, oz + z];
   const N = (name) => `${id}.${name}`;
@@ -22,18 +25,30 @@ export function build(ctx, origin = [0, 0, 0], opts = {}) {
   const ringX = (X, [y, z], r, n = 12) => k.pathOf(Array.from({ length: n + 1 }, (_, i) => at(T(X, y + r * Math.cos((i / n) * 2 * Math.PI), z + r * Math.sin((i / n) * 2 * Math.PI)))), true);
 
   // ---------------------------------------------------------------- stand: base plate, posts, baffle
-  const BASE = plan(-HB, -HB, HB, HB, 4);
-  ctx.back.push(`<path class="iso-halo" d="${k.haloOf(k.insetPlan(BASE, -4), oz, 1, P)}"/>`);
-  ctx.slab(N("base"), BASE, oz, 3, { tone: "lo" }, { steps: 4, bevel: 0.5, inner: Ln(k.sideSeam(BASE, oz + 1.5, P, 4), { tone: "faint" }) });
-  for (const [x, y] of k.corners(BASE, 6)) {
-    const F = G.frameOf([x, y, 0], [0, 0, 1], [1, 0, 0], [0, 1, 0]);
-    ctx.turned(N("post.foot"), F, [[oz + 3, 4.2], [oz + 5, 4.2]], { tone: "mid" }, { bevel: 0.2 });
-    ctx.turned(N("post"), F, [[oz + 5, 2.4], [oz + ZB - 2, 2.4]], { tone: "mid" }, { inner: Ln(G.arcOf(F, oz + 8, 2.4, P) + G.arcOf(F, oz + ZB - 5, 2.4, P), { tone: "faint" }) });
+  if (STAND) {
+    const BASE = plan(-HB, -HB, HB, HB, 4);
+    ctx.back.push(`<path class="iso-halo" d="${k.haloOf(k.insetPlan(BASE, -4), oz, 1, P)}"/>`);
+    ctx.slab(N("base"), BASE, oz, 3, { tone: "lo" }, { steps: 4, bevel: 0.5, inner: Ln(k.sideSeam(BASE, oz + 1.5, P, 4), { tone: "faint" }) });
+    for (const [x, y] of k.corners(BASE, 6)) {
+      const F = G.frameOf([x, y, 0], [0, 0, 1], [1, 0, 0], [0, 1, 0]);
+      ctx.turned(N("post.foot"), F, [[oz + 3, 4.2], [oz + 5, 4.2]], { tone: "mid" }, { bevel: 0.2 });
+      ctx.turned(N("post"), F, [[oz + 5, 2.4], [oz + ZB - 2, 2.4]], { tone: "mid" }, { inner: Ln(G.arcOf(F, oz + 8, 2.4, P) + G.arcOf(F, oz + ZB - 5, 2.4, P), { tone: "faint" }) });
+    }
   }
   // the baffle: an open frame, so the basket shows: a ring plate in four quarters round the driver's hole and four
-  // tabs out to the posts
+  // tabs out to the posts (without the stand: four short mounting ears, each with an open hole)
   const HOLE = 29;
   const RING_OUT = 34;
+  const EAR = RING_OUT + 7.5; // outer end of a mounting ear
+  const EAR_HOLE = RING_OUT + 4;
+  // the hanging baffle holds everything else, so its quarters are recorded as grounded
+  const bafflePlate = (name, ring, z0, h, style) => {
+    if (STAND) return ctx.prism(name, ring, z0, h, style);
+    const shape = ctx.record(ctx.A.extruded(ring, z0, h, { name, ground: true }));
+    const cx = ring.reduce((a, p) => a + p[0], 0) / ring.length;
+    const cy = ring.reduce((a, p) => a + p[1], 0) / ring.length;
+    ctx.put(name, [cx, cy, z0 + h / 2], S(k.extrude(ring, z0, h, P, { convex: false }), { tone: "mid", ...style, inner: "" }), [shape]);
+  };
   ctx.material = "fx-graphite";
   for (let q = 0; q < 4; q++) {
     const a0 = (q * Math.PI) / 2;
@@ -44,12 +59,20 @@ export function build(ctx, origin = [0, 0, 0], opts = {}) {
       });
       return rev ? pts.reverse() : pts;
     };
-    ctx.prism(N(`baffle.q${q}`), [...arc(RING_OUT, false), ...arc(HOLE, true)], Zs(ZB - 2), 2, { tone: "mid" });
+    bafflePlate(N(`baffle.q${q}`), [...arc(RING_OUT, false), ...arc(HOLE, true)], Zs(ZB - 2), 2, { tone: "mid" });
     const ad = a0 + Math.PI / 4;
     const [c, sn] = [Math.cos(ad), Math.sin(ad)];
-    const tab = [[RING_OUT, -4], [Math.SQRT2 * (HB - 6) + 4.5, -4], [Math.SQRT2 * (HB - 6) + 4.5, 4], [RING_OUT, 4]].map(([r, t]) => [ox + r * c - t * sn, oy + r * sn + t * c]);
-    const post = [ox + Math.SQRT2 * (HB - 6) * c, oy + Math.SQRT2 * (HB - 6) * sn];
-    ctx.prism(N(`baffle.tab${q}`), tab, Zs(ZB - 2), 2, { tone: "mid" }, { extra: Ln(k.ring(post[0], post[1], 1.6, Zs(ZB), P, 12), { tone: "lo" }) + Dots([at([post[0], post[1], Zs(ZB)])], { size: 0.5 }) });
+    const toPlan = ([r, t]) => [ox + r * c - t * sn, oy + r * sn + t * c];
+    if (STAND) {
+      const tab = [[RING_OUT, -4], [Math.SQRT2 * (HB - 6) + 4.5, -4], [Math.SQRT2 * (HB - 6) + 4.5, 4], [RING_OUT, 4]].map(toPlan);
+      const post = [ox + Math.SQRT2 * (HB - 6) * c, oy + Math.SQRT2 * (HB - 6) * sn];
+      ctx.prism(N(`baffle.tab${q}`), tab, Zs(ZB - 2), 2, { tone: "mid" }, { extra: Ln(k.ring(post[0], post[1], 1.6, Zs(ZB), P, 12), { tone: "lo" }) + Dots([at([post[0], post[1], Zs(ZB)])], { size: 0.5 }) });
+    } else {
+      const ear = [[RING_OUT - 0.4, -4], [EAR, -4], [EAR, 4], [RING_OUT - 0.4, 4]].map(toPlan);
+      const [hx, hy] = toPlan([EAR_HOLE, 0]);
+      const hole = k.ring(hx, hy, 1.5, Zs(ZB), P, 12);
+      ctx.prism(N(`baffle.ear${q}`), ear, Zs(ZB - 2), 2, { tone: "mid" }, { extra: `<path class="iso-fill" style="fill:#16171b" d="${hole}"/>` + Ln(hole, { tone: "lo" }) });
+    }
   }
   ctx.material = "";
 
@@ -162,12 +185,20 @@ export function build(ctx, origin = [0, 0, 0], opts = {}) {
   ctx.slot(`${id}:packet`, { after: N("throat") });
 
   // ---------------------------------------------------------------- terminals and their two wires to a plug on the base
+  // (without the stand: up to a connector screwed under the baffle, across the q0/q1 seam on the +y side)
   const TB = { x0: -5, x1: 5, y0: 17.2, y1: 22, z0: DISH.z1 - 4, z1: DISH.z1 };
   box("terminal.block", [TB.x0, TB.y0, TB.z0], [TB.x1, TB.y1, TB.z1], { tone: "lo" }, { r: 0.4, steps: 2 });
   for (const x of [-2.6, 2.6]) box("terminal.tab", [x - 1.2, TB.y1, TB.z0 + 0.8], [x + 1.2, TB.y1 + 3, TB.z0 + 3.2], { tone: "hi" }, { r: 0.2, steps: 2 });
-  box("plug", [-6, 26, 3], [6, 34, 8], { tone: "lo" }, { r: 0.8, steps: 2, bevel: 0.3, extra: Dots([at(T(-2.6, 30, 8)), at(T(2.6, 30, 8))], { size: 0.5, tone: "mid" }) });
-  for (const [x, tone] of [[-2.6, "hi"], [2.6, "lo"]])
-    ctx.cable(N(`wire${x < 0 ? 0 : 1}`), [T(x, TB.y1 + 3, TB.z0 + 2), T(x, 30, TB.z0 + 2), T(x, 30, 8)], 0.6, { tone, bend: 3 });
+  if (STAND) {
+    box("plug", [-6, 26, 3], [6, 34, 8], { tone: "lo" }, { r: 0.8, steps: 2, bevel: 0.3, extra: Dots([at(T(-2.6, 30, 8)), at(T(2.6, 30, 8))], { size: 0.5, tone: "mid" }) });
+    for (const [x, tone] of [[-2.6, "hi"], [2.6, "lo"]])
+      ctx.cable(N(`wire${x < 0 ? 0 : 1}`), [T(x, TB.y1 + 3, TB.z0 + 2), T(x, 30, TB.z0 + 2), T(x, 30, 8)], 0.6, { tone, bend: 3 });
+  } else {
+    const CN = { y0: 29.6, y1: 33.2, z0: ZB - 7, z1: ZB - 2, yc: 31.4 };
+    box("connector", [-6, CN.y0, CN.z0], [6, CN.y1, CN.z1], { tone: "lo" }, { r: 0.6, steps: 2, bevel: 0.3, extra: Dots([at(T(-2.6, CN.yc, CN.z0)), at(T(2.6, CN.yc, CN.z0))], { size: 0.45, tone: "mid" }) + Ln(k.sideSeam(plan(-6, CN.y0, 6, CN.y1, 0.6), oz + CN.z1 - 1.4, P, 2), { tone: "faint" }) });
+    for (const [x, tone] of [[-2.6, "hi"], [2.6, "lo"]])
+      ctx.cable(N(`wire${x < 0 ? 0 : 1}`), [T(x, TB.y1 + 3, TB.z0 + 2), T(x, CN.yc, TB.z0 + 2), T(x, CN.yc, CN.z0)], 0.6, { tone, bend: 3 });
+  }
 
   // ---------------------------------------------------------------- level LEDs in a dark window on the throat's top
   const LEDS = 6;

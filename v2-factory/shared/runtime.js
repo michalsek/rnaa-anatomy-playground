@@ -56,8 +56,16 @@ const FACTORY = (() => {
     return lerp3(pts[i - 1], pts[i], (want - c.lens[i - 1]) / (c.lens[i] - c.lens[i - 1] || 1));
   }
   // emit(port, item, from): `from` is the world point the item leaves at, so the receiver can animate the drop
+  // frameOffset(id) → the world offset the assembly's explode gives machine id right now: a hand-off between two
+  // machines that are moving differently re-bases `from` into the receiver's frame, so drops stay attached
+  let frameOffset = null;
   function route(id, port, item, from) {
     const link = links[`${id}:${port}`];
+    if (link && from && frameOffset) {
+      const a = frameOffset(id);
+      const b = frameOffset(link.to);
+      from = [from[0] + a[0] - b[0], from[1] + a[1] - b[1], from[2] + a[2] - b[2]];
+    }
     if (link && machines[link.to] && machines[link.to].accept) machines[link.to].accept(link.port, item, from);
     for (const fn of sinks[`${id}:${port}`] ?? []) fn(item, from);
   }
@@ -90,9 +98,15 @@ const FACTORY = (() => {
   let frame = 0;
   let last = 0;
   let visible = false;
+  // playback: speed scales the factory clock, paused freezes it (machines still tick with dt 0 and redraw)
+  let speed = 1;
+  let paused = false;
+  const frameHooks = [];
   function tick(now) {
-    const dt = last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60;
+    const real = last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60;
     last = now;
+    for (const fn of frameHooks) fn(real);
+    const dt = paused ? 0 : real * speed;
     clock += dt;
     for (const f of feeds) {
       if (clock >= f.next) {
@@ -127,6 +141,14 @@ const FACTORY = (() => {
     onEmit: (id, port, fn) => (sinks[`${id}:${port}`] ??= []).push(fn),
     item: (kind) => ({ id: nextId++, kind, born: clock }),
     readout: (fn) => (readoutFn = fn),
+    // assembly hooks: the build's data, the factory clock's speed and pause, and a per-frame hook on real time
+    data: D.data,
+    get speed() { return speed; },
+    set speed(v) { speed = v; },
+    get paused() { return paused; },
+    set paused(v) { paused = !!v; },
+    onFrame: (fn) => frameHooks.push(fn),
+    set frameOffset(fn) { frameOffset = fn; },
     stage,
     svg,
     slots,

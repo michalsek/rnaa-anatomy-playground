@@ -44,45 +44,50 @@ export function build(ctx, origin = ANCHOR, opts = {}) {
     segs.forEach(([s0, s1, r], i) => ctx.disc(n(`${name}.${i}`), F, s0, s1, r, style, { extra: extras[i] ?? "", inner: inners[i] ?? "" }));
 
   // ---- stand: four legs to the floor, stringers, deck --------------------------------------------
+  // `stand: false` leaves out legs, feet, heads, stringers, braces and the lower shelf (air receiver, vacuum pump);
+  // the deck then hangs in the air and is recorded as the grounded item
+  const stand = opts.stand ?? true;
   const D = PLAN.deck;
   const floorZ = opts.floor ?? 0; // local z the legs stand on (the case floor); a standalone page may raise it
   const legTop = D.z;
   const lowZ = floorZ + Math.max(6.5, (legTop - floorZ) * 0.22);
   const highZ = legTop - 1 - 8;
   const stringerZ = lowZ;
-  material("fx-graphite");
-  for (const [x, y] of PLAN.legs) {
-    box(`stand.foot`, [x - 3.6, y - 3.6, floorZ], [x + 3.6, y + 3.6, floorZ + 1.2], { tone: "lo" }, { r: 0.8, bevel: 0.3, extra: screws([[x - 2.4, y - 2.4], [x + 2.4, y - 2.4], [x - 2.4, y + 2.4], [x + 2.4, y + 2.4]], floorZ + 1.2, { ring: 0.6, size: 0.35 }) });
-    box(`stand.leg`, [x - 1.8, y - 1.8, floorZ + 1.2], [x + 1.8, y + 1.8, legTop - 1], { tone: "mid" }, { r: 0.3 });
-    box(`stand.head`, [x - 3, y - 3, legTop - 1], [x + 3, y + 3, legTop], { tone: "mid" }, { r: 0.5 });
-  }
-  // two rings of stringers (the upper one only when the legs are tall), flush with the leg faces
   const [[ax, ay], [bx], , [, dy]] = PLAN.legs;
-  const tall = highZ - lowZ > 30;
-  const ring = (z, tag) => {
-    box(`stand.${tag}`, [ax + 1.8, ay - 1, z], [bx - 1.8, ay + 1, z + 2], { tone: "mid" }, { r: 0.3 });
-    box(`stand.${tag}`, [ax + 1.8, dy - 1, z], [bx - 1.8, dy + 1, z + 2], { tone: "mid" }, { r: 0.3 });
-    box(`stand.${tag}`, [bx - 1, ay + 1.8, z + 2], [bx + 1, dy - 1.8, z + 4], { tone: "mid" }, { r: 0.3 });
-    box(`stand.${tag}`, [ax - 1, ay + 1.8, z + 2], [ax + 1, dy - 1.8, z + 4], { tone: "mid" }, { r: 0.3 });
-  };
-  ring(lowZ, "stringer");
-  if (tall) {
-    ring(highZ, "rail");
-    // diagonal braces on every face, landing on the leg faces between the rings
-    const brace = (name, a, b) => {
-      const dir = G.sub3(w(...b), w(...a));
-      const len = G.len3(dir);
-      ctx.turned(n(name), G.frameAlong(w(...a), dir), [[0, 0.45], [len, 0.45]], { tone: "mid" });
+  if (stand) {
+    material("fx-graphite");
+    for (const [x, y] of PLAN.legs) {
+      box(`stand.foot`, [x - 3.6, y - 3.6, floorZ], [x + 3.6, y + 3.6, floorZ + 1.2], { tone: "lo" }, { r: 0.8, bevel: 0.3, extra: screws([[x - 2.4, y - 2.4], [x + 2.4, y - 2.4], [x - 2.4, y + 2.4], [x + 2.4, y + 2.4]], floorZ + 1.2, { ring: 0.6, size: 0.35 }) });
+      box(`stand.leg`, [x - 1.8, y - 1.8, floorZ + 1.2], [x + 1.8, y + 1.8, legTop - 1], { tone: "mid" }, { r: 0.3 });
+      box(`stand.head`, [x - 3, y - 3, legTop - 1], [x + 3, y + 3, legTop], { tone: "mid" }, { r: 0.5 });
+    }
+    // two rings of stringers (the upper one only when the legs are tall), flush with the leg faces
+    const tall = highZ - lowZ > 30;
+    const ring = (z, tag) => {
+      box(`stand.${tag}`, [ax + 1.8, ay - 1, z], [bx - 1.8, ay + 1, z + 2], { tone: "mid" }, { r: 0.3 });
+      box(`stand.${tag}`, [ax + 1.8, dy - 1, z], [bx - 1.8, dy + 1, z + 2], { tone: "mid" }, { r: 0.3 });
+      box(`stand.${tag}`, [bx - 1, ay + 1.8, z + 2], [bx + 1, dy - 1.8, z + 4], { tone: "mid" }, { r: 0.3 });
+      box(`stand.${tag}`, [ax - 1, ay + 1.8, z + 2], [ax + 1, dy - 1.8, z + 4], { tone: "mid" }, { r: 0.3 });
     };
-    const z0 = lowZ + 4.5;
-    const z1 = highZ - 0.5;
-    brace("stand.brace", [ax + 1.8, ay, z0], [bx - 1.8, ay, z1]);
-    brace("stand.brace", [ax + 1.8, dy, z1], [bx - 1.8, dy, z0]);
-    const zs = lowZ + 6.4; // the side braces start above the shelf that rests on the side stringers
-    brace("stand.brace", [bx, ay + 1.8, z1], [bx, dy - 1.8, zs]);
-    brace("stand.brace", [ax, ay + 1.8, zs], [ax, dy - 1.8, z1]);
+    ring(lowZ, "stringer");
+    if (tall) {
+      ring(highZ, "rail");
+      // diagonal braces on every face, landing on the leg faces between the rings
+      const brace = (name, a, b) => {
+        const dir = G.sub3(w(...b), w(...a));
+        const len = G.len3(dir);
+        ctx.turned(n(name), G.frameAlong(w(...a), dir), [[0, 0.45], [len, 0.45]], { tone: "mid" });
+      };
+      const z0 = lowZ + 4.5;
+      const z1 = highZ - 0.5;
+      brace("stand.brace", [ax + 1.8, ay, z0], [bx - 1.8, ay, z1]);
+      brace("stand.brace", [ax + 1.8, dy, z1], [bx - 1.8, dy, z0]);
+      const zs = lowZ + 6.4; // the side braces start above the shelf that rests on the side stringers
+      brace("stand.brace", [bx, ay + 1.8, z1], [bx, dy - 1.8, zs]);
+      brace("stand.brace", [ax, ay + 1.8, zs], [ax, dy - 1.8, z1]);
+    }
+    material("");
   }
-  material("");
   // deck: a plate with a tab at the front-left corner for the picker pedestal
   const R = 1.6;
   const corner = (cx, cy, a0) => Array.from({ length: 5 }, (_, i) => [cx + R * Math.cos(a0 + (i * Math.PI) / 8), cy + R * Math.sin(a0 + (i * Math.PI) / 8)]);
@@ -96,27 +101,30 @@ export function build(ctx, origin = ANCHOR, opts = {}) {
   for (let x = RX + 4; x <= X1 - 4; x += 6.5) deckBolts.push([x, RY - 1.8]);
   const tslot = (x0, x1, y) => k.planOutline(plan(x0, y - 0.8, x1 - x0, 1.6, 0.8), D.top + oz, P, 4);
   ctx.prism(n("deck"), deckRing, D.z + oz, D.top - D.z, { tone: "mid" }, { inner: faint(k.ringSeam(deckRing, D.z + 3 + oz, P)), extra: lo([-128, -121, -114].map((y) => tslot(X0 + 4, X1 - 4, y)).join("")) + screws(deckBolts, D.top, { ring: 0.7, size: 0.35 }) });
+  if (!stand) ctx.R.solids.findLast((shape) => shape.name === n("deck")).ground = true;
 
-  // lower shelf on the side stringers: air receiver and vacuum pump
-  const shelfZ = stringerZ + 4;
-  material("fx-graphite");
-  box("shelf", [ax - 1, ay + 2, shelfZ], [bx + 1, dy - 2, shelfZ + 1.2], { tone: "mid" }, { r: 0.4, extra: screws([[ax + 3, ay + 4.5], [bx - 3, ay + 4.5], [ax + 3, dy - 4.5], [bx - 3, dy - 4.5]], shelfZ + 1.2, { ring: 0.6, size: 0.32 }) });
-  material("");
-  const TR = 4.5;
-  const tankZ = shelfZ + 1.2 + 2 + TR;
-  for (const x of [88, 104]) box("tank.saddle", [x - 1.5, -131.5, shelfZ + 1.2], [x + 1.5, -122.5, shelfZ + 3.2], { tone: "lo" }, { r: 0.3 });
-  const TF = along([82, -127, tankZ], [1, 0, 0]);
-  stepped("tank.nozzle", TF, [[0, 0.8, 1.2]], { tone: "mid" });
-  turned("tank", TF, [[0.8, 2.6, 1], [1.5, 3.7, 1], [2.3, 4.3, 1], [3.2, TR], [28.8, TR, 1], [29.7, 4.3, 1], [30.5, 3.7, 1], [31.2, 2.6, 1]], { tone: "hi" }, { inner: faint(G.arcOf(TF, 9, TR, P) + G.arcOf(TF, 23, TR, P)) });
-  stepped("tank.drain", TF, [[31.2, 32, 1.2]], { tone: "mid" });
-  const neckBase = w(96, -127 + Math.sqrt(TR * TR - 0.49), tankZ);
-  ctx.turned(n("tank.neck"), G.frameAlong(neckBase, [0, 1, 0]), [[0, 0.7], [1.8, 0.7]], { tone: "mid" });
-  const gaugeEnd = G.add3(neckBase, [0, 1.8, 0]);
-  const GAF = G.frameAlong(gaugeEnd, [0, 1, 0]);
-  ctx.turned(n("tank.gauge"), GAF, [[0, 2.2], [1.2, 2.2]], { tone: "hi" }, { extra: ctx.Ln(G.circleOf(GAF, 1.2, 1.6, P, 32), { tone: "faint" }) + ctx.Ln(k.pathOf([k.iso(G.add3(gaugeEnd, [0, 1.2, 0]), P), k.iso(G.add3(gaugeEnd, [0.9, 1.2, 0.9]), P)]), { tone: "hi", free: true }) });
-  const PF0 = up(116, -116, shelfZ + 1.2);
-  stepped("pump", PF0, [[0, 1, 3.8], [1, 7.5, 3], [7.5, 9, 2.2]], { tone: "mid" }, {}, { 1: k.fadedSvg(G.ribsOf(PF0, 1, 7.5, 3, 28, P, { fade: [0.1, 0.55] }), { tone: "faint" }) });
-  stepped("pump.motor", along([116, -119, shelfZ + 5], [0, -1, 0]), [[0, 7, 2.2], [7, 8, 1.6]], { tone: "hi" });
+  if (stand) {
+    // lower shelf on the side stringers: air receiver and vacuum pump (part of the stand)
+    const shelfZ = stringerZ + 4;
+    material("fx-graphite");
+    box("shelf", [ax - 1, ay + 2, shelfZ], [bx + 1, dy - 2, shelfZ + 1.2], { tone: "mid" }, { r: 0.4, extra: screws([[ax + 3, ay + 4.5], [bx - 3, ay + 4.5], [ax + 3, dy - 4.5], [bx - 3, dy - 4.5]], shelfZ + 1.2, { ring: 0.6, size: 0.32 }) });
+    material("");
+    const TR = 4.5;
+    const tankZ = shelfZ + 1.2 + 2 + TR;
+    for (const x of [88, 104]) box("tank.saddle", [x - 1.5, -131.5, shelfZ + 1.2], [x + 1.5, -122.5, shelfZ + 3.2], { tone: "lo" }, { r: 0.3 });
+    const TF = along([82, -127, tankZ], [1, 0, 0]);
+    stepped("tank.nozzle", TF, [[0, 0.8, 1.2]], { tone: "mid" });
+    turned("tank", TF, [[0.8, 2.6, 1], [1.5, 3.7, 1], [2.3, 4.3, 1], [3.2, TR], [28.8, TR, 1], [29.7, 4.3, 1], [30.5, 3.7, 1], [31.2, 2.6, 1]], { tone: "hi" }, { inner: faint(G.arcOf(TF, 9, TR, P) + G.arcOf(TF, 23, TR, P)) });
+    stepped("tank.drain", TF, [[31.2, 32, 1.2]], { tone: "mid" });
+    const neckBase = w(96, -127 + Math.sqrt(TR * TR - 0.49), tankZ);
+    ctx.turned(n("tank.neck"), G.frameAlong(neckBase, [0, 1, 0]), [[0, 0.7], [1.8, 0.7]], { tone: "mid" });
+    const gaugeEnd = G.add3(neckBase, [0, 1.8, 0]);
+    const GAF = G.frameAlong(gaugeEnd, [0, 1, 0]);
+    ctx.turned(n("tank.gauge"), GAF, [[0, 2.2], [1.2, 2.2]], { tone: "hi" }, { extra: ctx.Ln(G.circleOf(GAF, 1.2, 1.6, P, 32), { tone: "faint" }) + ctx.Ln(k.pathOf([k.iso(G.add3(gaugeEnd, [0, 1.2, 0]), P), k.iso(G.add3(gaugeEnd, [0.9, 1.2, 0.9]), P)]), { tone: "hi", free: true }) });
+    const PF0 = up(116, -116, shelfZ + 1.2);
+    stepped("pump", PF0, [[0, 1, 3.8], [1, 7.5, 3], [7.5, 9, 2.2]], { tone: "mid" }, {}, { 1: k.fadedSvg(G.ribsOf(PF0, 1, 7.5, 3, 28, P, { fade: [0.1, 0.55] }), { tone: "faint" }) });
+    stepped("pump.motor", along([116, -119, shelfZ + 5], [0, -1, 0]), [[0, 7, 2.2], [7, 8, 1.6]], { tone: "hi" });
+  }
 
   // ---- lane: bed on two turned columns, far guide rail, walking-beam slot -------------------------
   const Ln = PLAN.lane;

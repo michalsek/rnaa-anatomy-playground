@@ -1,0 +1,1 @@
+[["wait",800],["shot","shots/x-closed-light.png",null,1],["wait",1200],["shot","shots/x-opening-light.png",null,1],["wait",4000],["shot","shots/x-open-light.png",null,1],["eval","document.querySelector('.fx-readout').textContent"]]

@@ -2091,9 +2091,15 @@ const FACTORY = (() => {
   let frame = 0;
   let last = 0;
   let visible = false;
+  // playback: speed scales the factory clock, paused freezes it (machines still tick with dt 0 and redraw)
+  let speed = 1;
+  let paused = false;
+  const frameHooks = [];
   function tick(now) {
-    const dt = last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60;
+    const real = last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60;
     last = now;
+    for (const fn of frameHooks) fn(real);
+    const dt = paused ? 0 : real * speed;
     clock += dt;
     for (const f of feeds) {
       if (clock >= f.next) {
@@ -2128,6 +2134,13 @@ const FACTORY = (() => {
     onEmit: (id, port, fn) => (sinks[`${id}:${port}`] ??= []).push(fn),
     item: (kind) => ({ id: nextId++, kind, born: clock }),
     readout: (fn) => (readoutFn = fn),
+    // assembly hooks: the build's data, the factory clock's speed and pause, and a per-frame hook on real time
+    data: D.data,
+    get speed() { return speed; },
+    set speed(v) { speed = v; },
+    get paused() { return paused; },
+    set paused(v) { paused = !!v; },
+    onFrame: (fn) => frameHooks.push(fn),
     stage,
     svg,
     slots,
@@ -2165,6 +2178,7 @@ MACHINES.phone = (api) => {
   let tap = 9;
   let sent = 0;
   let stillDrawn = false;
+  let holdBeads = false;
   const rand = (a, b) => a + Math.random() * (b - a);
   const LS = D.logo.s;
   function drawScreen() {
@@ -2184,6 +2198,10 @@ MACHINES.phone = (api) => {
     get sent() { return sent; },
     // a tap on the screen from outside (the assembly's Space key): the next tick sends a burst
     tap() { nextBurst = 0; },
+    // the assembly holds the valve while the display is not at rest above the case (a bead must not fall between
+    // two parts that are moving apart)
+    set hold(v) { holdBeads = !!v; },
+    get hold() { return holdBeads; },
     tick(dt, t) {
       if (api.calm()) {
         // reduced motion: one representative still frame (three calls waiting in the tube), nothing moves or leaves
@@ -2222,7 +2240,7 @@ MACHINES.phone = (api) => {
       });
       // the star valve takes the bottom bead: one pocket per bead
       const bottom = queue[0];
-      if (bottom && t >= nextRelease && bottom.z <= D.tube.z0 + 0.01) {
+      if (bottom && t >= nextRelease && !holdBeads && bottom.z <= D.tube.z0 + 0.01) {
         nextRelease = t + rand(0.9, 1.25);
         queue.shift();
         rotorTarget += Math.PI / 3;

@@ -90,3 +90,8 @@ on a slotted slide base with foot block, terminal box, motor cable and control c
 - runtime `api` has no `querySelectorAll`; the crusher reaches siblings via `api.el(".fx-parts").ownerSVGElement`.
 - page `G` lacks `prismOf`/`lightOf`; the crusher passes the light vector in data and draws its tumbling packet
   with its own small box renderer (pitchedBox in LIVE).
+
+## Assembly changes (assembly agent, 2026-10-12)
+- `crusher:item` is now anchored after ALL the parts the falling packet must cover (roller.back, hopper.back/left,
+  liners, back lip): in the big scene settle ordered the back liner after the back roller and broke the rule. Uses the
+  shared kit's new multi-anchor slots (`after: [names]` → after the latest); `checkOrder` understands them too.

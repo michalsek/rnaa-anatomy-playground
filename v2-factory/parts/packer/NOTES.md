@@ -27,10 +27,18 @@ blank stack, pusher rod + plate.
 
 ## Placement, size, ports (relative to `origin`)
 
-- `build(ctx, origin, { id, prefill, floor })`. Local frame: `origin` = the floor point under the lane axis on
+- `build(ctx, origin, { id, prefill, floor, stand })`. Local frame: `origin` = the floor point under the lane axis on
   the gutter line (the BRIEF plan point [100, −118, 0] is `ANCHOR`; pass `origin = ANCHOR` to reproduce the plan).
   `floor` (default 0) is the local z the legs stand on. With legs taller than ≈ 40 the stand gets a second stringer
   ring under the deck and diagonal braces on all four faces; the standalone page uses `floor: 120` (shelf readable).
+- `stand` (default `true`). `stand: false` (assembly: the stand hid the mechanism) leaves out the four legs, feet,
+  leg heads, both stringer rings, the diagonal braces and the lower shelf with the air receiver (saddles, nozzles,
+  neck, gauge) and the vacuum pump + motor. Nothing else served them (no hoses or cables to the shelf), so no line
+  is rerouted. The deck then hangs in the air; its recorded shape `<id>.deck` carries `ground: true` (only then) so
+  the support check passes. Everything on the deck (lane, magazine, pusher, bridge, gutter, pedestals, arms,
+  drive box, cabinet, manifold, cables, hoses), ports, slots and live code are unchanged; `floor` is then unused.
+  Verified on a scratch copy of build.mjs: `--audit` passed (132 solids, 4 tubes), `lines.mjs` light/dark 0,
+  `drive.mjs [["wait",8000],["lines"]]` 0. The default build is byte-identical to before.
 - Extent (local): x −30…30, y −32…24.5 (deck x −30…30, y −32…14; front-left tab x −30…−12 to y 20.5 for the
   picker, front-right tab x 12…30 to y 24.5 for the folder; lane nose to y 22.7; pusher cylinder to y −29.2),
   z 0…≈250 (picker at its gate height). Below the 290 cap.

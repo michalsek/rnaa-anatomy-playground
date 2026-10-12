@@ -78,3 +78,30 @@ Speaker: a packet half in the throat, meter at 3 LEDs, cone at rest; `accept` ig
 - The speaker's elevator hand-over must reach the ledge end at origin + [64, 0, height − 15].
 - QA #5–#7, #10–#14 referred to the old trough/gantry/jaws, which no longer exist; the BRIEF table rows for
   `phone` and `speaker` are updated.
+
+## speaker `stand: false` (hanging speaker)
+- `speaker.build(ctx, origin, { stand: false })` (default `true`, byte-identical output to before). Drops the base
+  plate + its halo in `ctx.back`, the four post feet and posts, the plug on the base, and the post screw dots.
+- Baffle tabs become four short mounting ears (`speaker.baffle.ear0…3`, r 33.6 → 41.5) each with an open dark hole
+  (no screw dot). The two terminal wires now rise from the terminal tabs at y 31.4 into `speaker.connector`, a small
+  housing (x ±6, y 29.6–33.2, z height − 7 … height − 2) under the baffle across the q0/q1 seam on the +y side.
+- Grounded (meta `ground: true`, only with `stand: false`): `speaker.baffle.q0…q3`. Everything else hangs off them.
+- Ports, slot, `ctx.data.speaker`, live code, `opts.height` unchanged; `origin` is still the old base-plate point,
+  now just a reference in the air below the driver (lowest solid: back plate at height − 41.4).
+- Verified in a scratch copy of build.mjs with `stand: false`: audit passed (103 solids, 3 tubes, 468 order
+  rules), lines light + dark: line ends 0, console clean; read light/dark captures and 6× zooms.
+
+## Assembly changes (assembly agent, 2026-10-12)
+phone.mjs (all opt-in; the standalone page is unchanged and still audits clean):
+- `displayShift: [sx, sy]` floats the display offset from the case (OLED, glass, art and its floor halo move).
+- `fullRecord: true` records the back plate (z −8…0) and the band from z −8 in full, for `scene({ floorZ })` below the
+  case (the assembly). Default keeps the standalone workaround.
+- `walls: "low"`: a low tray all round. Every wall at the lip height (`cut`), the band drawn as two clean concave pieces
+  (far half, near half) with no seams or joints, no inner rails or antenna strips, no SIM tray, grilles or end screws:
+  just the buttons and the USB-C port.
+- `controls: true`: playback controls drawn on the screen under the logo (real click targets): `data-ctl="speed"` (pill
+  with `data-ctl-text="speed"`), `data-ctl="play"` (circle with `data-ctl-icon="play" | "pause"`), and a four-cell
+  device-buffer meter (`data-ctl-cell="0…3"`). The page owns their state.
+- LIVE: `tap()` (next tick sends a burst), `hold` (setter/getter: the star valve keeps beads while true).
+speaker.mjs: `accept` continues a fall under gravity (from `item.v` or rest, g 420) from `from` onto the ledge before
+the slide into the throat (was a 0.3 s smoothstep). Without `from` it behaves as before.
