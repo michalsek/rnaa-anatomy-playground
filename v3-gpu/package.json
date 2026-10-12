@@ -1,0 +1,23 @@
+{
+  "name": "rnaa-v3-gpu",
+  "private": true,
+  "type": "module",
+  "description": "WebGPU (TypeGPU) renderer prototype for the v2 factory centrifuge",
+  "scripts": {
+    "export": "node export/export.mjs",
+    "gate": "node tools/gate.mjs",
+    "test:export": "node tools/test-export.mjs"
+  },
+  "dependencies": {
+    "earcut": "3.2.4",
+    "esbuild": "0.28.2",
+    "libtess": "1.2.2",
+    "pixelmatch": "8.0.0",
+    "pngjs": "7.0.0",
+    "typegpu": "0.12.7"
+  },
+  "devDependencies": {
+    "@webgpu/types": "0.1.66",
+    "typescript": "5.9.3"
+  }
+}
