@@ -1,0 +1,4 @@
+[["until","document.querySelector('[data-readout]').textContent.includes('filling')",15000],["wait",600],["lines","qa/lines-filling.png"],
+ ["until","document.querySelector('[data-readout]').textContent.includes('spinning up')",20000],["wait",800],["lines","qa/lines-spinning.png"],
+ ["until","document.querySelector('[data-readout]').textContent.includes('in sync')",20000],["wait",300],["lines","qa/lines-releasing.png"],
+ ["until","document.querySelector('[data-readout]').textContent.includes('spinning down')",30000],["wait",200],["lines","qa/lines-down.png"]]

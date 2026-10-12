@@ -1,0 +1,1 @@
+[["wait",9000],["shot","qa/origin-test.png",null,1],["eval","JSON.stringify(window.__sink)"],["lines"]]

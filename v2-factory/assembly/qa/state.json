@@ -1,0 +1,3 @@
+[["wait",120000],
+["eval","JSON.stringify({cr: window.FACTORY.machines.crusher.stats(), a: window.FACTORY.machines.audio.stats(), c: window.FACTORY.machines.centrifuge.status(), sp: window.FACTORY.machines.speaker.heard, pk: window.FACTORY.machines.packer.stats()})"],
+["shot","shots/t-120s.png",null,1]]

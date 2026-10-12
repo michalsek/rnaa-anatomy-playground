@@ -1,0 +1,1 @@
+[["wait",300],["slow",0.1],["until","document.querySelector('[data-slot=\"speaker:packet\"]').children.length>0",40000],["sheet","qa/sheet-packet-full.png",350,32,null,3,[190,160,95,140],8],["slow",1]]

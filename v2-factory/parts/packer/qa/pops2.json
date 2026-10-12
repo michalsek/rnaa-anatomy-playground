@@ -1,0 +1,4 @@
+[["until","document.querySelector('[data-readout]').textContent.includes('packets 2')",20000],["wait",1180],["slow",0.04],
+ ["sheet","qa/fold-switch2.png",30,30,null,3,[360,355,70,60],6],["slow",1],
+ ["until","document.querySelector('[data-readout]').textContent.includes('packets 3')",20000],["wait",1560],["slow",0.04],
+ ["sheet","qa/erect-flaps2.png",30,36,null,3,[440,318,70,64],6],["slow",1]]

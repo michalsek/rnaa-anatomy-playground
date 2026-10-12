@@ -1,0 +1,2 @@
+[["until","FACTORY.slots['centrifuge:drop'].childElementCount>0",20000],["slow",0.06],
+ ["sheet","qa/sheet-drop8.png",120,24,null,6,[330,250,100,110],6],["slow",1]]

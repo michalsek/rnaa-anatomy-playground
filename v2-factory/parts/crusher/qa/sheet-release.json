@@ -1,0 +1,1 @@
+[["until","document.querySelector('[data-readout]').textContent.includes('emptying')",40000],["until","!document.querySelector('[data-readout]').textContent.includes('emptying')",40000],["slow",0.1],["sheet","qa/sheet-release.png",200,16,null,3,[150,330,200,150],4],["slow",1],["eval","document.querySelector('[data-slot=\"crusher:flakes\"]').children.length"]]

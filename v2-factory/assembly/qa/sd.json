@@ -1,0 +1,2 @@
+[["wait",3000],["eval","window.__p = window.FACTORY.machines.scanner.reads"],["until","window.FACTORY.machines.scanner.reads % 4 === 3",30000],["until","window.FACTORY.machines.scanner.reads % 4 === 0",30000],
+["sheet","shots/sheet-scanner-D.png",180,12,null,4,[345,795,110,80],6]]

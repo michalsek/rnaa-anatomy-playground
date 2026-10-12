@@ -1,0 +1,1 @@
+[["wait",1200],["eval","const o={};for(const [k,p] of Object.entries({tyHead:[0,-60,64],lyHead:[-90,80,36],lyTail:[-90,-60,36],txHead:[130,30,30]})){const q=FACTORY.at(p);o[k]=[(24+q[0]*872/860).toFixed(0),(52+q[1]*872/860).toFixed(0)].join(',')}JSON.stringify(o)"]]

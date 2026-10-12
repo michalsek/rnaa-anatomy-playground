@@ -1,0 +1,1 @@
+[["wait",500],["eval","(() => { const p = document.querySelector('.iso-plate').getBoundingClientRect(); const s = document.querySelector('.iso-svg').getBoundingClientRect(); return [s.left - p.left, s.top - p.top, s.width / 900]; })()"]]

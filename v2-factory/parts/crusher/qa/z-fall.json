@@ -1,0 +1,2 @@
+[["wait",800],["slow",0.05],["until","document.querySelector('[data-slot=\"crusher:item\"]').children.length>=1",40000],
+["wait",3200],["shot","qa/z-fall-a.png",null,5,[380,140,150,110]],["wait",1400],["shot","qa/z-fall-b.png",null,5,[380,140,150,110]],["wait",1600],["shot","qa/z-fall-c.png",null,5,[380,140,150,110]],["slow",1]]

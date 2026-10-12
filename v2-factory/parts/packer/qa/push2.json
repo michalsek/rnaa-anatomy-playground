@@ -1,0 +1,2 @@
+[["until","document.querySelector('[data-readout]').textContent.includes('packets 2')",20000],["wait",2580],["slow",0.06],
+ ["sheet","qa/push-drop.png",60,40,null,4,[320,395,80,70],8],["slow",1]]

@@ -1,0 +1,1 @@
+[["wait",1200],["until","FACTORY.machines.ty.items().some(i=>i.pos[1]<-60 && i.pos[1]>-62)",30000],["slow",0.12],["sheet","qa/param-sheet-ty-tip.png",300,24,null,3,[640,170,120,110],6],["slow",1]]

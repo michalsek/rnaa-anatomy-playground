@@ -1,0 +1,3 @@
+[["until","FACTORY.machines.cfA.status().inSync && FACTORY.machines.cfB.status().held>=3",40000],["wait",2500],
+ ["shot","qa/origin-sync.png",null,2],
+ ["eval","JSON.stringify({outA:window.__out.cfA.slice(0,2),outB:window.__out.cfB.slice(0,2),A:FACTORY.machines.cfA.status(),B:FACTORY.machines.cfB.status(),slotsA:Object.keys(FACTORY.slots).filter(s=>s.startsWith('cfA:')).length,slotsB:Object.keys(FACTORY.slots).filter(s=>s.startsWith('cfB:')).length,voids:[...document.querySelectorAll('linearGradient')].map(g=>g.id)})"]]

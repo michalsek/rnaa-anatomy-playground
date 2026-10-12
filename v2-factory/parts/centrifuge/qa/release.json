@@ -1,0 +1,6 @@
+[["eval","window.__em=[];FACTORY.onEmit('centrifuge','out',(it,from)=>window.__em.push([it.kind, from.map(v=>+v.toFixed(1))]));const m=FACTORY.machines.centrifuge;const t=m.tick;let h=m.status().held;window.__rel=0;m.tick=(dt,now)=>{t(dt,now);const n=m.status().held;if(n<h&&m.status().inSync)window.__rel++;h=n;};1"],
+ ["until","window.__rel>0",40000],
+ ["slow",0.05],
+ ["sheet","qa/sheet-release.png",30,48,null,3,[190,330,140,150],8],
+ ["slow",1],
+ ["eval","JSON.stringify(window.__em)"]]

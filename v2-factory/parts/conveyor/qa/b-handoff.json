@@ -1,0 +1,1 @@
+[["wait",1200],["until","FACTORY.machines.beltB.items().some(i=>i.pos[1]>59 && i.pos[1]<62)",25000],["slow",0.15],["sheet","qa/sheet-handoff.png",350,24,null,3,[535,205,120,105],6],["slow",1]]

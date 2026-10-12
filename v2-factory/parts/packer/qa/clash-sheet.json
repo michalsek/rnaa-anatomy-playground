@@ -1,0 +1,2 @@
+[["until","document.querySelector('[data-readout]').textContent.includes('packets 2')",20000],["wait",1050],["slow",0.1],
+ ["sheet","qa/arms-clash.png",60,40,null,2.5,[375,240,150,130],8],["slow",1]]

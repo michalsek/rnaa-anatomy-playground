@@ -1,0 +1,2 @@
+[["until","document.querySelector('[data-readout]').textContent.includes('packets 2')",20000],["wait",1250],["slow",0.02],
+ ["shot","qa/arms-clash-a.png",null,6,[395,265,110,90]],["wait",900],["shot","qa/arms-clash-b.png",null,6,[395,265,110,90]],["wait",900],["shot","qa/arms-clash-c.png",null,6,[395,265,110,90]],["wait",1500],["shot","qa/arms-clash-d.png",null,6,[395,265,110,90]],["slow",1]]

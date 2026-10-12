@@ -1,0 +1,1 @@
+[["wait",6000],["lines","shots/dlines-6s.png"],["wait",9000],["lines","shots/dlines-15s.png"],["key"," "],["wait",120],["lines","shots/dlines-tap.png"],["wait",20000],["lines","shots/dlines-35s.png"],["wait",25000],["lines","shots/dlines-60s.png"]]

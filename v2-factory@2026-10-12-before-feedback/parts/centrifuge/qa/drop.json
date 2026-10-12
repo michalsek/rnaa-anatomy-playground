@@ -1,0 +1,5 @@
+[["until","FACTORY.machines.centrifuge.status().phase==='filling' && FACTORY.machines.centrifuge.status().held>=1",15000],
+ ["until","FACTORY.machines.centrifuge.status().queued>0",8000],
+ ["slow",0.1],
+ ["sheet","qa/sheet-drop.png",120,42,null,2.5,[300,150,190,280],7],
+ ["slow",1]]

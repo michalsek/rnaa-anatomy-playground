@@ -1,0 +1,1 @@
+[["wait",1200],["until","FACTORY.machines.ly.items().some(i=>i.run==='top' && i.pos[1]>68 && i.pos[1]<71)",40000],["slow",0.1],["sheet","qa/param-sheet-ly-head.png",600,24,null,3,[190,295,115,115],6],["slow",1]]

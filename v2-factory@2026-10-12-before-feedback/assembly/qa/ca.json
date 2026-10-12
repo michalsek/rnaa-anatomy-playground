@@ -1,0 +1,1 @@
+[["wait",2000],["until","window.FACTORY.machines.audio.items().some((i) => i.run === \"air\")",150000],["slow",0.05],["sheet","shots/sheet-centrifuge-audio.png",150,18,null,3,[383,743,200,170],6],["slow",1],["until","window.FACTORY.machines.centrifuge.status().phase === \"in sync\"",60000],["wait",200],["shot","shots/z-centrifuge-release.png",null,4,[383,743,200,170]]]

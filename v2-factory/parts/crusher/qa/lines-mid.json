@@ -1,0 +1,2 @@
+[["wait",2400],["lines","qa/lines-m-fall.png"],["wait",500],["lines","qa/lines-m-nip.png"],["wait",450],["lines","qa/lines-m-crush.png"],
+ ["until","document.querySelector('[data-readout]').textContent.includes('emptying')",40000],["wait",1600],["lines","qa/lines-m-binout.png"],["wait",700],["lines","qa/lines-m-dump.png"],["wait",1300],["lines","qa/lines-m-back.png"]]

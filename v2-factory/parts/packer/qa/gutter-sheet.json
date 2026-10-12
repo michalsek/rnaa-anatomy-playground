@@ -1,0 +1,4 @@
+[["until","document.querySelector('[data-readout]').textContent.includes('packets 2')",20000],["wait",880],["slow",0.05],
+ ["sheet","qa/gutter-carry.png",60,24,null,3,[380,225,100,90],6],["slow",1],
+ ["until","document.querySelector('[data-readout]').textContent.includes('packets 3')",20000],["wait",1880],["slow",0.05],
+ ["sheet","qa/gutter-return.png",60,24,null,3,[380,225,100,90],6],["slow",1]]

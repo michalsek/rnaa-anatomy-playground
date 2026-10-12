@@ -1,0 +1,4 @@
+[["wait",4000],["eval","window.FACTORY.machines.phone.queued + ' queued before'"],["key"," "],["wait",60],
+["eval","document.querySelector('[data-name^=\"phone.display.glass\"]').getAttribute('transform') + ' | ' + window.FACTORY.machines.phone.queued + ' queued | ' + document.querySelector('[data-status]').textContent"],
+["wait",1500],["eval","(document.querySelector('[data-name^=\"phone.display.glass\"]').getAttribute('transform') || 'rest') + ' after settle'"],
+["click",null,0.5,0.3],["wait",80],["shot","shots/tap-light.png",null,1]]

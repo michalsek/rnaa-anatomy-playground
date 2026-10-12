@@ -1,0 +1,3 @@
+[["eval","window.__log=[];window.__em=[];FACTORY.onEmit('centrifuge','out',(it,from)=>window.__em.push(performance.now()/1000|0));setInterval(()=>{const s=FACTORY.machines.centrifuge.status();window.__log.push([(performance.now()/1000).toFixed(1),s.held,s.rpm.toFixed(1),s.queued,s.phase].join(' '))},500);1"],
+ ["wait",40000],
+ ["eval","window.__log.join('\\n')+'\\nemits at '+window.__em.join(',')"]]

@@ -1,0 +1,1 @@
+[["until","document.querySelector('[data-readout]').textContent.includes('emptying')",40000],["slow",0.1],["sheet","qa/sheet-bin.png",900,48,null,1,[80,300,330,300],8],["slow",1]]

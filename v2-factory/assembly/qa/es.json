@@ -1,0 +1,2 @@
+[["wait",2000],["until","window.FACTORY.machines.elevator.lifted > 0",90000],["eval","window.__l = window.FACTORY.machines.elevator.lifted"],["until","window.FACTORY.machines.elevator.lifted > window.__l",30000],["wait",1200],
+["slow",0.15],["sheet","shots/sheet-elevator-speaker.png",220,24,null,4,[610,440,110,100],6],["slow",1]]

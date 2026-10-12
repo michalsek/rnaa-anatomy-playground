@@ -1,0 +1,1 @@
+[["wait",1200],["until","FACTORY.machines.beltC.items().some(i=>i.pos[1]>128)",80000],["slow",0.15],["sheet","qa/sheet-beltC-bin.png",400,24,null,3,[60,300,130,120],6],["slow",1]]

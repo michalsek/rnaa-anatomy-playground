@@ -1,0 +1,1 @@
+[["wait",1200],["until","FACTORY.machines.audio.items().some(i=>i.pos[0]>100 && i.pos[2]<74)",80000],["slow",0.02],["shot","qa/z6-taildrum-a.png",null,6,[600,330,80,80]],["wait",2500],["shot","qa/z6-taildrum-b.png",null,6,[600,330,80,80]],["wait",2500],["shot","qa/z6-taildrum-c.png",null,6,[600,330,80,80]]]

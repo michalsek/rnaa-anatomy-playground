@@ -1,0 +1,1 @@
+[["wait",800],["slow",0.1],["until","document.querySelector('[data-slot=\"screen:fall\"]').children.length>0",40000],["sheet","qa/sheet-drop.png",60,24,null,4,[280,540,50,110],8],["slow",1]]

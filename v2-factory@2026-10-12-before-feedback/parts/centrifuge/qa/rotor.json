@@ -1,0 +1,5 @@
+[["until","FACTORY.machines.centrifuge.status().held>=4",15000],["slow",0.02],
+ ["sheet","qa/sheet-rotor-front.png",200,24,null,4,[300,370,150,75],4],
+ ["slow",1],
+ ["until","FACTORY.machines.centrifuge.status().inSync",20000],["slow",0.05],
+ ["sheet","qa/sheet-rotor-sync.png",150,24,null,3,[235,300,215,145],4],["slow",1]]

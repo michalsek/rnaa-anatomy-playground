@@ -1,0 +1,9 @@
+[["wait",1500],
+ ["eval","document.querySelectorAll('.iso-plate .iso-line').length + ' lines; ' + document.querySelector('[data-readout]').textContent"],
+ ["wait",3000],
+ ["eval","document.querySelectorAll('.iso-plate .iso-line').length + ' lines; ' + document.querySelector('[data-readout]').textContent + ' ; slots:' + Object.keys(FACTORY.slots).join(',')"],
+ ["lines"],
+ ["wait",2000],
+ ["eval","document.querySelectorAll('.iso-plate .iso-line').length + ' lines; ' + document.querySelector('[data-readout]').textContent"],
+ ["lines"]
+]

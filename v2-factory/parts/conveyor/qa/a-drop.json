@@ -1,0 +1,1 @@
+[["wait",1200],["until","((FACTORY.item('x').born - 0.3) % 1.7) > 1.62 && FACTORY.item('x').born > 3",15000],["slow",0.1],["sheet","qa/sheet-drop-beltB.png",200,18,null,3,[755,80,100,110],6],["slow",1]]

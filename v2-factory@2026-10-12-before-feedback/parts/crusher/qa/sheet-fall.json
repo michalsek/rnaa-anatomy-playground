@@ -1,0 +1,1 @@
+[["wait",800],["slow",0.05],["until","document.querySelector('[data-slot=\"crusher:item\"]').children.length>=1",40000],["sheet","qa/sheet-fall.png",200,32,null,3,[330,120,260,200],8],["slow",1]]

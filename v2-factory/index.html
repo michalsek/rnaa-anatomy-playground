@@ -1,0 +1,137 @@
+<!doctype html><meta charset="utf-8"><title>Audio factory · parts</title><style>body{font:14px/1.5 ui-sans-serif,system-ui;margin:32px auto;max-width:1100px;padding:0 16px;background:#f4f4f1;color:#222}article{background:#fff;border:1px solid #ddd;margin:16px 0;padding:16px}img{max-width:100%;border:1px solid #eee}pre{white-space:pre-wrap;font-size:12px;background:#fafafa;padding:8px}small{font-weight:400;color:#888}</style><h1>Audio factory (v2)</h1><p>Brief: <a href="BRIEF.md">BRIEF.md</a> · Assembly: not started</p><article><h2>centrifuge <small>review</small></h2><a href="parts/centrifuge/centrifuge-light.html"><img src="parts/centrifuge/shot.png?1791830603524" alt="centrifuge"></a><p><a href="parts/centrifuge/centrifuge-light.html">centrifuge-light.html</a> · <a href="parts/centrifuge/centrifuge.html">centrifuge.html</a></p><pre>status: review
+
+# Centrifuge (kind `centrifuge`, one instance)
+
+Meaning: the lock-free single-producer rings (1,024 slots in the engine) that hold events until the audio thread
+drains them at the next render quantum. Drawn with 10 pockets. The spout is the write index, the release gate the
+read index; in sync both run at once (packets drop into free pockets as they pass while the gate drains one per slat).
+
+## Use in the assembly
+- `import { build, LIVE, CSS } from "../parts/centrifuge/centrifuge.mjs"`
+- `build(ctx, origin, { id: "centrifuge" })` — origin is the machine's axis on the case floor; everything is built
+  relative to it. Tallest point: funnel mouth at origin z + 186 (pulleys and motor cable + 183), under the ≈ 280 case top.
+- `page(ctx, { css: CSS + …, live: [LIVE, …] })` — **CSS is required** (funnel interior gradient, strobe, lamp glow).
+- Boot: `FACTORY.define("centrifuge", MACHINES.centrifuge)`, then
+  `FACTORY.machines.centrifuge.syncTo(() =&gt; FACTORY.machines.audio.quanta())`. `fn()` may return the conveyor's
+  `quanta()` object `{ phase, period }` (phase wraps once per cleat gap = one 128-frame quantum) or a bare phase
+  number; `syncTo(fn, period)` takes the period separately. With a period the rotor runs at exactly one pocket per
+  quantum and the release is led by `status().lead` (≈ 1.09 s: leave the pocket 0.28 + spout 0.50 + fall 0.31) so
+  releases come one per quantum at the belt's rate; the conveyor's `accept` then lands each on the next free cleat.
+  Without `syncTo` it uses its own 0.42 s clock.
+- Backpressure: `canAccept()` is false while 2 parc</pre></article><article><h2>conveyor <small>review</small></h2><a href="parts/conveyor/conveyor-light.html"><img src="parts/conveyor/shot.png?1791830603525" alt="conveyor"></a><p><a href="parts/conveyor/conveyor-light.html">conveyor-light.html</a> · <a href="parts/conveyor/conveyor.html">conveyor.html</a></p><pre>status: review
+
+# conveyor (kind)
+
+One module, `conveyor.mjs`: `build(ctx, origin, opts)` + `LIVE` (registers `MACHINES.conveyor`, one kind for both
+variants; the instance picks its variant from its data). Standalone page: `build.mjs` → `conveyor.html` (+ `-light`):
+a single-sided belt (like belt B) fed from a hopper drops parcels onto the audio belt; garbage leaves the audio belt
+at its head drum onto a second single-sided belt (like belt C) that tips it into a bin.
+
+## Everything is relative to `origin`
+
+`origin = [x, y, z]`: the belt centreline at its first drum (s = 0), on the floor the legs stand on (`z`). `s` runs
+along `axis` for `length` (drum centre to drum centre); `+c` is the near side (`+y` for axis x, `+x` for axis y).
+`top` is the belt surface height above `origin[2]`. No option takes a world coordinate:
+
+| opt | top | loop | default |
+|---|---|---|---|
+| `id`, `axis` ("x"/"y"), `dir` (±1, travel of the top run), `length` | yes | yes | |
+| `top` (z of the belt surface above the origin) | ≥ 20 | ≥ 2·drum + 22.2 (hanging parcels clear the floor by 8; clamped with a console warning) | 60 / 92 |
+| `width` | ≥ parcel lane + 4 (12 on x, 14 on y; clamped) | same | 16 / 18 |
+| `drum` (outer radius) | – | ≥ 10; gearbox, torque arm, motor, hubs, pillow blocks follow it | 15 |
+| `inAt` (distance along the belt from the origin) | yes | yes | 8 / 12 in from the tail |
+| `outAt` (distance) | yes | – | the head drum |
+| `readAt` (distance; read point and lamp) | – | yes | L/2 |
+| `feedFrom` (offset `[dx, dy, dz]` from the origin, start of an `accept` without `from`) | yes | </pre></article><article><h2>crusher <small>review</small></h2><a href="parts/crusher/crusher-light.html"><img src="parts/crusher/shot.png?1791830603525" alt="crusher"></a><p><a href="parts/crusher/crusher-light.html">crusher-light.html</a> · <a href="parts/crusher/crusher.html">crusher.html</a></p><pre>status: review
+
+# crusher (kind "crusher", instance `crusher`)
+
+The Disposer thread: a double-roll crusher that destroys garbage packets (buffers/nodes the audio thread swapped
+out), off the audio thread. Centre (−136, 176), built in local coords (origin = centre on the floor), z 0…38.
+Height z 0…38 (hopper back lip top 37.9). 130 items / 112 recorded solids / 4 tubes. `node build.mjs --audit` →
+audit passed + "order rules hold"; `lines.mjs` → line ends: 0 (light, dark, reduced, and mid-motion: fall, nip,
+crush, chute queue behind the shut gate, bin out, dump, roll back, release).
+
+## Fix loop after REVIEW.md (issues 1–14)
+1. Fall: the packet slides off belt C onto the back lip, tips nose-down over its edge and holds z ≥ lip top + 0.35
+   until its tail is clear (base y &gt; −9.5 local), then drops onto the back roller. The back lip and both hopper
+   liners sort early (bias −30 on items with no screen overlap), so the item slot is painted after them; asserted.
+2. Lamp: `crusher:lens` slot after the lens with an amber gradient (pale core, saturated rim, token colours
+   `--cr-lamp*`), opacity = lamp level; the halo behind is smaller.
+3. Held flakes queue behind a visible slide gate at the chute lip (guides, crossbar, actuator; closes while the bin
+   is away) in 7 lanes, 1.9 apart; on reopening they leave one at a time (0.07 s stagger); pending flakes are
+   released one per 0.085 s and only into a lane with room.
+4. Pile slab fades in with its height; a landed flake stays 0.3 s, flattens and fades while a chip fades in on that
+   spot (chips = where flakes really landed).
+5. </pre></article><article><h2>packer <small>review</small></h2><a href="parts/packer/packer-light.html"><img src="parts/packer/shot.png?1791830603525" alt="packer"></a><p><a href="parts/packer/packer-light.html">packer-light.html</a> · <a href="parts/packer/packer.html">packer.html</a></p><pre>status: review
+
+# packer
+
+Boxes loose fluff (3 beads per packet) into post-style packets and drops them on belt B.
+
+## What it is
+
+A small packaging cell on a raised deck (four legs to the case floor, stringers, lower shelf with an air
+receiver and a vacuum pump). Beads roll off belt A into a three-pocket gutter (photo-eyes light up React blue
+as pockets fill). A **picker arm** (front-left, seen side-on) lowers a three-cup vacuum head (the lit accent),
+lifts all three beads and drops them into the open carton at S1. A **walking-beam lane** (fingers rise through
+a slot, push one pitch of 11, sink) indexes cartons through S0 erect → S1 fill → S2 fold + tape. At S0 a
+pusher slides the bottom blank out of the magazine (the stack shows the coming colours, round-robin
+control → graph → data) and the erector pad pulls it up into a carton whose flaps spring open. At S2 the
+**folder/taper arm** (back-right) closes the minor then major flaps, runs a tape head across the top (strap
+line grows, band fades in), then the next index pushes the taped packet off the lane nose onto belt B.
+
+Parts: ≈ 112 recorded solids + 4 tubes static (legs, feet, heads, stringers, shelf, tank + saddles + gauge,
+pump + motor, deck with T-slots and bolt rows, 2 turned lane columns with bolt circles, bed, rail + posts,
+magazine posts/gate/hopper/cap/knob, pusher block/body/gland/ports, erector bridge posts/beam/cylinder/gland,
+gutter post/floor/wall + eyes/stop/lip/near lip, 2 arm pedestals/turrets/slewing rings/cable bosses, picker
+drive box, control cabinet with door, hinges, handle, label, valve manifold w</pre></article><article><h2>packets <small>done (shared item library)</small></h2><a href="parts/packets/packets-light.html"><img src="parts/packets/shot.png?1791830603525" alt="packets"></a><p><a href="parts/packets/packets-light.html">packets-light.html</a> · <a href="parts/packets/packets.html">packets.html</a></p><pre>status: done (shared item library)
+
+Packets and fluff drawn by shared/runtime.js (packetSvg, fluffSvg). Kinds: fluff, control, graph, data, audio, garbage.
+</pre></article><article><h2>scanner <small>review</small></h2><a href="parts/scanner/scanner-light.html"><img src="parts/scanner/shot.png?1791830603526" alt="scanner"></a><p><a href="parts/scanner/scanner-light.html">scanner-light.html</a> · <a href="parts/scanner/scanner.html">scanner.html</a></p><pre>status: review
+
+# scanner + elevator (one folder, two kinds)
+
+Modules
+- `scanner.mjs`: kind `scanner` (`build`, `LIVE`, `GEOMETRY`).
+- `elevator.mjs`: kind `elevator` (`build`, `LIVE`, `GEOMETRY`).
+- `helpers.mjs`: my own helpers (shared/ is untouched): `bar` (a rectangular bar along any axis, recorded as `A.prism`),
+  `slabAlong`, `pulseCable` (like `ctx.cable`, but every chunk carries a hidden `.fx-pulse` copy of its body and a
+  `data-span="a,b"` arc-length span, so the page can run a mint pulse along the cable chunk by chunk in true painter's
+  order), `faceScrews` (screw rings + dots on a vertical face).
+- `stubs.mjs`: standalone-only stand-ins: `beltDStub` (built between the two ports) and `speakerStub` (a bare driver
+  facing up on a post, centred under the elevator's spout; it animates the packet's fall into the cone and pumps its
+  dust cap). The audio belt on the page is the REAL conveyor (`../conveyor/conveyor.mjs`, type "loop").
+- `build.mjs` → `scanner.html` + `scanner-light.html` (W 640 × H 760). It places the real audio belt at
+  [−120, 70, 0] (L 170, readAt −30), the scanner at audio + [90, −38, 0] = [−30, 32, 0], and the elevator at
+  [−107, −123, 0] with lift 210; belt D and the speaker stub are built from the ports.
+
+Both builds are **relative to `origin`** (phone-case pivot). Frames and ports are below; no absolute coordinates.
+
+## Local frames and ports (relative to `origin`, units ≈ px, z up)
+
+**scanner** — `scanner.build(ctx, origin, { id, belt = "audio" })`. `origin` = the foot of the arm's pivot axis on the floor.
+- Footprint: x −86…+24, y −26…+31.5</pre></article><article><h2>screen <small>review</small></h2><a href="parts/screen/screen-light.html"><img src="parts/screen/shot.png?1791830603526" alt="screen"></a><p><a href="parts/screen/screen-light.html">screen-light.html</a> · <a href="parts/screen/screen.html">screen.html</a></p><pre>status: review
+
+# phone + speaker (parts/screen/) — rebuilt for the pivot (factory inside the phone)
+
+## Modules
+- `phone.mjs` — kind `phone` (`MACHINES.phone`): `build(ctx, origin, opts)` draws the case, the floating display and
+  the fluff dispenser under it. Also exports `buildTray(ctx, origin, opts)` + `MACHINES.catchTray` (standalone catch
+  tray, receives falling items) and `CASE` (defaults).
+- `speaker.mjs` — kind `speaker` (`MACHINES.speaker`): bare driver on a stand. Independent of the phone (QA #8).
+- `planes.mjs` — local helpers (not in shared/): prisms along any axis (`prism`, `prismPaths`, `seamOf`),
+  `planeMatrix`, `recess(face "x" | "y", …, { id })` (id now required, so clip ids are always instance-scoped, QA #16).
+- `build.mjs` → `screen.html` / `screen-light.html`: a smaller case (w 200, d 380, depth 160, display at 330) so the
+  machines read at card size; dispenser at [84, 130] dropping into a catch tray (post on the case floor, top z 64);
+  speaker at [−30, −70, 0] (height 92) fed by `FACTORY.feed("speaker", "in", 1.6, …audio)`.
+- No extra CSS: colours are inline (`--fx-react`, `--pk-audio-*`, `--pk-graph-top`) or kit/factory materials.
+- The old `screen.mjs` (upright phone + gantry) is gone.
+
+## phone — opts, geometry, ports (all relative to origin = centre of the case floor, z 0 = factory floor)
+| opt | default | |
+|---|---|---|
+| `id` | "phone" | |
+| `w`, `d`, `r` | 280, 540, 40 | outer plan of the case (x across, y along; the phone's top is the −y end) |
+| `depth` | 280 | wall height (far walls) |
+| `cut` | 40 | height of the near lip (+x side, +y e</pre></article>

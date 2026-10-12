@@ -1,0 +1,1 @@
+[["wait",1200],["until","FACTORY.machines.audio.items().some(i=>i.run==='top' && i.pos[0]<-108 && i.pos[0]>-114)",30000],["slow",0.1],["sheet","qa/sheet-headdrum.png",650,24,null,3,[165,115,150,150],6],["slow",1]]

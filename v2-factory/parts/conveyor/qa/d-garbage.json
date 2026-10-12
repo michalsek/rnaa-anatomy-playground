@@ -1,0 +1,1 @@
+[["wait",1200],["until","FACTORY.machines.audio.items().some(i=>i.kind==='garbage' && i.pos[0]<-140)",60000],["slow",0.1],["sheet","qa/sheet-garbage-drop.png",550,30,null,3,[175,165,160,150],6],["slow",1],["eval","JSON.stringify(FACTORY.machines.audio.stats())"]]

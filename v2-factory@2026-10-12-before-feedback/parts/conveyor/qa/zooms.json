@@ -1,0 +1,11 @@
+[["wait",21500],
+["shot","qa/z4-head-drum-motor.png",null,4,[150,135,120,100]],
+["shot","qa/z4-tail-drum-spring.png",null,4,[540,315,110,95]],
+["shot","qa/z4-beltB-head-motor.png",null,4,[595,215,90,75]],
+["shot","qa/z4-legs-feet-braces.png",null,4,[360,370,110,95]],
+["shot","qa/z4-beltB-legs.png",null,4,[600,380,110,100]],
+["shot","qa/z4-guides-beltB.png",null,4,[690,140,110,80]],
+["shot","qa/z4-hanging.png",null,4,[360,270,130,90]],
+["shot","qa/z4-beltC-drive.png",null,4,[80,315,100,80]],
+["shot","qa/z4-beltB-tail.png",null,4,[770,120,80,75]],
+["shot","qa/z4-hanging2.png",null,4,[470,310,130,90]]]
