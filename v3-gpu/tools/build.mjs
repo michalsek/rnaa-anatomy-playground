@@ -1,127 +1,139 @@
 // node tools/build.mjs [--dev]
-// 1. esbuild bundle src/main.ts → out/gpu/gpu.js (minified IIFE, unminified with --dev)
-// 2. harness pages: copy an SVG page (card chrome + CSS), swap its <svg class="iso-svg"> for a canvas with the same CSS
-//    box, keep the SVG as a <template> fallback, drop the page's live module script (static frame: slots empty),
-//    inline the scene data and the bundle.
-//      out/gpu/fixture/fixture-gpu(-light).html   ← out/gpu/fixture/fixture(-light).html + fixture.scene.json
-//      out/gpu/static(-light).html                ← out/svg/centrifuge(-light).html + out/dl/centrifuge.dl.{json,bin}
-// 3. live pages (M3): the same SVG page with its v2 module script kept verbatim (asserted against runtime.js and the
-//    centrifuge LIVE source); the figure becomes canvas + hidden slot skeleton + <template> fallback.
-//      out/gpu/live(-light).html    prod bundle: unsupported live markup → slot skipped + console.warn
-//      out/gpu/live-dev.html        dev bundle (__GPU_DEV__): unsupported live markup throws at the runtime's write
+// 1. esbuild bundles of src/web/main.ts: prod (minified) → out/gpu/gpu.js; dev (__GPU_DEV__, inline sourcemap).
+// 2. GPU pages: a copy of an SVG page (card chrome + CSS) whose figure stage gets `canvas[data-gpu]` right before the
+//    figure's own <svg class="iso-svg">; the SVG stays in the page (overlaying the hidden canvas until the first GPU frame,
+//    and the fallback if WebGPU fails), the scene data and the bundle are inlined.
+//      out/gpu/fixture/fixture-gpu(-light).html   ← fixture(-light).html + fixture.scene.json   (static, no runtime)
+//      out/gpu/calib/calib-gpu(-light).html       ← calib(-light).html + calib.scene.json       (static, no runtime)
+//      out/gpu/static(-light).html                ← out/svg/centrifuge(-light).html + DL         (static: module script dropped)
+//      out/gpu/live(-light).html                  ← the same pages with v2's module script kept verbatim (prod bundle)
+//      out/gpu/live-dev.html                      dev bundle: unsupported live markup throws at the runtime's write
+//    The live pages' module script must equal the script a fresh v2 page() writes now (drift check), and the figure must
+//    hold exactly the DL's slots.
+// --dev: only the dev outputs (live-dev.html); the prod pages stay as they are.
 import * as esbuild from "esbuild";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sceneModule, svgPageOf } from "../export/export.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(ROOT, "out/gpu");
-const dev = process.argv.includes("--dev");
+const devOnly = process.argv.includes("--dev");
 mkdirSync(OUT, { recursive: true });
 
-const bundle = async (devBuild) => {
+const bundle = async (dev) => {
   const result = await esbuild.build({
-    entryPoints: [join(ROOT, "src/main.ts")],
+    entryPoints: [join(ROOT, "src/web/main.ts")],
     bundle: true,
-    minify: !devBuild,
+    minify: !dev,
     format: "iife",
     target: "es2022",
     write: false,
-    metafile: true,
     legalComments: "none",
-    sourcemap: devBuild ? "inline" : false,
+    sourcemap: dev ? "inline" : false,
     logLevel: "warning",
-    define: { __GPU_DEV__: String(devBuild) },
+    define: { __GPU_DEV__: String(dev) },
   });
   return result.outputFiles[0].text;
 };
-const js = await bundle(dev);
-const devJs = dev ? js : await bundle(true);
-writeFileSync(join(OUT, "gpu.js"), js);
-console.log(`out/gpu/gpu.js ${js.length} B${dev ? " (dev)" : " minified"}`);
 
 const scriptSafe = (text) => text.replace(/<\/(script)/gi, "<\\/$1");
 const jsonSafe = (text) => text.replace(/</g, "\\u003c");
+const FIGURE_TAG = /<svg\b[^>]*\bclass="iso-svg"[^>]*>/;
+const MODULE_SCRIPT = /<script type="module">([\s\S]*?)<\/script>/;
+/** While WebGPU boots the figure overlays the (hidden) canvas, which has the figure's CSS box. */
+const FIGURE_OVERLAY_STYLE = "position:absolute;left:0;top:0;width:100%";
+const log = (file, html) => console.log(`${file.replace(ROOT + "/", "")} ${html.length} B`);
 
-function harness(svgPage, dataScripts, outFile) {
+/**
+ * The GPU version of an SVG page. `live` keeps the page's module script (the v2 runtime drives the figure's slots);
+ * otherwise it is dropped (static frame).
+ */
+function gpuPage(svgPage, { dataScripts, bundleJs, live }) {
   let html = readFileSync(svgPage, "utf8");
-  const start = html.indexOf('<svg xmlns="http://www.w3.org/2000/svg" class="iso-svg"');
-  if (start < 0) throw new Error(`${svgPage}: no svg.iso-svg`);
-  const end = html.indexOf("</svg>", start) + "</svg>".length;
-  const svg = html.slice(start, end);
-  const [, , , vw, vh] = svg.match(/viewBox="([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)"/);
-  const label = svg.match(/aria-label="([^"]*)"/)?.[1] ?? "figure";
-  const canvas = `<canvas class="iso-svg" data-gpu role="img" aria-label="${label}" style="aspect-ratio:${vw}/${vh};height:auto"></canvas><template id="svg-fallback">${svg}</template>`;
-  html = html.slice(0, start) + canvas + html.slice(end);
-  html = html.replace(/<script type="module">[\s\S]*?<\/script>/, ""); // static frame: no live runtime
-  html = html.replace("</body>", () => `${dataScripts}<script>${scriptSafe(js)}</script></body>`); // function form: no $-patterns
-  writeFileSync(outFile, html);
-  console.log(`${outFile.replace(ROOT + "/", "")} ${html.length} B`);
+  const tag = FIGURE_TAG.exec(html);
+  if (!tag) throw new Error(`${svgPage}: no <svg class="iso-svg"> figure`);
+  if (/\sstyle=/.test(tag[0])) throw new Error(`${svgPage}: the figure already carries a style attribute`);
+  const viewBox = /viewBox="([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)"/.exec(tag[0]);
+  if (!viewBox) throw new Error(`${svgPage}: figure without a viewBox`);
+  const [, , , vw, vh] = viewBox;
+  const label = /aria-label="([^"]*)"/.exec(tag[0])?.[1] ?? "figure";
+  const canvas = `<canvas class="iso-svg" data-gpu${live ? " data-live" : ""} role="img" aria-label="${label}" style="aspect-ratio:${vw}/${vh};height:auto;visibility:hidden"></canvas>`;
+  const figure = tag[0].replace(/>$/, ` style="${FIGURE_OVERLAY_STYLE}">`);
+  html = html.slice(0, tag.index) + canvas + figure + html.slice(tag.index + tag[0].length);
+  if (!live) html = html.replace(MODULE_SCRIPT, "");
+  // a classic inline script: runs during parsing, before the deferred module script, so the slot interceptors are in
+  // place before the runtime binds; the last </body>: v2's module script contains the text "</body>" too
+  const bodyEnd = html.lastIndexOf("</body>");
+  return `${html.slice(0, bodyEnd)}${dataScripts}<script>${scriptSafe(bundleJs)}</script>${html.slice(bodyEnd)}`;
 }
 
-const fixtureDir = join(OUT, "fixture");
-if (existsSync(join(fixtureDir, "fixture.scene.json"))) {
-  const scene = readFileSync(join(fixtureDir, "fixture.scene.json"), "utf8");
-  const data = `<script type="application/json" id="gpu-scene">${jsonSafe(scene)}</script>`;
-  for (const variant of ["fixture", "fixture-light", "fixture-share1", "fixture-share1-light"]) {
-    if (!variant.includes("share1")) harness(join(fixtureDir, `${variant}.html`), data, join(fixtureDir, `${variant.replace("fixture", "fixture-gpu")}.html`));
+/** The module script of v2's page() as it is written now, for both themes (drift check of out/svg). */
+async function freshPageScripts(scene) {
+  const dir = mkdtempSync(join(tmpdir(), "v3-build-"));
+  try {
+    const { run } = await sceneModule(scene);
+    run({ out: svgPageOf(scene, "dark", dir) });
+    return Object.fromEntries(["dark", "light"].map((theme) => [theme, MODULE_SCRIPT.exec(readFileSync(svgPageOf(scene, theme, dir), "utf8"))?.[1]]));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 }
-for (const extra of ["calib"]) {
-  const scene = join(OUT, extra, `${extra}.scene.json`);
-  if (!existsSync(scene)) continue;
-  const data = `<script type="application/json" id="gpu-scene">${jsonSafe(readFileSync(scene, "utf8"))}</script>`;
-  for (const theme of ["", "-light"]) harness(join(OUT, extra, `${extra}${theme}.html`), data, join(OUT, extra, `${extra}-gpu${theme}.html`));
+
+/** Slots kit.mjs page() adds to every figure outside the scene's own (not drawn by the GPU path; unused by the centrifuge). */
+const KIT_SLOTS = ["overlay"];
+
+const normalized = (script) => script.replace(/\r\n/g, "\n").trim();
+
+function assertLivePage(svgPage, theme, freshScripts, dl) {
+  const html = readFileSync(svgPage, "utf8");
+  const script = MODULE_SCRIPT.exec(html)?.[1];
+  if (!script) throw new Error(`${svgPage}: no module script`);
+  if (normalized(script) !== normalized(freshScripts[theme] ?? "")) throw new Error(`${svgPage}: its module script differs from v2's page() output now — re-run node export/export.mjs`);
+  const figure = html.slice(FIGURE_TAG.exec(html).index, html.indexOf("</svg>", FIGURE_TAG.exec(html).index));
+  const slots = [...figure.matchAll(/data-slot="([^"]*)"/g)].map((m) => m[1]);
+  const expected = dl.slots.map((slot) => slot.name);
+  const extra = slots.filter((name) => !expected.includes(name));
+  if (expected.some((name) => !slots.includes(name)) || extra.some((name) => !KIT_SLOTS.includes(name))) throw new Error(`${svgPage}: figure slots [${slots}] ≠ DL slots [${expected}] + kit slots [${KIT_SLOTS}]`);
+}
+
+const prodJs = devOnly ? null : await bundle(false);
+const devJs = await bundle(true);
+if (prodJs) {
+  writeFileSync(join(OUT, "gpu.js"), prodJs);
+  console.log(`out/gpu/gpu.js ${prodJs.length} B minified`);
+}
+
+const write = (file, html) => {
+  writeFileSync(file, html);
+  log(file, html);
+};
+
+if (prodJs) {
+  const sceneScript = (file) => `<script type="application/json" id="gpu-scene">${jsonSafe(readFileSync(file, "utf8"))}</script>`;
+  for (const [dir, stem] of [[join(OUT, "fixture"), "fixture"], [join(OUT, "calib"), "calib"]]) {
+    const scene = join(dir, `${stem}.scene.json`);
+    if (!existsSync(scene)) continue;
+    for (const theme of ["", "-light"]) write(join(dir, `${stem}-gpu${theme}.html`), gpuPage(join(dir, `${stem}${theme}.html`), { dataScripts: sceneScript(scene), bundleJs: prodJs, live: false }));
+  }
 }
 
 const dlJson = join(ROOT, "out/dl/centrifuge.dl.json");
 const dlBin = join(ROOT, "out/dl/centrifuge.dl.bin");
-if (existsSync(dlJson) && existsSync(dlBin) && existsSync(join(ROOT, "out/svg/centrifuge.html")) && !process.argv.includes("--no-dl")) {
-  const data = `<script type="application/json" id="gpu-dl">${jsonSafe(readFileSync(dlJson, "utf8"))}</script><script type="application/octet-stream" id="gpu-dl-bin">${readFileSync(dlBin).toString("base64")}</script>`;
-  harness(join(ROOT, "out/svg/centrifuge.html"), data, join(OUT, "static.html"));
-  harness(join(ROOT, "out/svg/centrifuge-light.html"), data, join(OUT, "static-light.html"));
-}
-
-// ---- live pages (M3) ------------------------------------------------------------------------------------------------
-const MODULE_SCRIPT = /<script type="module">([\s\S]*?)<\/script>/;
-
-// The page script must be v2's own: kit + lathe + runtime.js (data spliced in) + LIVE + STUB_LIVE + boot, as page()
-// concatenated it. Fails the build when the copy drifted from the v2 sources.
-async function assertVerbatimScript(script) {
-  const runtime = readFileSync(join(ROOT, "../v2-factory/shared/runtime.js"), "utf8");
-  const [head, tail] = runtime.split("__FACTORY_DATA__");
-  const { LIVE } = await import("../../v2-factory/parts/centrifuge/centrifuge.mjs");
-  const missing = [["runtime.js head", head], ["runtime.js tail", tail], ["centrifuge LIVE", LIVE]].filter(([, text]) => !script.includes(text.replace(/<\/(script)/gi, "<\\/$1")));
-  if (missing.length) throw new Error(`live page script is not v2's verbatim: missing ${missing.map(([name]) => name).join(", ")}`);
-}
-
-async function liveHarness(svgPage, dataScripts, bundleJs, outFile) {
-  let html = readFileSync(svgPage, "utf8");
-  const script = html.match(MODULE_SCRIPT)?.[1];
-  if (!script) throw new Error(`${svgPage}: no module script`);
-  await assertVerbatimScript(script);
-  const start = html.indexOf('<svg xmlns="http://www.w3.org/2000/svg" class="iso-svg"');
-  if (start < 0) throw new Error(`${svgPage}: no svg.iso-svg`);
-  const end = html.indexOf("</svg>", start) + "</svg>".length;
-  const svg = html.slice(start, end);
-  const [, , , vw, vh] = svg.match(/viewBox="([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)"/);
-  const label = svg.match(/aria-label="([^"]*)"/)?.[1] ?? "figure";
-  // runtime.js binds to stage.querySelector("svg") and its [data-slot] groups: the skeleton is the first svg in the stage
-  const slots = [...svg.matchAll(/<g data-slot="[^"]*"><\/g>/g)].map((m) => m[0]).join("");
-  const skeleton = `<svg class="fx-live-slots" aria-hidden="true" style="display:none">${slots}</svg>`;
-  const canvas = `<canvas class="iso-svg" data-gpu data-live role="img" aria-label="${label}" style="aspect-ratio:${vw}/${vh};height:auto"></canvas>${skeleton}<template id="svg-fallback">${svg}</template>`;
-  html = html.slice(0, start) + canvas + html.slice(end);
-  // classic inline script: runs during parsing, i.e. before the deferred module script, so the slot setters are in place
-  // the last </body>: the kit source inside the module script contains the text "</body>" too
-  const bodyEnd = html.lastIndexOf("</body>");
-  html = `${html.slice(0, bodyEnd)}${dataScripts}<script>${scriptSafe(bundleJs)}</script>${html.slice(bodyEnd)}`;
-  writeFileSync(outFile, html);
-  console.log(`${outFile.replace(ROOT + "/", "")} ${html.length} B`);
-}
-
-if (existsSync(dlJson) && existsSync(dlBin) && existsSync(join(ROOT, "out/svg/centrifuge.html")) && !process.argv.includes("--no-dl")) {
-  const data = `<script type="application/json" id="gpu-dl">${jsonSafe(readFileSync(dlJson, "utf8"))}</script><script type="application/octet-stream" id="gpu-dl-bin">${readFileSync(dlBin).toString("base64")}</script>`;
-  await liveHarness(join(ROOT, "out/svg/centrifuge.html"), data, js, join(OUT, "live.html"));
-  await liveHarness(join(ROOT, "out/svg/centrifuge-light.html"), data, js, join(OUT, "live-light.html"));
-  await liveHarness(join(ROOT, "out/svg/centrifuge.html"), data, devJs, join(OUT, "live-dev.html"));
+const svgPages = { dark: join(ROOT, "out/svg/centrifuge.html"), light: join(ROOT, "out/svg/centrifuge-light.html") };
+if (existsSync(dlJson) && existsSync(dlBin) && existsSync(svgPages.dark)) {
+  const dl = JSON.parse(readFileSync(dlJson, "utf8"));
+  const dataScripts = `<script type="application/json" id="gpu-dl">${jsonSafe(readFileSync(dlJson, "utf8"))}</script><script type="application/octet-stream" id="gpu-dl-bin">${readFileSync(dlBin).toString("base64")}</script>`;
+  const fresh = await freshPageScripts("centrifuge");
+  for (const theme of ["dark", "light"]) assertLivePage(svgPages[theme], theme, fresh, dl);
+  const suffix = (theme) => (theme === "light" ? "-light" : "");
+  if (prodJs) {
+    for (const theme of ["dark", "light"]) {
+      write(join(OUT, `static${suffix(theme)}.html`), gpuPage(svgPages[theme], { dataScripts, bundleJs: prodJs, live: false }));
+      write(join(OUT, `live${suffix(theme)}.html`), gpuPage(svgPages[theme], { dataScripts, bundleJs: prodJs, live: true }));
+    }
+  }
+  write(join(OUT, "live-dev.html"), gpuPage(svgPages.dark, { dataScripts, bundleJs: devJs, live: true }));
 }

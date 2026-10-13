@@ -35,7 +35,9 @@ function decodeEntities(text) {
   });
 }
 
-function attrsOf(tag, source) {
+// attrsOf(tag, attrSource) → { name: value } of one start tag's attribute text; any attribute the subset does not
+// allow for that element throws
+export function attrsOf(tag, source) {
   const attrs = {};
   for (const [, name, doubleQuoted, singleQuoted] of source.matchAll(ATTR)) {
     if (!isIdentityAttr(name) && !ATTRIBUTES[tag].includes(name)) throw new Error(`svgsub: <${tag} ${name}> is not supported`);
@@ -46,30 +48,55 @@ function attrsOf(tag, source) {
   return attrs;
 }
 
+// isBlank(text, from, to): only whitespace in text[from, to) (what String.prototype.trim removes, without slicing)
+function isBlank(text, from, to) {
+  for (let i = from; i < to; i++) {
+    const c = text.charCodeAt(i);
+    if (!(c === 32 || (c >= 9 && c <= 13) || c === 0xa0 || c === 0xfeff || c === 0x1680 || (c >= 0x2000 && c <= 0x200a) || c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000)) return false;
+  }
+  return true;
+}
+
+// scanTags(markup, { open(tag, attrSource, selfClosing, raw), close(tag) }) walks the markup's tags in document order
+// with the same checks as parseSvg (no text content, only subset elements, balanced nesting) without building a tree;
+// attribute text is handed over raw (attrsOf parses and checks it), so a caller can key caches on the tag text.
+export function scanTags(markup, { open, close }) {
+  const stack = [];
+  let last = 0;
+  for (const match of markup.matchAll(TAG)) {
+    if (!isBlank(markup, last, match.index)) throw new Error(`svgsub: text content is not supported: "${markup.slice(last, match.index).trim().slice(0, 40)}"`);
+    last = match.index + match[0].length;
+    if (match[0].startsWith("<!--")) continue;
+    const [raw, closing, tag, attrSource, selfClosing] = match;
+    if (!CONTAINERS.has(tag) && !LEAVES.has(tag)) throw new Error(`svgsub: unsupported element <${tag}>`);
+    if (closing) {
+      const opened = stack.pop() ?? "#root";
+      if (opened !== tag) throw new Error(`svgsub: </${tag}> closes <${opened}>`);
+      close(tag);
+      continue;
+    }
+    open(tag, attrSource, !!selfClosing, raw);
+    if (!selfClosing) stack.push(tag);
+  }
+  const rest = markup.slice(last).trim();
+  if (rest) throw new Error(`svgsub: unparsable markup: "${rest.slice(0, 40)}"`);
+  if (stack.length) throw new Error(`svgsub: unclosed <${stack[stack.length - 1]}>`);
+}
+
 // parseSvg(markup) → root { tag: "#root", attrs, children } of { tag, attrs, children }
 export function parseSvg(markup) {
   const root = { tag: "#root", attrs: {}, children: [] };
   const stack = [root];
-  let last = 0;
-  for (const match of markup.matchAll(TAG)) {
-    const between = markup.slice(last, match.index);
-    if (between.trim()) throw new Error(`svgsub: text content is not supported: "${between.trim().slice(0, 40)}"`);
-    last = match.index + match[0].length;
-    if (match[0].startsWith("<!--")) continue;
-    const [, closing, tag, attrSource, selfClosing] = match;
-    if (!CONTAINERS.has(tag) && !LEAVES.has(tag)) throw new Error(`svgsub: unsupported element <${tag}>`);
-    if (closing) {
-      const open = stack.length > 1 ? stack.pop() : root;
-      if (open.tag !== tag) throw new Error(`svgsub: </${tag}> closes <${open.tag}>`);
-      continue;
-    }
-    const node = { tag, attrs: attrsOf(tag, attrSource), children: [] };
-    stack[stack.length - 1].children.push(node);
-    if (!selfClosing) stack.push(node);
-  }
-  const rest = markup.slice(last).trim();
-  if (rest) throw new Error(`svgsub: unparsable markup: "${rest.slice(0, 40)}"`);
-  if (stack.length !== 1) throw new Error(`svgsub: unclosed <${stack[stack.length - 1].tag}>`);
+  scanTags(markup, {
+    open(tag, attrSource, selfClosing) {
+      const node = { tag, attrs: attrsOf(tag, attrSource), children: [] };
+      stack[stack.length - 1].children.push(node);
+      if (!selfClosing) stack.push(node);
+    },
+    close() {
+      stack.pop();
+    },
+  });
   return root;
 }
 
@@ -90,9 +117,11 @@ export function numberAttr(node, name, fallback, units = {}) {
   const value = node.attrs[name];
   return value === undefined ? fallback : numberOf(value, `<${node.tag} ${name}>`, units);
 }
-const opacityAttr = (node, name) => numberAttr(node, name, 1, { percent: true });
+// opacityAttr(node, "fill-opacity") → the opacity attribute as a number (plain or percentage), 1 when absent
+export const opacityAttr = (node, name) => numberAttr(node, name, 1, { percent: true });
 
-function styleOf(node) {
+// styleOf(node) → the inline style declarations (only STYLE_PROPS are allowed; anything else throws)
+export function styleOf(node) {
   const style = {};
   for (const declaration of (node.attrs.style ?? "").split(";")) {
     if (!declaration.trim()) continue;
@@ -104,12 +133,90 @@ function styleOf(node) {
   return style;
 }
 
+// strokeWidthOf(node) → the inline style's stroke-width in CSS px (plain number or "Npx"), undefined when absent
+export function strokeWidthOf(node) {
+  const width = styleOf(node)["stroke-width"];
+  return width === undefined ? undefined : numberOf(width, "inline stroke-width", { px: true });
+}
+
 const PATH_TOKEN = /([A-Za-z])|([-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?)|([\s,]+)|(.)/g;
 const PATH_COMMANDS = new Set("MmLlHhVvZz");
+
+const CODE_M = 77, CODE_L = 76, CODE_Z = 90, CODE_SPACE = 32, CODE_MINUS = 45, CODE_DOT = 46, CODE_0 = 48, CODE_9 = 57;
+// integers up to 15 digits are exact in a double, and so are the powers of ten up to 10^22
+const MAX_EXACT_DIGITS = 15;
+const POWERS_OF_TEN = Array.from({ length: MAX_EXACT_DIGITS + 1 }, (_, k) => 10 ** k);
+
+// kitPathData(d) → subpaths for path data in the exact form the anatomy kit's pathOf writes (absolute M / L / Z,
+// plain decimals, one space between x and y, nothing between a number and the next command: "M247.9 634.1L249.6
+// 625.7Z"), null for anything else. Several times faster than the general tokenizer; equal results where it applies.
+function kitPathData(d) {
+  const subpaths = [];
+  let current = null;
+  let i = 0;
+  const n = d.length;
+  // a decimal as an integer over a power of ten: one IEEE division, so the result is the correctly rounded value of the
+  // decimal, exactly what Number(text) returns, without slicing the string
+  const number = () => {
+    const negative = d.charCodeAt(i) === CODE_MINUS;
+    if (negative) i++;
+    let mantissa = 0;
+    let digits = 0;
+    let decimals = -1;
+    while (i < n) {
+      const c = d.charCodeAt(i);
+      if (c >= CODE_0 && c <= CODE_9) {
+        mantissa = mantissa * 10 + (c - CODE_0);
+        digits++;
+        if (decimals >= 0) decimals++;
+      } else if (c === CODE_DOT && decimals < 0) {
+        decimals = 0;
+      } else break;
+      i++;
+    }
+    if (!digits || digits > MAX_EXACT_DIGITS) return NaN; // NaN: the general parser takes over
+    const value = decimals > 0 ? mantissa / POWERS_OF_TEN[decimals] : mantissa;
+    return negative ? -value : value;
+  };
+  while (i < n) {
+    const command = d.charCodeAt(i++);
+    if (command === CODE_Z) {
+      if (current && !current.closed) {
+        current.closed = true;
+        current.drawn = true;
+      }
+      continue;
+    }
+    if (command !== CODE_M && command !== CODE_L) return null;
+    const x = number();
+    if (d.charCodeAt(i++) !== CODE_SPACE) return null;
+    const y = number();
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    if (command === CODE_M) {
+      current = { points: [[x, y]], closed: false, drawn: false };
+      subpaths.push(current);
+      continue;
+    }
+    if (!current) return null; // the general parser rejects a path that does not start with M
+    if (current.closed) {
+      // a lineto after Z starts a new subpath at the closed subpath's first point
+      const [sx, sy] = current.points[0];
+      current = { points: [[sx, sy]], closed: false, drawn: false };
+      subpaths.push(current);
+    }
+    current.points.push([x, y]);
+    current.drawn = true;
+  }
+  return subpaths;
+}
 
 // parsePathData(d) → [{ points: [[x, y]…], closed, drawn }] — drawn: the subpath has a drawing command (a lone M has
 // not). Curves, arcs and any other command letter or stray character throw.
 export function parsePathData(d) {
+  return kitPathData(d) ?? parseGeneralPathData(d);
+}
+
+function parseGeneralPathData(d) {
   const tokens = [];
   for (const [, letter, number, , stray] of d.matchAll(PATH_TOKEN)) {
     if (stray !== undefined) throw new Error(`svgsub: unexpected "${stray}" in path data: ${d.slice(0, 60)}`);
@@ -173,7 +280,8 @@ export function parsePathData(d) {
   return subpaths;
 }
 
-const drawnLeafCount = (node) => (DRAWN.has(node.tag) ? 1 : node.tag === "defs" ? 0 : node.children.reduce((n, child) => n + drawnLeafCount(child), 0));
+// drawnLeafCount(node) → path / circle elements drawn under node (defs excluded)
+export const drawnLeafCount = (node) => (DRAWN.has(node.tag) ? 1 : node.tag === "defs" ? 0 : node.children.reduce((n, child) => n + drawnLeafCount(child), 0));
 
 // drawables(root) → every path / circle with its ancestor chain, the opacity attributes multiplied down the tree, and
 // the gradients defined anywhere in the fragment (url(#id) is resolved by the caller). `groupOpacity` marks elements
@@ -201,7 +309,6 @@ export function drawables(root) {
         continue;
       }
       if (child.tag === "stop") throw new Error("svgsub: <stop> outside <linearGradient>");
-      const style = styleOf(child);
       out.push({
         tag: child.tag,
         attrs: child.attrs,
@@ -209,7 +316,7 @@ export function drawables(root) {
         opacity: opacity * own,
         fillOpacity: opacityAttr(child, "fill-opacity"),
         strokeOpacity: opacityAttr(child, "stroke-opacity"),
-        strokeWidth: style["stroke-width"] === undefined ? undefined : numberOf(style["stroke-width"], "inline stroke-width", { px: true }),
+        strokeWidth: strokeWidthOf(child),
         groupOpacity: inSharedOpacityGroup,
       });
     }

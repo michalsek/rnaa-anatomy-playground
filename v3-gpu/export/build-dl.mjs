@@ -2,23 +2,12 @@
 // palette keys, gradients and slot ranks. Isomorphic (the live adapter will reuse primitivesOf for slot markup).
 import { parseSvg, parsePathData, drawables, urlRef, numberAttr, OPACITY_ATTRS } from "./svgsub.mjs";
 import { roleOf } from "./roles.mjs";
-import { triangulate, signedArea, samePoint, withoutRepeats } from "./tess.mjs";
+import { triangulate, signedArea } from "./tess.mjs";
 import { PRIM_KIND, PRIM_FLAG, SEG_FLAG, VERSION, gradientPaint, pack } from "./dl-format.mjs";
+import { paintKeyOf, probeNode } from "./palette-key.mjs";
+import { polylinesOf, ringOfCircle } from "./polylines.mjs";
 
-// attributes that never change the cascade result (geometry, identity, alpha carried by the DL itself, the inline
-// stroke-width the DL carries as a width override)
-const KEY_DROP = new Set(["data-name", "data-route", "data-slot", "id", "d", "cx", "cy", "r", "x1", "y1", "x2", "y2", "offset", "gradientUnits", ...OPACITY_ATTRS, "style", "role", "aria-hidden", "aria-label"]);
-const CIRCLE_STEPS = 32;
-
-function probeNode({ tag, attrs }) {
-  const kept = {};
-  for (const [name, value] of Object.entries(attrs)) {
-    if (KEY_DROP.has(name)) continue;
-    if ((name === "fill" || name === "stroke") && value.startsWith("url(")) continue;
-    kept[name] = value;
-  }
-  return { tag, attrs: kept };
-}
+export { polylinesOf };
 
 // Palette: one entry per distinct (ancestor context × element × prop). The entry is the probe recipe: rebuild the
 // chain under an svg.iso-svg in the page and read getComputedStyle(el)[prop] (+ opacities) — colours stay in CSS.
@@ -30,7 +19,7 @@ export function createPalette() {
     idOf(prop, node, chain) {
       const ancestors = chain.map(probeNode);
       const el = probeNode(node);
-      const key = JSON.stringify([prop, ancestors, el]);
+      const key = paintKeyOf(prop, ancestors, el);
       let entry = byKey.get(key);
       if (!entry) {
         entry = { id: entries.length, prop, ancestors, el, alphaAttrs: [] };
@@ -71,25 +60,6 @@ export function placeSlots(items, slots) {
     for (const s of placed) if (s.side === "after" && s.anchor === index) s.seq = seq++;
   });
   return placed;
-}
-
-const ringOfCircle = (cx, cy, r) => Array.from({ length: CIRCLE_STEPS }, (_, i) => [cx + r * Math.cos((2 * Math.PI * i) / CIRCLE_STEPS), cy + r * Math.sin((2 * Math.PI * i) / CIRCLE_STEPS)]);
-
-// polylinesOf(subpaths, cap) → [{ points, closed }] as SVG strokes them: a lone moveto draws nothing; a zero-length
-// subpath (open or closed) draws only with round caps, as one zero-length segment (a dot)
-export function polylinesOf(subpaths, cap) {
-  const out = [];
-  for (const sp of subpaths) {
-    if (!sp.drawn) continue;
-    const points = withoutRepeats(sp.points);
-    if (sp.closed && points.length > 1 && samePoint(points[0], points[points.length - 1])) points.pop();
-    if (points.length === 1) {
-      if (cap === "round") out.push({ points: [points[0], points[0]], closed: false });
-      continue;
-    }
-    out.push({ points, closed: sp.closed });
-  }
-  return out;
 }
 
 // Census of what the exporter met, compared by the gate with the scene's expectations (scenes/*.scene.mjs CENSUS).

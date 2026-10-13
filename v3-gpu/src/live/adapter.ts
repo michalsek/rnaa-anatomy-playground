@@ -1,157 +1,111 @@
-// Platform-neutral live adapter: slot markup (from a SlotSource) → slot geometry → GPU upload, plus the live palette
-// (probe recipes discovered at runtime, resolved by a PaintResolver and appended to the renderer's paint table).
-import type { ResolvedPaint } from '../palette.ts';
-import type { Renderer } from '../renderer.ts';
-import type { ChainNode, GpuScene, PaintDesc } from '../scene.ts';
-import { SlotGeometryBuilder, type PaintClass, type PaintLookup, type SlotGeometry } from './geometry.ts';
+// Live adapter (platform-neutral): changed slot markup (SlotSource) → slot geometry → GPU upload. A flush collects every
+// changed slot first, resolves the paints they introduced in one batch, then packs and uploads them.
+import type { PaintResolver, PaintTable } from '../core/paint.ts';
+import { RollingTimings, TIMING, type Clock, type Profiler } from '../core/profiler.ts';
+import { CollectedSlot, type SlotGeometry, type SlotGeometryBuilder } from './geometry.ts';
+import type { SlotSource } from './slot-source.ts';
 import type { LiveSlots } from './slot-renderer.ts';
 
-/** Where slot markup comes from (DOM: intercepted `innerHTML` setters; a native host could push strings directly). */
-export interface SlotSource {
-  readonly names: string[];
-  readonly markup: string[];
-  /** Indices of slots whose markup changed since the last call; clears the dirty set. */
-  takeDirty(): number[];
-  markAllDirty(): void;
+/** How a slot reacts to markup the GPU path cannot draw: dev builds report it as an error, prod draws the slot empty. */
+export type MarkupErrorPolicy = 'report' | 'skip';
+
+export interface LiveAdapterOptions {
+  source: SlotSource;
+  builder: SlotGeometryBuilder;
+  paints: PaintTable;
+  resolver: PaintResolver;
+  policy: MarkupErrorPolicy;
+  /** Item index of slot 0's pseudo-item (the scene's item count). */
+  itemBase: number;
+  clock: Clock;
+  profiler: Profiler;
+  /** Unsupported markup: `report` → onError (dev), `skip` → onWarning once per slot and kind of problem (prod). */
+  onError(error: Error): void;
+  onWarning(message: string): void;
 }
 
-/** Resolves probe recipes to colours (DOM: getComputedStyle on probe elements). */
-export interface PaintResolver {
-  resolve(paints: PaintDesc[]): ResolvedPaint[];
-}
-
-/** How a slot reacts to markup the GPU path cannot draw. */
-export type MarkupErrorPolicy = 'throw' | 'skip';
-
-const OPAQUE_ALPHA = 0.999;
-
-/** Rolling window of the last `size` samples (ms). */
-export class Samples {
-  private readonly values: Float64Array;
-  private count = 0;
-  private sorted: Float64Array;
-  constructor(size = 600) {
-    this.values = new Float64Array(size);
-    this.sorted = new Float64Array(size);
-  }
-  push(value: number) {
-    this.values[this.count % this.values.length] = value;
-    this.count++;
-  }
-  summary() {
-    const n = Math.min(this.count, this.values.length);
-    if (!n) return { n: 0, last: 0, median: 0, p95: 0, mean: 0 };
-    const sorted = this.sorted.subarray(0, n);
-    sorted.set(this.values.subarray(0, n));
-    sorted.sort();
-    let sum = 0;
-    for (let i = 0; i < n; i++) sum += sorted[i];
-    const at = (q: number) => sorted[Math.min(n - 1, Math.floor(q * n))];
-    return { n, last: this.values[(this.count - 1) % this.values.length], median: at(0.5), p95: at(0.95), mean: sum / n };
-  }
-}
-
-/** Duration since `start` on the real clock (User Timing; survives a virtualized performance.now). */
-export const measureSince = (name: string, start: string) => performance.measure(name, start).duration;
-
-export class LiveAdapter implements PaintLookup {
-  readonly samples = { liveJs: new Samples(), parse: new Samples(), upload: new Samples(), encode: new Samples(), encodeWithGroups: new Samples(), gpu: new Samples() };
+export class LiveAdapter {
   readonly counters = { frames: 0, slotsChanged: 0, bytesUploaded: 0, paints: 0, errors: 0 };
-  private readonly builder: SlotGeometryBuilder;
+  readonly timings = { parse: new RollingTimings(), upload: new RollingTimings() };
+  private readonly collected: CollectedSlot[];
   private readonly geometry: (SlotGeometry | undefined)[];
-  private readonly classes = new Map<string, PaintClass>();
+  private readonly changed: number[] = [];
+  /** The markup each slot was last collected for (a slot written outside a tick is collected at once). */
+  private readonly collectedMarkup: (string | null)[];
   private readonly warned = new Set<string>();
-  private renderer: Renderer | null = null;
-  private live: LiveSlots | null = null;
+  private painter: LiveSlots | null = null;
 
-  constructor(
-    private readonly source: SlotSource,
-    private readonly scene: GpuScene,
-    private readonly resolver: PaintResolver,
-    private readonly policy: MarkupErrorPolicy,
-    chainPrefix: ChainNode[],
-  ) {
-    this.builder = new SlotGeometryBuilder(this, chainPrefix);
-    this.geometry = source.names.map(() => undefined);
+  constructor(private readonly options: LiveAdapterOptions) {
+    this.collected = options.source.names.map(() => new CollectedSlot());
+    this.geometry = options.source.names.map(() => undefined);
+    this.collectedMarkup = options.source.names.map(() => null);
+  }
+
+  /**
+   * A slot changed outside the runtime's tick: collect it now, so unsupported markup is reported at the write (it may
+   * be replaced before the next frame); the next flush reuses the result.
+   */
+  collectNow(slot: number) {
+    this.collect(slot);
   }
 
   get meshStats() {
-    return this.builder.stats;
+    return this.options.builder.stats;
   }
 
-  validate(markup: string) {
-    this.builder.validate(markup);
-  }
-
-  /** A new renderer (first start or device-lost reinit): every slot is re-uploaded. */
-  attach(renderer: Renderer, live: LiveSlots) {
-    this.renderer = renderer;
-    this.live = live;
-    this.source.markAllDirty();
+  /** A new slot painter (first start or a re-init after device loss): every slot is re-uploaded. */
+  attach(painter: LiveSlots) {
+    this.painter = painter;
+    this.collectedMarkup.fill(null);
+    this.options.source.markAllDirty();
   }
 
   detach() {
-    this.renderer = null;
-    this.live = null;
+    this.painter = null;
   }
 
-  /** The palette was re-resolved (theme change): re-classify live paints and rebuild every slot. */
-  reclassify() {
-    if (!this.renderer) return;
-    for (const [key, paint] of this.classes) this.classes.set(key, { ...this.classify(this.renderer.paints[paint.id]), id: paint.id });
-    this.source.markAllDirty();
-  }
-
-  /** Parses and uploads every changed slot; returns false when there is no renderer yet (slots stay dirty). */
-  flush(): boolean {
-    const live = this.live;
-    if (!live || !this.renderer) return false;
-    const changed = this.source.takeDirty();
-    if (!changed.length) return true;
-    performance.mark('adapter-parse-start');
-    const itemBase = this.scene.items.length;
-    for (const index of changed) this.geometry[index] = this.build(index, itemBase + index);
-    this.samples.parse.push(measureSince('adapter-parse', 'adapter-parse-start'));
-    performance.mark('adapter-upload-start');
-    for (const index of changed) this.counters.bytesUploaded += live.update(index, this.geometry[index]!);
-    this.samples.upload.push(measureSince('adapter-upload', 'adapter-upload-start'));
+  /** Parses and uploads every changed slot; returns the number of slots uploaded (0 without a painter). */
+  flush(): number {
+    const painter = this.painter;
+    const { source, builder, paints, resolver, clock, profiler } = this.options;
+    if (!painter || !source.hasDirty) return 0;
+    const changed = source.takeDirty(this.changed);
+    const t0 = clock.now();
+    profiler.begin(TIMING.parse);
+    for (const slot of changed) if (this.collectedMarkup[slot] !== source.markupOf(slot)) this.collect(slot);
+    this.counters.paints += paints.resolvePending(resolver);
+    for (const slot of changed) this.geometry[slot] = builder.pack(this.collected[slot], this.options.itemBase + slot, this.geometry[slot]);
+    profiler.end(TIMING.parse);
+    const t1 = clock.now();
+    profiler.begin(TIMING.upload);
+    for (const slot of changed) this.counters.bytesUploaded += painter.update(slot, this.geometry[slot]!);
+    profiler.end(TIMING.upload);
+    this.timings.parse.push(t1 - t0);
+    this.timings.upload.push(clock.now() - t1);
     this.counters.frames++;
     this.counters.slotsChanged += changed.length;
-    return true;
+    return changed.length;
   }
 
-  paintOf(prop: 'fill' | 'stroke', key: string, chain: () => ChainNode[], alpha: number): PaintClass {
-    const known = this.classes.get(key);
-    if (known) return known;
-    const renderer = this.renderer!;
-    const desc: PaintDesc = { kind: 'probe', prop, chain: chain(), ...(alpha !== 1 ? { alpha } : {}) };
-    const [resolved] = this.resolver.resolve([desc]);
-    const id = this.scene.paints.length;
-    this.scene.paints.push(desc);
-    renderer.appendPaints([resolved]);
-    const paint = { ...this.classify(resolved), id };
-    this.classes.set(key, paint);
-    this.counters.paints++;
-    return paint;
-  }
-
-  private build(index: number, item: number): SlotGeometry {
-    const markup = this.source.markup[index];
+  private collect(slot: number) {
+    const { source, builder, policy } = this.options;
+    const markup = source.markupOf(slot);
+    this.collectedMarkup[slot] = markup;
     try {
-      return this.builder.build(markup, item, this.geometry[index]);
+      builder.collect(markup, this.collected[slot]);
     } catch (error) {
-      if (this.policy === 'throw') throw error;
+      this.collected[slot].reset();
       this.counters.errors++;
-      const message = `${this.source.names[index]}: ${(error as Error).message}`;
-      if (!this.warned.has(message)) {
-        this.warned.add(message);
-        console.warn(`live slot skipped (${message})`);
+      const message = `live slot ${source.names[slot]}: ${(error as Error).message}`;
+      if (policy === 'report') {
+        this.options.onError(new Error(message));
+        return;
       }
-      return this.builder.build('', item, this.geometry[index]);
+      // one warning per slot and kind of problem (messages carry values: drop the numbers)
+      const kind = `${slot}:${(error as Error).message.replace(/[-\d.]+/g, '#')}`;
+      if (this.warned.has(kind)) return;
+      this.warned.add(kind);
+      this.options.onWarning(`${message} — slot skipped`);
     }
-  }
-
-  private classify(paint: ResolvedPaint): Omit<PaintClass, 'id'> {
-    return { visible: paint.visible, opaque: paint.blend === 'normal' && paint.rgba[3] >= OPAQUE_ALPHA, blend: paint.blend };
   }
 }

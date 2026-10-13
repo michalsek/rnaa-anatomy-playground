@@ -1,43 +1,26 @@
-// Live slot markup → GPU-ready geometry for one slot, mirroring the M1 exporter's semantics (export/build-dl.mjs):
-// same parser (svgsub), same roles (roles.mjs), same polyline and fill rules, same palette keys. Output is one byte
-// array per slot — segments (shaders.Seg, 48 B) then fill vertices (shaders.FillVertex, 16 B) — plus a draw list in
-// document (= painter) order. Layer = index of the primitive inside the slot.
-import { numberAttr, parsePathData, parseSvg } from '../../export/svgsub.mjs';
+// Live slot markup → GPU-ready geometry for one slot, with the M1 exporter's rules (one source of truth in export/):
+// the same strict SVG subset (svgsub: scanTags / attrsOf / parsePathData), roles (roles.mjs), polylines (polylines.mjs),
+// palette keys (palette-key.mjs) and tessellation (tess.mjs). Output: one byte array per slot — Seg records, then
+// FillVertex records — plus a draw list in document (= painter) order; layer = index of the primitive in the slot.
+//
+// Style cache: what an element's markup decides apart from its geometry (role, paint ids, opacities, stroke style) is
+// cached per ancestor context, keyed by the element's tag text without its path data, so a new shape costs only its
+// path parse, tessellation and segment records. (Caching whole elements was tried as well: live content moves on
+// every frame, so they hit 7 % of the time and saved nothing measurable.)
+import { paintKeyOf, probeNode } from '../../export/palette-key.mjs';
+import { polylinesOf, ringOfCircle } from '../../export/polylines.mjs';
 import { roleOf } from '../../export/roles.mjs';
-import { cleanRing, triangulate } from '../../export/tess.mjs';
-import type { BlendMode } from '../palette.ts';
-import type { ChainNode } from '../scene.ts';
-import { SEG_BUTT_END, SEG_BUTT_START, SEG_CLOSED, SEG_DOT, SEG_ROUND_END, SEG_ROUND_START } from '../shaders.ts';
+import { attrsOf, numberAttr, opacityAttr, parsePathData, scanTags, strokeWidthOf, type Subpath, type SvgElement } from '../../export/svgsub.mjs';
+import { cleanRing, EPS, triangulate } from '../../export/tess.mjs';
+import { FillWriter } from '../core/fills.ts';
+import type { BlendMode, ChainNode, PaintTable } from '../core/paint.ts';
+import { FILL_VERTEX_RECORD, SEG_RECORD } from '../core/schemas.ts';
+import type { SlotExtent } from '../core/slots.ts';
+import { emptyBox, growBox, isEmptyBox, unionBox, type Box } from '../core/static-geometry.ts';
+import { SegWriter } from '../core/strokes.ts';
 
-export const SEG_BYTES = 48;
-export const VERTEX_BYTES = 16;
-const SEG_WORDS = SEG_BYTES / 4;
-const VERTEX_WORDS = VERTEX_BYTES / 4;
-const CIRCLE_STEPS = 32;
-const MESH_CACHE_LIMIT = 4096;
-/** Fill alpha is folded into the paint (fill vertices carry no alpha); quantizing bounds the number of derived paints. */
-const FILL_ALPHA_STEPS = 1024;
-const EPS = 1e-9;
-
-/** Attributes that never change the cascade result (geometry, identity, alpha carried by the records). */
-const KEY_DROP = new Set(['data-name', 'data-route', 'data-slot', 'id', 'd', 'cx', 'cy', 'r', 'x1', 'y1', 'x2', 'y2', 'offset', 'gradientUnits', 'opacity', 'fill-opacity', 'stroke-opacity', 'stop-opacity', 'style', 'role', 'aria-hidden', 'aria-label']);
-
-export interface PaintClass {
-  /** Index into the renderer's paint table. */
-  id: number;
-  visible: boolean;
-  /** Fully opaque with normal blending: drawn in the depth-writing fill phase. */
-  opaque: boolean;
-  blend: BlendMode;
-}
-
-/**
- * Palette lookup used while building geometry. `key` identifies the probe recipe (prop + class chain + alpha);
- * `chain` builds the recipe only when the key is new.
- */
-export interface PaintLookup {
-  paintOf(prop: 'fill' | 'stroke', key: string, chain: () => ChainNode[], alpha: number): PaintClass;
-}
+/** Cache entries kept before the caches start over (content that never repeats cannot pile up). */
+const CACHE_LIMIT = 4096;
 
 export type SlotDraw =
   | { kind: 'segs'; first: number; count: number; blend: BlendMode }
@@ -47,19 +30,19 @@ export type SlotDraw =
 /** A `<g opacity>` over several drawables: rendered into an offscreen layer, then composited with `alpha`. */
 export interface LayerGroup {
   alpha: number;
-  /** Opaque fill vertex range (relative to the vertex region). */
+  /** Opaque fill vertex range (vertex indices relative to the slot's vertex region). */
   opaque: { first: number; count: number };
   /** Blended draws of the group, in painter order. */
   draws: SlotDraw[];
-  /** Bounds in viewBox units [x0, y0, x1, y1]; strokes add their CSS width on top (maxWidth). */
-  bounds: [number, number, number, number];
-  maxWidth: number;
-  /** Layer of the group's last primitive: the composite sits at this depth. */
+  /** Geometry bounds (viewBox units); strokes add `halfWidth` CSS px on top. */
+  bounds: Box;
+  halfWidth: number;
+  /** Layer of the group's frontmost primitive: the composite sits at this depth. */
   frontLayer: number;
 }
 
 export interface SlotGeometry {
-  /** Segments, then fill vertices. Only the first `byteLength` bytes are meaningful. */
+  /** Seg records, then FillVertex records; only the first `byteLength` bytes are meaningful. Reused per slot. */
   bytes: ArrayBuffer;
   byteLength: number;
   segCount: number;
@@ -68,68 +51,156 @@ export interface SlotGeometry {
   draws: SlotDraw[];
   groups: LayerGroup[];
   layers: number;
+  extent: SlotExtent | null;
 }
 
 export interface GeometryStats {
-  meshHits: number;
-  meshMisses: number;
+  /** Elements built. */
+  elements: number;
+  /** Path styles (everything but the geometry) reused / resolved. */
+  styleHits: number;
+  styleMisses: number;
   fills: number;
   segments: number;
 }
 
-interface SvgNode {
-  tag: string;
-  attrs: Record<string, string>;
-  children: SvgNode[];
+type ElementPrim =
+  | { kind: 'fill'; paint: number; alpha: number; tris: Float32Array; bounds: Box }
+  | { kind: 'segs'; paint: number; alpha: number; words: Uint32Array; count: number; halfWidth: number; bounds: Box }
+  | { kind: 'dot'; paint: number; alpha: number; x: number; y: number; r: number };
+
+interface ElementPrims {
+  prims: ElementPrim[];
 }
 
-type Prim =
-  | { kind: 'group'; group: number; alpha: number }
-  | { kind: 'fill'; layer: number; paint: PaintClass; tris: Float32Array; group: number; first: number }
-  | { kind: 'segs'; layer: number; paint: PaintClass; group: number; polylines: Polyline[]; width: number; cap: string; alpha: number; first: number; count: number }
-  | { kind: 'dot'; layer: number; paint: PaintClass; group: number; x: number; y: number; r: number; alpha: number; first: number; count: number };
-
-interface Polyline {
-  points: number[][];
-  closed: boolean;
+interface GroupInfo {
+  node: SvgElement;
+  probe: ChainNode;
+  opacity: number;
+  hasOpacity: boolean;
 }
 
-/** Growable little-endian word buffer (f32 / u32 views over one ArrayBuffer), reused across frames. */
-class Words {
-  f32 = new Float32Array(1024);
-  u32 = new Uint32Array(this.f32.buffer);
-  length = 0;
-  reserve(words: number) {
-    if (this.length + words <= this.f32.length) return;
-    let size = this.f32.length;
-    while (size < this.length + words) size *= 2;
-    const next = new Float32Array(size);
-    next.set(this.f32.subarray(0, this.length));
-    this.f32 = next;
-    this.u32 = new Uint32Array(next.buffer);
+/** What the markup decides about an element apart from its geometry (role, paints, opacities, stroke style). */
+interface ElementStyle {
+  fill: { paint: number; alpha: number } | null;
+  stroke: { paint: number; alpha: number; width: number; cap: 'round' | 'butt' } | null;
+}
+
+/** Caches of one ancestor context (the same chain of group start tags). */
+interface ContextCache {
+  /** Path styles by the path's tag text without its `d` attribute. */
+  styles: Map<string, ElementStyle>;
+}
+
+interface GroupFrame {
+  key: string;
+  cache: ContextCache;
+  chain: SvgElement[];
+  probeChain: ChainNode[];
+  /** Opacity of non-layered ancestor groups (folded into each element). */
+  alpha: number;
+  /** Layer group index, −1 outside any. */
+  group: number;
+}
+
+/** The primitives of one slot's markup, collected before the paint table resolved its new entries. */
+export class CollectedSlot {
+  readonly prims: SlotPrim[] = [];
+  count = 0;
+  groupAlphas: number[] = [];
+
+  reset() {
+    this.count = 0;
+    this.groupAlphas.length = 0;
+  }
+
+  push(prim: ElementPrim, alpha: number, group: number) {
+    const slot = this.prims[this.count];
+    if (slot) {
+      slot.prim = prim;
+      slot.alpha = alpha;
+      slot.group = group;
+      slot.layer = slot.first = slot.count = 0;
+    } else {
+      this.prims.push({ prim, alpha, group, layer: 0, first: 0, count: 0 });
+    }
+    this.count++;
   }
 }
 
-const isConvexRing = (ring: number[][]) => {
+/** An emitted primitive of the slot being built. */
+interface SlotPrim {
+  prim: ElementPrim;
+  alpha: number;
+  group: number;
+  layer: number;
+  first: number;
+  count: number;
+}
+
+/** Whether a ring (no repeated points) is strictly convex: all turns one way, turning once around. */
+function isConvexRing(ring: number[][]) {
   let sign = 0;
-  let turning = 0;
   const n = ring.length;
   for (let i = 0; i < n; i++) {
     const [ax, ay] = ring[(i + n - 1) % n];
     const [bx, by] = ring[i];
     const [cx, cy] = ring[(i + 1) % n];
-    const ux = bx - ax, uy = by - ay, vx = cx - bx, vy = cy - by;
-    const cross = ux * vy - uy * vx;
+    const cross = (bx - ax) * (cy - by) - (by - ay) * (cx - bx);
     if (Math.abs(cross) > EPS) {
       if (sign && Math.sign(cross) !== sign) return false;
       sign = Math.sign(cross);
     }
-    turning += Math.atan2(cross, ux * vx + uy * vy);
   }
-  return sign !== 0 && Math.abs(Math.abs(turning) - 2 * Math.PI) < 1e-6;
-};
+  if (!sign) return false;
+  // turning number 1, not a star that winds several times (only reached when every turn has the same sign)
+  let turning = 0;
+  for (let i = 0; i < n; i++) {
+    const [ax, ay] = ring[(i + n - 1) % n];
+    const [bx, by] = ring[i];
+    const [cx, cy] = ring[(i + 1) % n];
+    const ux = bx - ax, uy = by - ay, vx = cx - bx, vy = cy - by;
+    turning += Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+  }
+  return Math.abs(Math.abs(turning) - 2 * Math.PI) < 1e-6;
+}
 
-/** Triangle list (x, y per vertex), every triangle with a positive cross product, zero-area ones dropped. */
+const ringBox = (ring: number[][]) => {
+  const box = emptyBox();
+  for (const [x, y] of ring) growBox(box, x, y);
+  return box;
+};
+const boxesOverlap = (a: Box, b: Box) => a.x0 <= b.x1 && b.x0 <= a.x1 && a.y0 <= b.y1 && b.y0 <= a.y1;
+
+/** Separating axis test: an edge normal of either convex ring along which their projections do not even touch. */
+function convexRingsSeparate(a: number[][], b: number[][]) {
+  for (const [ring, other] of [[a, b], [b, a]]) {
+    for (let i = 0; i < ring.length; i++) {
+      const [x0, y0] = ring[i];
+      const [x1, y1] = ring[(i + 1) % ring.length];
+      const nx = y0 - y1, ny = x1 - x0;
+      let minA = Infinity, maxA = -Infinity, minB = Infinity, maxB = -Infinity;
+      for (const [x, y] of ring) {
+        const t = x * nx + y * ny;
+        if (t < minA) minA = t;
+        if (t > maxA) maxA = t;
+      }
+      for (const [x, y] of other) {
+        const t = x * nx + y * ny;
+        if (t < minB) minB = t;
+        if (t > maxB) maxB = t;
+      }
+      if (maxA < minB - EPS || maxB < minA - EPS) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Triangle list (x, y per vertex), every triangle with a positive cross product, zero-area ones dropped. Convex rings
+ * that do not touch each other are fanned one by one (their nonzero union is each of them); anything else goes to the
+ * exporter's tessellator.
+ */
 function trianglesOf(subpaths: { points: number[][] }[]): Float32Array {
   const rings = subpaths.map((s) => cleanRing(s.points)).filter((r) => r.length >= 3);
   if (!rings.length) return new Float32Array(0);
@@ -140,9 +211,11 @@ function trianglesOf(subpaths: { points: number[][] }[]): Float32Array {
     if (area > 0) out.push(a[0], a[1], b[0], b[1], c[0], c[1]);
     else out.push(a[0], a[1], c[0], c[1], b[0], b[1]);
   };
-  if (rings.length === 1 && isConvexRing(rings[0])) {
-    const ring = rings[0];
-    for (let i = 1; i + 1 < ring.length; i++) push(ring[0], ring[i], ring[i + 1]);
+  const boxes = rings.length > 1 ? rings.map(ringBox) : [];
+  const convex = rings.every(isConvexRing);
+  const separate = convex && boxes.every((box, i) => boxes.every((other, j) => j <= i || !boxesOverlap(box, other) || convexRingsSeparate(rings[i], rings[j])));
+  if (convex && separate) {
+    for (const ring of rings) for (let i = 1; i + 1 < ring.length; i++) push(ring[0], ring[i], ring[i + 1]);
   } else {
     const mesh = triangulate(subpaths);
     for (let t = 0; t < mesh.indices.length; t += 3) push(mesh.positions[mesh.indices[t]], mesh.positions[mesh.indices[t + 1]], mesh.positions[mesh.indices[t + 2]]);
@@ -150,267 +223,131 @@ function trianglesOf(subpaths: { points: number[][] }[]): Float32Array {
   return new Float32Array(out);
 }
 
-type Subpath = { points: number[][]; closed: boolean; drawn: boolean };
-
-const CODE_M = 77, CODE_L = 76, CODE_Z = 90, CODE_SPACE = 32, CODE_MINUS = 45, CODE_DOT = 46, CODE_0 = 48, CODE_9 = 57;
-
 /**
- * Path data in the exact form the kit's pathOf writes (absolute M / L / Z, plain decimal numbers separated by one
- * space: "M247.9 634.1L249.6 625.7Z") — about 4× faster than the general svgsub parser, which handles everything
- * else. Returns null on anything outside that form; equal results to parsePathData otherwise.
- */
-function kitPathData(d: string): Subpath[] | null {
-  const subpaths: Subpath[] = [];
-  let current: Subpath | null = null;
-  let i = 0;
-  const n = d.length;
-  const number = (): number => {
-    const start = i;
-    if (d.charCodeAt(i) === CODE_MINUS) i++;
-    let digits = 0;
-    while (i < n) {
-      const c = d.charCodeAt(i);
-      if ((c >= CODE_0 && c <= CODE_9) || c === CODE_DOT) {
-        i++;
-        digits++;
-      } else break;
-    }
-    return digits ? Number(d.slice(start, i)) : NaN;
-  };
-  while (i < n) {
-    const command = d.charCodeAt(i++);
-    if (command === CODE_Z) {
-      if (current && !current.closed) {
-        current.closed = true;
-        current.drawn = true;
-      }
-      continue;
-    }
-    if (command !== CODE_M && command !== CODE_L) return null;
-    const x = number();
-    if (d.charCodeAt(i++) !== CODE_SPACE) return null;
-    const y = number();
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    if (command === CODE_M || !current || current.closed) {
-      if (command === CODE_L && current?.closed) {
-        const [sx, sy]: number[] = current.points[0];
-        current = { points: [[sx, sy]], closed: false, drawn: false };
-        subpaths.push(current);
-      } else if (command === CODE_M) {
-        current = { points: [[x, y]], closed: false, drawn: false };
-        subpaths.push(current);
-        continue;
-      } else return null;
-    }
-    current.points.push([x, y]);
-    current.drawn = true;
-  }
-  return subpaths;
-}
-
-const pathDataOf = (d: string): Subpath[] => kitPathData(d) ?? parsePathData(d);
-
-const samePoint = (p: number[], q: number[]) => Math.abs(p[0] - q[0]) <= EPS && Math.abs(p[1] - q[1]) <= EPS;
-
-/** Polylines as SVG strokes them (export/build-dl.mjs polylinesOf): a zero-length subpath paints only with round caps. */
-function polylinesOf(subpaths: { points: number[][]; closed: boolean; drawn: boolean }[], cap: string): Polyline[] {
-  const out: Polyline[] = [];
-  for (const sp of subpaths) {
-    if (!sp.drawn) continue;
-    const points = sp.points.filter((p, i) => i === 0 || !samePoint(p, sp.points[i - 1]));
-    if (sp.closed && points.length > 1 && samePoint(points[0], points[points.length - 1])) points.pop();
-    if (points.length === 1) {
-      if (cap === 'round') out.push({ points: [points[0], points[0]], closed: false });
-      continue;
-    }
-    out.push({ points, closed: sp.closed });
-  }
-  return out;
-}
-
-const ringOfCircle = (cx: number, cy: number, r: number) =>
-  Array.from({ length: CIRCLE_STEPS }, (_, i) => [cx + r * Math.cos((2 * Math.PI * i) / CIRCLE_STEPS), cy + r * Math.sin((2 * Math.PI * i) / CIRCLE_STEPS)]);
-
-const opacityOf = (node: SvgNode, name: string): number => numberAttr(node, name, 1, { percent: true });
-
-/** Inline `style="stroke-width:…"` override in CSS px (parseSvg already rejects any other inline property). */
-function strokeWidthOverride(node: SvgNode): number | undefined {
-  const declaration = (node.attrs.style ?? '').split(';').find((part) => part.trim().startsWith('stroke-width'));
-  if (!declaration) return undefined;
-  const value = parseFloat(declaration.slice(declaration.indexOf(':') + 1));
-  if (!Number.isFinite(value)) throw new Error(`live: bad inline ${declaration.trim()}`);
-  return value;
-}
-
-/** Probe-relevant attributes of a node, in markup order (the palette key of export/build-dl.mjs probeNode). */
-function probeNodeOf(node: SvgNode): ChainNode {
-  const attrs: Record<string, string> = {};
-  for (const [name, value] of Object.entries(node.attrs)) {
-    if (KEY_DROP.has(name)) continue;
-    if ((name === 'fill' || name === 'stroke') && value.startsWith('url(')) continue;
-    attrs[name] = value;
-  }
-  return { tag: node.tag, attrs };
-}
-
-const keyOf = (node: ChainNode) => {
-  let key = node.tag;
-  for (const name in node.attrs) key += ` ${name}=${node.attrs[name]}`;
-  return key;
-};
-
-const countDrawables = (node: SvgNode): number => node.children.reduce((n, child) => n + (child.tag === 'path' || child.tag === 'circle' ? 1 : countDrawables(child)), 0);
-
-/**
- * Builds slot geometry. One instance per page: it owns the mesh cache (fills memoized by their `d` string; packets,
- * vanes and slats repeat while they rest) and a scratch buffer per slot.
+ * Builds slot geometry. One instance per page: it owns the element cache and the scratch writers, so building is
+ * allocation-light once warm. `chainPrefix` = probe ancestors of every slot's content (`g.fx-parts > g[data-slot]`).
  */
 export class SlotGeometryBuilder {
-  readonly stats: GeometryStats = { meshHits: 0, meshMisses: 0, fills: 0, segments: 0 };
-  private readonly meshes = new Map<string, Float32Array>();
-  private readonly segs = new Words();
-  private readonly verts = new Words();
+  readonly stats: GeometryStats = { elements: 0, styleHits: 0, styleMisses: 0, fills: 0, segments: 0 };
+  /** Style caches per ancestor context (the group start tags above the element, concatenated). */
+  private readonly contexts = new Map<string, ContextCache>();
+  /** Styles, contexts and group infos cached (the caches start over at CACHE_LIMIT). */
+  private cachedEntries = 0;
+  private readonly groupInfos = new Map<string, GroupInfo>();
+  private readonly segs = new SegWriter(1024);
+  private readonly verts = new FillWriter(4096);
+  private readonly elementSegs = new SegWriter(256);
+  private readonly points: number[] = [];
+  private readonly scratch = new CollectedSlot();
 
   constructor(
-    private readonly palette: PaintLookup,
-    /** Probe ancestors of every slot's content (`g.fx-parts > g[data-slot]` in the v2 page). */
+    private readonly paints: PaintTable,
     private readonly chainPrefix: ChainNode[],
   ) {}
 
-  /** Throws on markup the GPU path cannot draw (unknown element, curve, dash, gradient, inline style…). */
+  /**
+   * Throws on markup the GPU path cannot draw (unsupported element, attribute, curve, dash, paint server, halo,
+   * inline style…): exactly the checks `collect` applies. Styles resolved here are reused by the next build.
+   */
   validate(markup: string) {
-    const visit = (node: SvgNode, chain: SvgNode[]) => {
-      for (const child of node.children) {
-        if (child.tag === 'g') visit(child, [...chain, child]);
-        else if (child.tag === 'path' || child.tag === 'circle') {
-          this.checkElement(child);
-          roleOf({ tag: child.tag, attrs: child.attrs, chain });
-          if (child.tag === 'path') parsePathData(child.attrs.d ?? '');
-        } else throw new Error(`live: <${child.tag}> is not supported in a live slot`);
-      }
-    };
-    visit(parseSvg(markup) as SvgNode, []);
+    this.collect(markup, this.scratch);
   }
 
-  build(markup: string, item: number, out?: SlotGeometry): SlotGeometry {
-    const prims = markup ? this.collect(markup) : [];
-    return this.pack(prims, item, out);
-  }
-
-  private checkElement(node: SvgNode) {
-    strokeWidthOverride(node);
-    for (const prop of ['fill', 'stroke']) if (node.attrs[prop]?.startsWith('url(')) throw new Error(`live: ${prop}="${node.attrs[prop]}" (paint server) is not supported in a live slot`);
-  }
-
-  private collect(markup: string): Prim[] {
-    const root = parseSvg(markup) as SvgNode;
-    const prims: Prim[] = [];
-    let groups = 0;
-    const prefixKey = this.chainPrefix.map(keyOf).join('>');
-    const visit = (node: SvgNode, chain: SvgNode[], probeChain: ChainNode[], chainKey: string, alpha: number, group: number) => {
-      for (const child of node.children) {
-        if (child.tag === 'g') {
-          const probe = probeNodeOf(child);
-          const own = opacityOf(child, 'opacity');
-          const layered = group < 0 && child.attrs.opacity !== undefined && countDrawables(child) > 1;
-          // A layered group's opacity is applied once, when its layer is composited; any other opacity folds into the
-          // elements (exact for a single drawable). Groups nested in a layered group fold too (approximation).
-          const childGroup = layered ? groups++ : group;
-          const childAlpha = layered ? 1 : alpha * own;
-          if (layered) prims.push({ kind: 'group', group: childGroup, alpha: alpha * own });
-          visit(child, [...chain, child], [...probeChain, probe], `${chainKey}>${keyOf(probe)}`, childAlpha, childGroup);
-          continue;
+  /** Phase 1: walks the markup and registers its paints (new ones stay pending until the table resolves them). */
+  collect(markup: string, into: CollectedSlot) {
+    into.reset();
+    if (!markup) return;
+    const counts = /<g\b[^>]*\sopacity=/.test(markup) ? drawnLeafCounts(markup) : null;
+    const root: GroupFrame = { key: '', cache: this.contextOf(''), chain: [], probeChain: this.chainPrefix, alpha: 1, group: -1 };
+    const stack: GroupFrame[] = [root];
+    let ordinal = 0;
+    scanTags(markup, {
+      open: (tag, attrSource, selfClosing, raw) => {
+        const frame = stack[stack.length - 1];
+        const open = ordinal++;
+        if (tag === 'g') {
+          if (selfClosing) return;
+          const info = this.groupInfoOf(raw, attrSource);
+          const layered = frame.group < 0 && info.hasOpacity && (counts?.[open] ?? 0) > 1;
+          const group = layered ? into.groupAlphas.push(frame.alpha * info.opacity) - 1 : frame.group;
+          const key = frame.key + raw;
+          stack.push({ key, cache: this.contextOf(key), chain: [...frame.chain, info.node], probeChain: [...frame.probeChain, info.probe], alpha: layered ? 1 : frame.alpha * info.opacity, group });
+          return;
         }
-        if (child.tag !== 'path' && child.tag !== 'circle') throw new Error(`live: <${child.tag}> is not supported in a live slot`);
-        this.checkElement(child);
-        const el = { tag: child.tag, attrs: child.attrs, chain };
-        const role = roleOf(el);
-        if (role.special.halo) throw new Error('live: halos are not supported in a live slot');
-        const elProbe = probeNodeOf(child);
-        const elKey = `${chainKey}>${keyOf(elProbe)}`;
-        const chainOf = () => [...this.chainPrefix, ...probeChain, elProbe];
-        const elAlpha = alpha * opacityOf(child, 'opacity');
-        let subpaths;
-        if (child.tag === 'circle') {
-          const [x, y, r] = ['cx', 'cy', 'r'].map((name) => numberAttr(child, name, 0));
-          const dotAlpha = elAlpha * opacityOf(child, 'fill-opacity');
-          prims.push({ kind: 'dot', layer: 0, paint: this.palette.paintOf('fill', `fill|${prefixKey}${elKey}`, chainOf, 1), group, x, y, r, alpha: dotAlpha, first: 0, count: 0 });
-          if (!role.stroke) continue;
-          subpaths = [{ points: ringOfCircle(x, y, r), closed: true, drawn: true }];
-        } else {
-          const d = child.attrs.d ?? '';
-          subpaths = pathDataOf(d);
-          if (role.fill) {
-            const fillAlpha = Math.round(elAlpha * opacityOf(child, 'fill-opacity') * FILL_ALPHA_STEPS) / FILL_ALPHA_STEPS;
-            const paint = this.palette.paintOf('fill', `fill|${fillAlpha}|${prefixKey}${elKey}`, chainOf, fillAlpha);
-            prims.push({ kind: 'fill', layer: 0, paint, tris: this.meshOf(d, subpaths), group, first: 0 });
-          }
-        }
-        if (role.stroke) {
-          const width = strokeWidthOverride(child) ?? role.stroke.width;
-          const paint = this.palette.paintOf('stroke', `stroke|${prefixKey}${elKey}`, chainOf, 1);
-          prims.push({ kind: 'segs', layer: 0, paint, group, polylines: polylinesOf(subpaths, role.stroke.cap), width, cap: role.stroke.cap, alpha: elAlpha * opacityOf(child, 'stroke-opacity'), first: 0, count: 0 });
-        }
-      }
-    };
-    visit(root, [], [], '', 1, -1);
-    return prims;
+        if (tag !== 'path' && tag !== 'circle') throw new Error(`live: <${tag}> is not supported in a live slot`);
+        const element = this.elementPrims(frame, tag, attrSource, raw);
+        for (const prim of element.prims) into.push(prim, prim.alpha * frame.alpha, frame.group);
+      },
+      close: (tag) => {
+        if (tag === 'g') stack.pop();
+      },
+    });
   }
 
-  private meshOf(d: string, subpaths: { points: number[][] }[]) {
-    const cached = this.meshes.get(d);
-    if (cached) {
-      this.stats.meshHits++;
-      return cached;
-    }
-    this.stats.meshMisses++;
-    if (this.meshes.size >= MESH_CACHE_LIMIT) this.meshes.clear();
-    const tris = trianglesOf(subpaths);
-    this.meshes.set(d, tris);
-    return tris;
-  }
-
-  private pack(prims: Prim[], item: number, previous?: SlotGeometry): SlotGeometry {
-    const segs = this.segs;
-    const verts = this.verts;
-    segs.length = 0;
-    verts.length = 0;
-    const groups: LayerGroup[] = [];
+  /** Phase 2 (after the paint table resolved): packs the collected primitives with the current paint classes. */
+  pack(collected: CollectedSlot, item: number, previous?: SlotGeometry): SlotGeometry {
+    const { segs, verts, paints } = this;
+    segs.reset();
+    verts.reset();
+    const prims = collected.prims;
+    const n = collected.count;
+    const groups: LayerGroup[] = collected.groupAlphas.map((alpha) => ({ alpha, opaque: { first: 0, count: 0 }, draws: [], bounds: emptyBox(), halfWidth: 0, frontLayer: 0 }));
     const draws: SlotDraw[] = [];
+    const extentBox = emptyBox();
+    let extentHalfWidth = 0;
     let layer = 0;
-    // Pass 1: segments (strokes and dots) in document order; layers assigned to every drawn primitive.
-    for (const prim of prims) {
-      if (prim.kind === 'group') {
-        groups.push({ alpha: prim.alpha, opaque: { first: 0, count: 0 }, draws: [], bounds: [Infinity, Infinity, -Infinity, -Infinity], maxWidth: 0, frontLayer: 0 });
+    const visible = (p: SlotPrim) => paints.classes[p.prim.paint].visible && p.alpha > 0;
+    const opaque = (p: SlotPrim) => paints.classes[p.prim.paint].opaque && p.alpha >= 0.999;
+    // Pass 1: segments (strokes and dots) in document order; a layer for every drawn primitive.
+    for (let i = 0; i < n; i++) {
+      const p = prims[i];
+      if (!visible(p)) continue;
+      p.layer = layer++;
+      if (p.group >= 0) groups[p.group].frontLayer = p.layer;
+      const prim = p.prim;
+      if (prim.kind === 'fill') {
+        unionBox(extentBox, prim.bounds);
+        if (p.group >= 0) unionBox(groups[p.group].bounds, prim.bounds);
         continue;
       }
-      if (!prim.paint.visible) continue;
-      prim.layer = layer++;
-      if (prim.group >= 0) groups[prim.group].frontLayer = prim.layer;
-      if (prim.kind === 'fill') continue;
-      const first = segs.length / SEG_WORDS;
-      if (prim.kind === 'dot') this.pushSeg(prim.x, prim.y, prim.x, prim.y, prim.r, item, prim.paint.id, prim.layer, prim.alpha, SEG_DOT, 0, 1);
-      else this.pushPolylines(prim, item);
-      prim.first = first;
-      prim.count = segs.length / SEG_WORDS - first;
-      if (prim.group >= 0) this.growBounds(groups[prim.group], prim, first, prim.count);
+      p.first = segs.count;
+      if (prim.kind === 'dot') {
+        segs.dot(prim.x, prim.y, prim.r, { item, paint: prim.paint, layer: p.layer, alpha: p.alpha });
+        growBox(extentBox, prim.x, prim.y, prim.r);
+        if (p.group >= 0) growBox(groups[p.group].bounds, prim.x, prim.y, prim.r);
+      } else {
+        segs.appendRecords(prim.words, prim.count, item, p.layer, p.alpha);
+        unionBox(extentBox, prim.bounds);
+        extentHalfWidth = Math.max(extentHalfWidth, prim.halfWidth);
+        if (p.group >= 0) {
+          unionBox(groups[p.group].bounds, prim.bounds);
+          groups[p.group].halfWidth = Math.max(groups[p.group].halfWidth, prim.halfWidth);
+        }
+      }
+      p.count = segs.count - p.first;
     }
-    const segCount = segs.length / SEG_WORDS;
-    this.stats.segments += segCount;
+    this.stats.segments += segs.count;
     // Pass 2: fill vertices — opaque outside groups, then each group's opaque fills, then translucent fills in order.
-    const pushFill = (prim: Prim & { kind: 'fill' }) => {
-      prim.first = verts.length / VERTEX_WORDS;
-      this.pushFill(prim, item);
-      if (prim.group >= 0) this.growBoundsByFill(groups[prim.group], prim.tris);
+    const pushFill = (p: SlotPrim) => {
+      const prim = p.prim as ElementPrim & { kind: 'fill' };
+      p.first = verts.triangles(prim.tris, 0, prim.tris.length / 2, item, prim.paint, p.layer, p.alpha);
+      p.count = prim.tris.length / 2;
+      this.stats.fills++;
     };
     const opaqueOf = (group: number) => {
-      const first = verts.length / VERTEX_WORDS;
-      for (const prim of prims) if (prim.kind === 'fill' && prim.paint.visible && prim.paint.opaque && prim.group === group) pushFill(prim);
-      return { first, count: verts.length / VERTEX_WORDS - first };
+      const first = verts.count;
+      for (let i = 0; i < n; i++) {
+        const p = prims[i];
+        if (p.prim.kind === 'fill' && p.group === group && visible(p) && opaque(p)) pushFill(p);
+      }
+      return { first, count: verts.count - first };
     };
-    const opaque = opaqueOf(-1);
+    const opaqueRange = opaqueOf(-1);
     groups.forEach((group, index) => (group.opaque = opaqueOf(index)));
-    for (const prim of prims) if (prim.kind === 'fill' && prim.paint.visible && !prim.paint.opaque) pushFill(prim);
+    for (let i = 0; i < n; i++) {
+      const p = prims[i];
+      if (p.prim.kind === 'fill' && visible(p) && !opaque(p)) pushFill(p);
+    }
     // Pass 3: blended draw lists in painter order; consecutive runs merge.
     const append = (list: SlotDraw[], next: SlotDraw) => {
       const last = list[list.length - 1];
@@ -418,106 +355,163 @@ export class SlotGeometryBuilder {
       else list.push(next);
     };
     let openGroup = -1;
-    for (const prim of prims) {
-      if (prim.kind === 'group' || !prim.paint.visible) continue;
-      const list = prim.group >= 0 ? groups[prim.group].draws : draws;
-      if (prim.group >= 0 && prim.group !== openGroup) {
-        openGroup = prim.group;
-        draws.push({ kind: 'group', group: prim.group });
+    for (let i = 0; i < n; i++) {
+      const p = prims[i];
+      if (!visible(p)) continue;
+      const list = p.group >= 0 ? groups[p.group].draws : draws;
+      if (p.group >= 0 && p.group !== openGroup) {
+        openGroup = p.group;
+        draws.push({ kind: 'group', group: p.group });
       }
-      if (prim.kind === 'fill') {
-        if (!prim.paint.opaque && prim.tris.length) append(list, { kind: 'fill', first: prim.first, count: prim.tris.length / 2, blend: prim.paint.blend });
-      } else {
-        if (prim.count) append(list, { kind: 'segs', first: prim.first, count: prim.count, blend: prim.paint.blend });
+      const blend = paints.classes[p.prim.paint].blend;
+      if (p.prim.kind === 'fill') {
+        if (!opaque(p) && p.count) append(list, { kind: 'fill', first: p.first, count: p.count, blend });
+      } else if (p.count) {
+        append(list, { kind: 'segs', first: p.first, count: p.count, blend });
       }
     }
-    // Pack: [segments | vertices] into the slot's reusable byte array.
-    const byteLength = segs.length * 4 + verts.length * 4;
+    // [Seg records | FillVertex records] into the slot's reusable byte array
+    const segBytes = segs.count * SEG_RECORD.bytes;
+    const byteLength = segBytes + verts.count * FILL_VERTEX_RECORD.bytes;
     let bytes = previous?.bytes;
-    if (!bytes || bytes.byteLength < byteLength) bytes = new ArrayBuffer(Math.max(1024, 2 ** Math.ceil(Math.log2(byteLength))));
-    const words = new Uint32Array(bytes);
-    words.set(segs.u32.subarray(0, segs.length));
-    words.set(verts.u32.subarray(0, verts.length), segs.length);
-    return { bytes, byteLength, segCount, vertexCount: verts.length / VERTEX_WORDS, opaque, draws, groups, layers: layer };
+    if (!bytes || bytes.byteLength < byteLength) bytes = new ArrayBuffer(2 ** Math.ceil(Math.log2(Math.max(1024, byteLength))));
+    const words = new Uint32Array(bytes, 0, byteLength / 4);
+    words.set(segs.u32.subarray(0, segBytes / 4));
+    words.set(verts.words, segBytes / 4);
+    const extent = isEmptyBox(extentBox) ? null : { box: extentBox, halfWidth: extentHalfWidth };
+    return { bytes, byteLength, segCount: segs.count, vertexCount: verts.count, opaque: opaqueRange, draws, groups, layers: layer, extent };
   }
 
-  private pushSeg(x0: number, y0: number, x1: number, y1: number, width: number, item: number, paint: number, layer: number, alpha: number, flags: number, polyStart: number, polyEnd: number) {
-    const segs = this.segs;
-    segs.reserve(SEG_WORDS);
-    const o = segs.length;
-    const { f32, u32 } = segs;
-    f32[o] = x0;
-    f32[o + 1] = y0;
-    f32[o + 2] = x1;
-    f32[o + 3] = y1;
-    f32[o + 4] = width;
-    u32[o + 5] = item;
-    u32[o + 6] = paint;
-    u32[o + 7] = layer;
-    f32[o + 8] = alpha;
-    u32[o + 9] = flags;
-    u32[o + 10] = polyStart;
-    u32[o + 11] = polyEnd;
-    segs.length += SEG_WORDS;
+  private groupInfoOf(raw: string, attrSource: string): GroupInfo {
+    let info = this.groupInfos.get(raw);
+    if (!info) {
+      const node = { tag: 'g', attrs: attrsOf('g', attrSource) };
+      info = { node, probe: probeNode(node), opacity: opacityAttr(node, 'opacity'), hasOpacity: node.attrs.opacity !== undefined };
+      this.groupInfos.set(raw, info);
+      this.counted();
+    }
+    return info;
   }
 
-  /** Same segment flags as Renderer.buildGeometry for the static scene (closed ⇔ ≥ 3 points, caps on open ends). */
-  private pushPolylines(prim: Prim & { kind: 'segs' }, item: number) {
-    const butt = prim.cap === 'butt';
-    for (const { points, closed } of prim.polylines) {
-      const count = points.length;
-      const isClosed = closed && count >= 3;
-      const n = isClosed ? count : count - 1;
-      if (butt && !isClosed && n === 1 && samePoint(points[0], points[count - 1])) continue;
-      const polyStart = this.segs.length / SEG_WORDS;
-      for (let i = 0; i < n; i++) {
-        const a = points[i];
-        const b = points[(i + 1) % count];
-        let flags = isClosed ? SEG_CLOSED : 0;
-        if (!isClosed && i === 0) flags |= butt ? SEG_BUTT_START : SEG_ROUND_START;
-        if (!isClosed && i === n - 1) flags |= butt ? SEG_BUTT_END : SEG_ROUND_END;
-        this.pushSeg(a[0], a[1], b[0], b[1], prim.width, item, prim.paint.id, prim.layer, prim.alpha, flags, polyStart, polyStart + n);
+  private contextOf(key: string): ContextCache {
+    let cache = this.contexts.get(key);
+    if (!cache) {
+      cache = { styles: new Map() };
+      this.contexts.set(key, cache);
+      this.counted();
+    }
+    return cache;
+  }
+
+  /** Counts one cache entry; past the limit every cache starts over (content that never repeats cannot pile up). */
+  private counted() {
+    if (++this.cachedEntries < CACHE_LIMIT) return;
+    for (const context of this.contexts.values()) context.styles.clear();
+    this.contexts.clear();
+    this.groupInfos.clear();
+    this.cachedEntries = 0;
+  }
+
+  private elementPrims(frame: GroupFrame, tag: string, attrSource: string, raw: string): ElementPrims {
+    this.stats.elements++;
+    return tag === 'path' ? this.pathPrims(frame, attrSource, raw) : this.circlePrims(frame, attrSource);
+  }
+
+  /**
+   * A path: its style comes from the context's style cache, keyed by the tag text without `d` (paths that differ only
+   * in geometry share it), so only the path data is parsed for a new shape. Tags whose `d` cannot be cut out plainly
+   * (single quotes, entities) take the full attribute parse.
+   */
+  private pathPrims(frame: GroupFrame, attrSource: string, raw: string): ElementPrims {
+    const at = raw.indexOf(' d="');
+    const end = at < 0 ? -1 : raw.indexOf('"', at + 4);
+    const d = end < 0 ? null : raw.slice(at + 4, end);
+    if (d === null || d.includes('&')) {
+      const node = { tag: 'path', attrs: attrsOf('path', attrSource) };
+      return this.primsOf(this.styleOf(frame, node), parsePathData(node.attrs.d ?? ''));
+    }
+    const styleKey = raw.slice(0, at) + raw.slice(end + 1);
+    let style = frame.cache.styles.get(styleKey);
+    if (style) this.stats.styleHits++;
+    else {
+      this.stats.styleMisses++;
+      style = this.styleOf(frame, { tag: 'path', attrs: attrsOf('path', attrSource) });
+      frame.cache.styles.set(styleKey, style);
+      this.counted();
+    }
+    return this.primsOf(style, parsePathData(d));
+  }
+
+  private circlePrims(frame: GroupFrame, attrSource: string): ElementPrims {
+    const node = { tag: 'circle', attrs: attrsOf('circle', attrSource) };
+    const style = this.styleOf(frame, node);
+    const x = numberAttr(node, 'cx', 0), y = numberAttr(node, 'cy', 0), r = numberAttr(node, 'r', 0);
+    const dot: ElementPrim = { kind: 'dot', paint: style.fill!.paint, alpha: style.fill!.alpha, x, y, r };
+    if (!style.stroke) return { prims: [dot] };
+    const ring = this.primsOf({ fill: null, stroke: style.stroke }, [{ points: ringOfCircle(x, y, r), closed: true, drawn: true }]);
+    return { prims: [dot, ...ring.prims] };
+  }
+
+  /** Role, paints and opacities of an element (every check of the subset that does not depend on its geometry). */
+  private styleOf(frame: GroupFrame, node: SvgElement): ElementStyle {
+    const role = roleOf({ ...node, chain: frame.chain });
+    if (role.special.halo) throw new Error('live: halos are not supported in a live slot');
+    for (const prop of ['fill', 'stroke'] as const) if (node.attrs[prop]?.startsWith('url(')) throw new Error(`live: ${prop}="${node.attrs[prop]}" (paint server) is not supported in a live slot`);
+    const widthOverride = strokeWidthOf(node);
+    const elProbe = probeNode(node);
+    const paintOf = (prop: 'fill' | 'stroke') => this.paints.idOf(paintKeyOf(prop, frame.probeChain, elProbe), () => ({ kind: 'probe', prop, ancestors: frame.probeChain, el: elProbe }));
+    const opacity = opacityAttr(node, 'opacity');
+    // a circle always paints its fill (a dot); a path only when its role fills
+    const fills = node.tag === 'circle' || role.fill;
+    return {
+      fill: fills ? { paint: paintOf('fill'), alpha: opacity * opacityAttr(node, 'fill-opacity') } : null,
+      stroke: role.stroke ? { paint: paintOf('stroke'), alpha: opacity * opacityAttr(node, 'stroke-opacity'), width: widthOverride ?? role.stroke.width, cap: role.stroke.cap } : null,
+    };
+  }
+
+  private primsOf(style: ElementStyle, subpaths: Subpath[]): ElementPrims {
+    const prims: ElementPrim[] = [];
+    if (style.fill) {
+      const tris = trianglesOf(subpaths);
+      const bounds = emptyBox();
+      for (let i = 0; i < tris.length; i += 2) growBox(bounds, tris[i], tris[i + 1]);
+      prims.push({ kind: 'fill', paint: style.fill.paint, alpha: style.fill.alpha, tris, bounds });
+    }
+    if (style.stroke) {
+      const { width, cap, paint, alpha } = style.stroke;
+      const writer = this.elementSegs;
+      writer.reset();
+      const bounds = emptyBox();
+      const xy = this.points;
+      for (const { points, closed } of polylinesOf(subpaths, cap)) {
+        xy.length = 0;
+        for (const [x, y] of points) {
+          xy.push(x, y);
+          growBox(bounds, x, y);
+        }
+        writer.polyline(xy, 0, points.length, closed, cap, { width, item: 0, paint, layer: 0, alpha: 1 });
       }
+      prims.push({ kind: 'segs', paint, alpha, words: writer.u32.slice(0, writer.count * SEG_RECORD.words), count: writer.count, halfWidth: width / 2, bounds });
     }
+    return { prims };
   }
+}
 
-  private pushFill(prim: Prim & { kind: 'fill' }, item: number) {
-    const verts = this.verts;
-    const tris = prim.tris;
-    const n = tris.length / 2;
-    verts.reserve(n * VERTEX_WORDS);
-    const { f32, u32 } = verts;
-    const ids = (item | (prim.paint.id << 16)) >>> 0;
-    let o = verts.length;
-    for (let v = 0; v < n; v++, o += VERTEX_WORDS) {
-      f32[o] = tris[v * 2];
-      f32[o + 1] = tris[v * 2 + 1];
-      u32[o + 2] = ids;
-      u32[o + 3] = prim.layer;
-    }
-    verts.length = o;
-    this.stats.fills++;
-  }
-
-  private growBounds(group: LayerGroup, prim: Prim, first: number, count: number) {
-    const f32 = this.segs.f32;
-    for (let s = first; s < first + count; s++) {
-      const o = s * SEG_WORDS;
-      const pad = prim.kind === 'dot' ? f32[o + 4] : 0;
-      group.bounds[0] = Math.min(group.bounds[0], f32[o] - pad, f32[o + 2] - pad);
-      group.bounds[1] = Math.min(group.bounds[1], f32[o + 1] - pad, f32[o + 3] - pad);
-      group.bounds[2] = Math.max(group.bounds[2], f32[o] + pad, f32[o + 2] + pad);
-      group.bounds[3] = Math.max(group.bounds[3], f32[o + 1] + pad, f32[o + 3] + pad);
-    }
-    if (prim.kind === 'segs') group.maxWidth = Math.max(group.maxWidth, prim.width);
-  }
-
-  private growBoundsByFill(group: LayerGroup, tris: Float32Array) {
-    for (let i = 0; i < tris.length; i += 2) {
-      group.bounds[0] = Math.min(group.bounds[0], tris[i]);
-      group.bounds[1] = Math.min(group.bounds[1], tris[i + 1]);
-      group.bounds[2] = Math.max(group.bounds[2], tris[i]);
-      group.bounds[3] = Math.max(group.bounds[3], tris[i + 1]);
-    }
-  }
+/** Drawn leaves (path / circle) under every open tag, by open-tag ordinal (layered-group decisions need them). */
+function drawnLeafCounts(markup: string): number[] {
+  const counts: number[] = [];
+  const stack: number[] = [];
+  let ordinal = 0;
+  scanTags(markup, {
+    open: (tag, _attrs, selfClosing) => {
+      const index = ordinal++;
+      counts[index] = 0;
+      if (tag === 'path' || tag === 'circle') for (const open of stack) counts[open]++;
+      if (!selfClosing) stack.push(index);
+    },
+    close: () => {
+      stack.pop();
+    },
+  });
+  return counts;
 }

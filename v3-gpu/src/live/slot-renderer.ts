@@ -1,52 +1,46 @@
-// GPU side of the live slots: one grow-only buffer per slot ([segments | fill vertices], one writeBuffer per changed
-// slot), its bind group, the per-slot draws at the slot's painter position, and group-opacity layers.
+// GPU side of the markup-driven live slots (a SlotPainter): one grow-only buffer per slot ([Seg records | FillVertex
+// records], one write per changed slot), its bind group, the slot's draws at its painter position, and group-opacity
+// layers.
 //
-// Group opacity: each layered group is drawn with the regular pipelines into a bbox-sized offscreen 4× MSAA target
-// (own Frame uniform shifted to the bbox, own cleared depth), resolved, and composited in the main pass at the
-// group's painter position: a bbox triangle at the depth of the group's frontmost primitive, layer × alpha, source
-// over. Later opaque fills still cover it per sample through the depth test.
-import type { RenderFlag, SampledFlag, StorageFlag, TgpuBindGroup, TgpuBuffer, TgpuRenderPass, TgpuRenderPipeline, TgpuRoot, TgpuTexture, UniformFlag, VertexFlag } from 'typegpu';
+// Group opacity: every layered group of the frame gets a cell in one atlas (shelf-packed), all cells are drawn in one
+// 4× MSAA pass with the regular pipelines (a Frame uniform per cell maps the group's device box onto its cell; the
+// cell is scissored) and resolved once; each group is then composited in the main pass at its painter position: a quad
+// over its device box at the depth of its frontmost primitive, atlas texel × alpha, source-over. Later opaque fills
+// still cover it per sample through the depth test.
+import type { StorageFlag, TgpuBindGroup, TgpuBuffer, TgpuCommandEncoder, TgpuRenderPass, TgpuRoot, VertexFlag } from 'typegpu';
 import * as d from 'typegpu/data';
-import { OVER, type Renderer } from '../renderer.ts';
-import * as S from '../shaders.ts';
-import { SEG_BYTES, type SlotDraw, type SlotGeometry } from './geometry.ts';
+import type { FrameBuffer, LayoutGroup, SharedBindings } from '../core/bindings.ts';
+import { createMsaaColor, createMsaaDepth, createResolveColor, type MsaaColor, type MsaaDepth, type ResolveColor } from '../core/gpu-types.ts';
+import { fillPipelineOf, strokePipelineOf } from '../core/pipelines.ts';
+import { depthOfSlot, Frame, GROUP_PARAMS_RECORD, GroupParams, Seg, SEG_RECORD } from '../core/schemas.ts';
+import * as S from '../core/shaders.ts';
+import type { FrameContext, SlotExtent, SlotPainter } from '../core/slots.ts';
+import type { LayerGroup, SlotDraw, SlotGeometry } from './geometry.ts';
 
-/** Where a slot sits in the painter's order (the DL `slots` entry: v2 kit.mjs page() placement). */
-export interface SlotPlacement {
-  name: string;
-  /** Item index the slot is anchored to. */
-  anchor: number;
-  side: 'after' | 'before';
-  /** Document position; orders several slots at one anchor. */
-  seq: number;
-}
-
-type SlotBuffer = TgpuBuffer<d.WgslArray<typeof S.Seg>> & StorageFlag & VertexFlag;
-type LayoutGroup = TgpuBindGroup<(typeof S.layout)['entries']>;
+type SlotBuffer = TgpuBuffer<d.WgslArray<typeof Seg>> & StorageFlag & VertexFlag;
 type CompositeGroup = TgpuBindGroup<(typeof S.compositeLayout)['entries']>;
-type FrameBuffer = TgpuBuffer<typeof S.Frame> & UniformFlag;
-type ColorTarget = TgpuTexture<{ size: [number, number]; format: GPUTextureFormat }> & RenderFlag & SampledFlag;
-type MsaaTarget = TgpuTexture<{ size: [number, number]; format: GPUTextureFormat; sampleCount: 4 }> & RenderFlag;
-type DepthTarget = TgpuTexture<{ size: [number, number]; format: 'depth32float'; sampleCount: 4 }> & RenderFlag;
 
-const GROUP_PARAMS_BYTES = 16;
-const FRAME_BYTES = 32;
-/** Device px added around a group's bounds: AA ramp of fills plus the half-width of its widest stroke. */
+/** Smallest slot buffer (bytes); buffers grow to the next power of two. */
+const MIN_SLOT_BUFFER_BYTES = 4096;
+/** Device px around a group's box: anti-aliasing ramps and MSAA sample offsets (strokes add their half-width). */
 const LAYER_MARGIN_PX = 2;
-/** Layer targets grow in steps of this many device px, so a moving packet does not reallocate every frame. */
-const LAYER_SIZE_STEP = 64;
-const DEPTH_FORMAT = 'depth32float';
-const SAMPLES = 4;
+/** Atlas sizes are multiples of this (device px), so moving groups rarely reallocate it. */
+const ATLAS_STEP = 64;
+/** Preferred atlas row width (device px; wider groups widen it). */
+const ATLAS_ROW_WIDTH = 1024;
+/** Frames without any layered group after which the atlas is released. */
+const ATLAS_IDLE_FRAMES = 120;
 
 interface SlotState {
   geometry: SlotGeometry | null;
   buffer: SlotBuffer | null;
   /** Buffer capacity in bytes. */
   capacity: number;
-  bindGroup: LayoutGroup | null;
-  bindKey: string;
+  group: LayoutGroup | null;
+  groupVersion: number;
 }
 
+/** A layered group of this frame: its device box on the canvas and its cell in the atlas. */
 interface ActiveGroup {
   slot: number;
   group: number;
@@ -54,284 +48,293 @@ interface ActiveGroup {
   y0: number;
   width: number;
   height: number;
+  ax: number;
+  ay: number;
 }
 
-interface LayerTarget {
-  resolve: ColorTarget;
+interface Atlas {
+  width: number;
+  height: number;
+  canvasWidth: number;
+  msaa: MsaaColor;
+  depth: MsaaDepth;
+  resolve: ResolveColor;
+}
+
+interface CellBinding {
   frame: FrameBuffer;
-  layerBind: LayoutGroup | null;
-  layerBindKey: string;
-  composite: CompositeGroup;
+  group: LayoutGroup | null;
+  buffer: SlotBuffer | null;
+  version: number;
 }
 
-export class LiveSlots {
-  readonly stats = { uploads: 0, bytesUploaded: 0, groups: 0, layerPixels: 0 };
-  private readonly root: TgpuRoot;
+export class LiveSlots implements SlotPainter {
+  readonly stats = { uploads: 0, bytesUploaded: 0, groups: 0, layerPixels: 0, atlasAllocations: 0 };
+  version = 0;
   private readonly states: SlotState[];
-  private identity: TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag;
-  private identityLength = 1;
-  private identityVersion = 0;
-  private readonly composite: TgpuRenderPipeline;
-  private groupParams: TgpuBuffer<d.WgslArray<typeof S.GroupParams>> & StorageFlag;
-  private groupCapacity = 4;
-  private groupBytes = new ArrayBuffer(4 * GROUP_PARAMS_BYTES);
-  private readonly frameWords = new Float32Array(FRAME_BYTES / 4);
-  private layerSize: [number, number] = [0, 0];
-  private layerMsaa: MsaaTarget | null = null;
-  private layerDepth: DepthTarget | null = null;
-  private layers: LayerTarget[] = [];
-  /** Groups composited this frame, in encode order; `groupIndex[slot][group]` is their position. */
+  private readonly index = new Map<number, number>();
+  private atlas: Atlas | null = null;
+  private idleFrames = 0;
   private active: ActiveGroup[] = [];
-  private groupIndex: number[][] = [];
+  /** Position in `active` of [state][group], −1 when not composited this frame. */
+  private readonly activeOf: number[][];
+  private params: TgpuBuffer<d.WgslArray<typeof GroupParams>> & StorageFlag;
+  private paramsHost: ArrayBuffer;
+  private cells: CellBinding[] = [];
+  private composite: CompositeGroup | null = null;
 
   constructor(
-    private readonly renderer: Renderer,
-    private readonly placements: SlotPlacement[],
+    private readonly root: TgpuRoot,
+    private readonly bindings: SharedBindings,
+    readonly slots: readonly number[],
   ) {
-    const slotCount = placements.length;
-    this.root = renderer.root;
-    this.states = Array.from({ length: slotCount }, () => ({ geometry: null, buffer: null, capacity: 0, bindGroup: null, bindKey: '' }));
-    this.groupIndex = Array.from({ length: slotCount }, () => []);
-    this.identity = this.root.createBuffer(d.arrayOf(d.u32, 1)).$usage('storage');
-    this.groupParams = this.root.createBuffer(d.arrayOf(S.GroupParams, this.groupCapacity)).$usage('storage');
-    this.composite = this.root.createRenderPipeline({
-      vertex: S.compositeVert,
-      fragment: S.compositeFrag,
-      targets: { format: renderer.format, blend: OVER },
-      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'less' },
-      multisample: { count: SAMPLES },
-    });
+    slots.forEach((slot, i) => this.index.set(slot, i));
+    this.states = slots.map(() => ({ geometry: null, buffer: null, capacity: 0, group: null, groupVersion: -1 }));
+    this.activeOf = slots.map(() => []);
+    this.params = root.createBuffer(d.arrayOf(GroupParams, 4)).$usage('storage');
+    this.paramsHost = this.params.arrayBuffer;
   }
 
-  /** Layered groups composited in the last frame. */
+  /** Uploads a slot's new geometry (one buffer write); returns the bytes written. */
+  update(slot: number, geometry: SlotGeometry): number {
+    const state = this.stateOf(slot);
+    if (geometry.byteLength > state.capacity) {
+      state.buffer?.destroy();
+      state.capacity = 2 ** Math.ceil(Math.log2(Math.max(MIN_SLOT_BUFFER_BYTES, geometry.byteLength)));
+      state.buffer = this.root.createBuffer(d.arrayOf(Seg, Math.ceil(state.capacity / SEG_RECORD.bytes))).$usage('storage', 'vertex');
+      state.group = null;
+    }
+    this.bindings.identityOf(geometry.segCount);
+    if (geometry.byteLength) {
+      const buffer = state.buffer!;
+      const host = buffer.arrayBuffer;
+      new Uint8Array(host).set(new Uint8Array(geometry.bytes, 0, geometry.byteLength));
+      buffer.write(host, { endOffset: geometry.byteLength });
+    }
+    state.geometry = geometry;
+    this.stats.uploads++;
+    this.stats.bytesUploaded += geometry.byteLength;
+    this.version++;
+    return geometry.byteLength;
+  }
+
+  layersOf(slot: number) {
+    return this.stateOf(slot).geometry?.layers ?? 0;
+  }
+
+  extentOf(slot: number): SlotExtent | null {
+    return this.stateOf(slot).geometry?.extent ?? null;
+  }
+
+  pipelines() {
+    return [];
+  }
+
   get activeGroups() {
     return this.active.length;
   }
 
-  pipelines(): TgpuRenderPipeline[] {
-    return [this.composite];
-  }
-
-  /** Uploads a slot's new geometry (one writeBuffer) and publishes its depth-slot count; returns bytes written. */
-  update(index: number, geometry: SlotGeometry): number {
-    const state = this.states[index];
-    if (geometry.byteLength > state.capacity) {
-      state.buffer?.destroy();
-      state.capacity = Math.max(4096, 2 ** Math.ceil(Math.log2(geometry.byteLength)));
-      state.buffer = this.root.createBuffer(d.arrayOf(S.Seg, Math.ceil(state.capacity / SEG_BYTES))).$usage('storage', 'vertex');
-      state.bindGroup = null;
+  prepare(frame: FrameContext, encoder: TgpuCommandEncoder) {
+    this.collectGroups(frame);
+    if (!this.active.length) {
+      if (this.atlas && ++this.idleFrames > ATLAS_IDLE_FRAMES) this.releaseAtlas();
+      return;
     }
-    if (geometry.segCount > this.identityLength) this.growIdentity(geometry.segCount);
-    if (geometry.byteLength && state.buffer) this.root.device.queue.writeBuffer(state.buffer.buffer, 0, geometry.bytes, 0, geometry.byteLength);
-    state.geometry = geometry;
-    this.renderer.slotLayers[index] = geometry.layers;
-    this.stats.uploads++;
-    this.stats.bytesUploaded += geometry.byteLength;
-    return geometry.byteLength;
-  }
-
-  /** Phase A: every slot's opaque fills (depth write; their depth is their painter rank). */
-  drawOpaque(pass: TgpuRenderPass) {
-    const pipes = this.renderer.pipes;
-    pass.setPipeline(pipes.fillOpaque);
-    for (let i = 0; i < this.states.length; i++) {
-      const state = this.states[i];
-      const geometry = state.geometry;
-      if (!geometry?.opaque.count || !state.buffer) continue;
-      pass.setBindGroup(S.layout, this.bindGroupOf(state));
-      pass.setVertexBuffer(S.fillLayout, state.buffer.buffer);
-      pass.draw(geometry.opaque.count, 1, geometry.segCount * (SEG_BYTES / 16) + geometry.opaque.first);
-    }
-  }
-
-  /** Phase B at the slot's painter position: strokes, dots, translucent fills and group composites. */
-  drawSlot(pass: TgpuRenderPass, index: number) {
-    const state = this.states[index];
-    const geometry = state.geometry;
-    if (!geometry?.draws.length || !state.buffer) return;
-    pass.setBindGroup(S.layout, this.bindGroupOf(state));
-    pass.setVertexBuffer(S.fillLayout, state.buffer.buffer);
-    for (const draw of geometry.draws) {
-      if (draw.kind === 'group') this.drawComposite(pass, index, draw.group);
-      else this.drawBlended(pass, geometry, draw);
-    }
-  }
-
-  /** Renders every group of this frame into its layer; call before the main pass is begun. */
-  encodeLayers(encoder: ReturnType<TgpuRoot['~unstable']['createCommandEncoder']>) {
-    this.collectGroups();
-    if (!this.active.length) return;
-    this.ensureLayerTargets();
-    const r = this.renderer;
-    const [sx, sy, tx, ty] = r.viewTransform();
-    const params = new DataView(this.groupBytes);
-    const itemCount = r.scene.items.length;
+    this.idleFrames = 0;
+    const atlas = this.ensureAtlas(frame);
+    this.ensureParams();
+    const host = this.paramsHost;
+    const i32 = new Int32Array(host);
+    const f32 = new Float32Array(host);
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{ view: atlas.msaa, resolveTarget: atlas.resolve, clearValue: [0, 0, 0, 0], loadOp: 'clear', storeOp: 'discard' }],
+      depthStencilAttachment: { view: atlas.depth, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard', stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard' },
+    });
     this.active.forEach((g, k) => {
       const state = this.states[g.slot];
       const geometry = state.geometry!;
       const group = geometry.groups[g.group];
-      const target = this.layers[k];
-      const words = this.frameWords;
-      words.set([sx, sy, tx - g.x0, ty - g.y0, this.layerSize[0], this.layerSize[1], r.dpr, r.total + 2]);
-      this.root.device.queue.writeBuffer(target.frame.buffer, 0, words);
-      const seq = r.itemBases[itemCount + g.slot] + group.frontLayer;
-      params.setInt32(k * GROUP_PARAMS_BYTES, g.x0, true);
-      params.setInt32(k * GROUP_PARAMS_BYTES + 4, g.y0, true);
-      params.setFloat32(k * GROUP_PARAMS_BYTES + 8, 1 - (seq + 1) / (r.total + 2), true);
-      params.setFloat32(k * GROUP_PARAMS_BYTES + 12, group.alpha, true);
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{ view: this.layerMsaa!, resolveTarget: target.resolve, clearValue: [0, 0, 0, 0], loadOp: 'clear', storeOp: 'discard' }],
-        depthStencilAttachment: { view: this.layerDepth!, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard' },
-      });
-      pass.setScissorRect(0, 0, g.width, g.height);
-      pass.setBindGroup(S.layout, this.layerBindGroupOf(target, state));
-      pass.setVertexBuffer(S.fillLayout, state.buffer!.buffer);
+      const cell = this.cellOf(k);
+      this.bindings.writeFrame({ scale: frame.scale, translate: frame.translate, width: atlas.width, height: atlas.height, dpr: frame.dpr, depthTotal: frame.depthTotal }, cell.frame, [g.x0 - g.ax, g.y0 - g.ay]);
+      const o = k * GROUP_PARAMS_RECORD.words;
+      i32.set([g.ax, g.ay], o + GROUP_PARAMS_RECORD.atlasOrigin);
+      i32.set([g.x0, g.y0], o + GROUP_PARAMS_RECORD.canvasOrigin);
+      i32.set([g.width, g.height], o + GROUP_PARAMS_RECORD.size);
+      f32[o + GROUP_PARAMS_RECORD.depth] = depthOfSlot(frame.depthBase(this.slots[g.slot]) + group.frontLayer, frame.depthTotal);
+      f32[o + GROUP_PARAMS_RECORD.alpha] = group.alpha;
+      pass.setScissorRect(g.ax, g.ay, g.width, g.height);
+      pass.setBindGroup(S.layout, this.cellGroup(cell, state.buffer!, geometry.segCount));
+      pass.setVertexBuffer(S.fillLayout, state.buffer!.buffer, geometry.segCount * SEG_RECORD.bytes);
       if (group.opaque.count) {
-        pass.setPipeline(r.pipes.fillOpaque);
-        pass.draw(group.opaque.count, 1, geometry.segCount * (SEG_BYTES / 16) + group.opaque.first);
+        pass.setPipeline(frame.pipelines.fillOpaque);
+        pass.draw(group.opaque.count, 1, group.opaque.first);
       }
-      for (const draw of group.draws) if (draw.kind !== 'group') this.drawBlended(pass, geometry, draw);
-      pass.end();
+      for (const draw of group.draws) if (draw.kind !== 'group') this.drawBlended(frame, pass, draw);
       this.stats.layerPixels += g.width * g.height;
     });
-    this.root.device.queue.writeBuffer(this.groupParams.buffer, 0, this.groupBytes, 0, this.active.length * GROUP_PARAMS_BYTES);
+    pass.end();
+    this.params.write(host, { endOffset: this.active.length * GROUP_PARAMS_RECORD.bytes });
     this.stats.groups += this.active.length;
   }
 
-  destroy() {
-    for (const state of this.states) state.buffer?.destroy();
-    this.identity.destroy();
-    this.groupParams.destroy();
-    this.destroyLayerTargets();
-  }
-
-  private drawBlended(pass: TgpuRenderPass, geometry: SlotGeometry, draw: Exclude<SlotDraw, { kind: 'group' }>) {
-    const pipes = this.renderer.pipes;
-    if (draw.kind === 'segs') {
-      pass.setPipeline(draw.blend === 'multiply' ? pipes.strokeMultiply : draw.blend === 'screen' ? pipes.strokeScreen : pipes.stroke);
-      pass.draw(6, draw.count, 0, draw.first);
-    } else {
-      pass.setPipeline(draw.blend === 'multiply' ? pipes.fillMultiply : draw.blend === 'screen' ? pipes.fillScreen : pipes.fillOver);
-      pass.draw(draw.count, 1, geometry.segCount * (SEG_BYTES / 16) + draw.first);
+  drawOpaque(frame: FrameContext, pass: TgpuRenderPass) {
+    let pipelineSet = false;
+    for (const state of this.states) {
+      const geometry = state.geometry;
+      if (!geometry?.opaque.count || !state.buffer) continue;
+      if (!pipelineSet) {
+        pass.setPipeline(frame.pipelines.fillOpaque);
+        pipelineSet = true;
+      }
+      pass.setBindGroup(S.layout, this.groupOf(state));
+      pass.setVertexBuffer(S.fillLayout, state.buffer.buffer, geometry.segCount * SEG_RECORD.bytes);
+      pass.draw(geometry.opaque.count, 1, geometry.opaque.first);
     }
   }
 
-  private drawComposite(pass: TgpuRenderPass, slot: number, group: number) {
-    const k = this.groupIndex[slot][group];
-    if (k === undefined || k < 0) return;
-    const g = this.active[k];
-    pass.setPipeline(this.composite);
-    pass.setBindGroup(S.compositeLayout, this.layers[k].composite);
-    pass.setScissorRect(g.x0, g.y0, g.width, g.height);
-    pass.draw(3, 1, 0, k);
-    pass.setScissorRect(0, 0, this.renderer.width, this.renderer.height);
+  drawSlot(frame: FrameContext, pass: TgpuRenderPass, slot: number) {
+    const i = this.index.get(slot)!;
+    const state = this.states[i];
+    const geometry = state.geometry;
+    if (!geometry?.draws.length || !state.buffer) return;
+    pass.setBindGroup(S.layout, this.groupOf(state));
+    pass.setVertexBuffer(S.fillLayout, state.buffer.buffer, geometry.segCount * SEG_RECORD.bytes);
+    for (const draw of geometry.draws) {
+      if (draw.kind !== 'group') {
+        this.drawBlended(frame, pass, draw);
+        continue;
+      }
+      const k = this.activeOf[i][draw.group];
+      if (k === undefined || k < 0 || !this.composite) continue;
+      pass.setPipeline(frame.pipelines.composite);
+      pass.setBindGroup(S.compositeLayout, this.composite);
+      pass.draw(6, 1, 0, k);
+    }
   }
 
-  /** Device-pixel boxes of this frame's layered groups (empty or off-canvas groups are dropped). */
-  private collectGroups() {
-    const r = this.renderer;
-    const [sx, sy, tx, ty] = r.viewTransform();
+  dispose() {
+    for (const state of this.states) state.buffer?.destroy();
+    for (const cell of this.cells) cell.frame.destroy();
+    this.cells = [];
+    this.params.destroy();
+    this.releaseAtlas();
+  }
+
+  private stateOf(slot: number): SlotState {
+    const i = this.index.get(slot);
+    if (i === undefined) throw new Error(`live slots: slot ${slot} is not painted here`);
+    return this.states[i];
+  }
+
+  private drawBlended(frame: FrameContext, pass: TgpuRenderPass, draw: Exclude<SlotDraw, { kind: 'group' }>) {
+    if (draw.kind === 'segs') {
+      pass.setPipeline(strokePipelineOf(frame.pipelines, draw.blend));
+      pass.draw(6, draw.count, 0, draw.first);
+    } else {
+      pass.setPipeline(fillPipelineOf(frame.pipelines, draw.blend));
+      pass.draw(draw.count, 1, draw.first);
+    }
+  }
+
+  private groupOf(state: SlotState): LayoutGroup {
+    if (!state.group || state.groupVersion !== this.bindings.version) {
+      state.group = this.bindings.layoutGroup(state.buffer!, this.bindings.identityOf(state.geometry?.segCount ?? 1));
+      state.groupVersion = this.bindings.version;
+    }
+    return state.group;
+  }
+
+  private cellOf(k: number): CellBinding {
+    while (this.cells.length <= k) this.cells.push({ frame: this.root.createBuffer(Frame).$usage('uniform'), group: null, buffer: null, version: -1 });
+    return this.cells[k];
+  }
+
+  private cellGroup(cell: CellBinding, buffer: SlotBuffer, segCount: number): LayoutGroup {
+    if (!cell.group || cell.buffer !== buffer || cell.version !== this.bindings.version) {
+      cell.group = this.bindings.layoutGroup(buffer, this.bindings.identityOf(segCount), cell.frame);
+      cell.buffer = buffer;
+      cell.version = this.bindings.version;
+    }
+    return cell.group;
+  }
+
+  /** Device-px boxes of this frame's layered groups (empty or off-canvas groups are dropped). */
+  private collectGroups(frame: FrameContext) {
     this.active.length = 0;
-    this.states.forEach((state, slot) => {
-      const index = this.groupIndex[slot];
+    this.states.forEach((state, i) => {
+      const index = this.activeOf[i];
       index.length = 0;
       const geometry = state.geometry;
-      if (!geometry) return;
-      for (const draw of geometry.draws) {
-        if (draw.kind !== 'group') continue;
-        const group = geometry.groups[draw.group];
-        const anchor = r.scene.items[this.placements[slot].anchor];
-        const [bx0, by0, bx1, by1] = group.bounds;
-        const dx = anchor.move[0] * r.share * sx;
-        const dy = anchor.move[1] * r.share * sy;
-        const margin = (group.maxWidth * r.dpr) / 2 + LAYER_MARGIN_PX;
-        const x0 = Math.max(0, Math.floor(bx0 * sx + tx + dx - margin));
-        const y0 = Math.max(0, Math.floor(by0 * sy + ty + dy - margin));
-        const x1 = Math.min(r.width, Math.ceil(bx1 * sx + tx + dx + margin));
-        const y1 = Math.min(r.height, Math.ceil(by1 * sy + ty + dy + margin));
+      if (!geometry?.groups.length) return;
+      const [ox, oy] = frame.offsetOf(this.slots[i]);
+      geometry.groups.forEach((group: LayerGroup, g) => {
+        const margin = group.halfWidth * frame.dpr + LAYER_MARGIN_PX;
+        const x0 = Math.max(0, Math.floor((group.bounds.x0 + ox) * frame.scale + frame.translate[0] - margin));
+        const y0 = Math.max(0, Math.floor((group.bounds.y0 + oy) * frame.scale + frame.translate[1] - margin));
+        const x1 = Math.min(frame.width, Math.ceil((group.bounds.x1 + ox) * frame.scale + frame.translate[0] + margin));
+        const y1 = Math.min(frame.height, Math.ceil((group.bounds.y1 + oy) * frame.scale + frame.translate[1] + margin));
         if (!(x1 > x0 && y1 > y0)) {
-          index[draw.group] = -1;
-          continue;
+          index[g] = -1;
+          return;
         }
-        index[draw.group] = this.active.length;
-        this.active.push({ slot, group: draw.group, x0, y0, width: x1 - x0, height: y1 - y0 });
-      }
+        index[g] = this.active.length;
+        this.active.push({ slot: i, group: g, x0, y0, width: x1 - x0, height: y1 - y0, ax: 0, ay: 0 });
+      });
     });
   }
 
-  private ensureLayerTargets() {
-    const step = (n: number) => Math.ceil(n / LAYER_SIZE_STEP) * LAYER_SIZE_STEP;
-    const width = step(Math.max(...this.active.map((g) => g.width)));
-    const height = step(Math.max(...this.active.map((g) => g.height)));
-    if (width > this.layerSize[0] || height > this.layerSize[1]) {
-      this.destroyLayerTargets();
-      this.layerSize = [Math.max(width, this.layerSize[0]), Math.max(height, this.layerSize[1])];
-      const size = this.layerSize;
-      this.layerMsaa = this.root.createTexture({ size, format: this.renderer.format, sampleCount: SAMPLES }).$usage('render') as MsaaTarget;
-      this.layerDepth = this.root.createTexture({ size, format: DEPTH_FORMAT, sampleCount: SAMPLES }).$usage('render') as DepthTarget;
+  /** Shelf-packs the active groups into the atlas (tallest first), growing it when they do not fit. */
+  private ensureAtlas(frame: FrameContext): Atlas {
+    const widest = Math.max(...this.active.map((g) => g.width));
+    const rowWidth = Math.max(widest, Math.min(frame.width, ATLAS_ROW_WIDTH));
+    const order = this.active.map((_, k) => k).sort((a, b) => this.active[b].height - this.active[a].height);
+    let x = 0, y = 0, shelf = 0, used = 0;
+    for (const k of order) {
+      const g = this.active[k];
+      if (x + g.width > rowWidth) {
+        y += shelf;
+        x = 0;
+        shelf = 0;
+      }
+      g.ax = x;
+      g.ay = y;
+      x += g.width;
+      shelf = Math.max(shelf, g.height);
+      used = Math.max(used, x);
     }
-    if (this.active.length > this.groupCapacity) {
-      this.groupParams.destroy();
-      this.groupCapacity = 2 ** Math.ceil(Math.log2(this.active.length));
-      this.groupParams = this.root.createBuffer(d.arrayOf(S.GroupParams, this.groupCapacity)).$usage('storage');
-      this.groupBytes = new ArrayBuffer(this.groupCapacity * GROUP_PARAMS_BYTES);
-      // composite bind groups reference the replaced params buffer
-      this.destroyLayers();
+    const step = (n: number) => Math.ceil(n / ATLAS_STEP) * ATLAS_STEP;
+    const width = step(used);
+    const height = step(y + shelf);
+    let atlas = this.atlas;
+    if (!atlas || atlas.width < width || atlas.height < height || atlas.canvasWidth !== frame.width) {
+      this.releaseAtlas();
+      const keep = atlas?.canvasWidth === frame.width ? atlas : null;
+      const size: [number, number] = [Math.max(width, keep?.width ?? 0), Math.max(height, keep?.height ?? 0)];
+      atlas = { width: size[0], height: size[1], canvasWidth: frame.width, msaa: createMsaaColor(this.root, size, frame.format), depth: createMsaaDepth(this.root, size), resolve: createResolveColor(this.root, size, frame.format) };
+      this.atlas = atlas;
+      this.composite = null;
+      this.stats.atlasAllocations++;
     }
-    while (this.layers.length < this.active.length) {
-      const resolve = this.root.createTexture({ size: this.layerSize, format: this.renderer.format }).$usage('render', 'sampled') as ColorTarget;
-      const frame = this.root.createBuffer(S.Frame).$usage('uniform');
-      const composite = this.root.createBindGroup(S.compositeLayout, { layer: resolve, groups: this.groupParams });
-      this.layers.push({ resolve, frame, layerBind: null, layerBindKey: '', composite });
+    return atlas;
+  }
+
+  private ensureParams() {
+    if (!this.composite || this.params.dataType.elementCount < this.active.length) {
+      if (this.params.dataType.elementCount < this.active.length) {
+        this.params.destroy();
+        this.params = this.root.createBuffer(d.arrayOf(GroupParams, 2 ** Math.ceil(Math.log2(this.active.length)))).$usage('storage');
+        this.paramsHost = this.params.arrayBuffer;
+      }
+      this.composite = this.root.createBindGroup(S.compositeLayout, { atlas: this.atlas!.resolve, groups: this.params });
     }
   }
 
-  private destroyLayers() {
-    for (const target of this.layers) {
-      target.resolve.destroy();
-      target.frame.destroy();
-    }
-    this.layers = [];
-  }
-
-  private destroyLayerTargets() {
-    this.layerMsaa?.destroy();
-    this.layerDepth?.destroy();
-    this.layerMsaa = null;
-    this.layerDepth = null;
-    this.destroyLayers();
-  }
-
-  private growIdentity(length: number) {
-    this.identity.destroy();
-    this.identityLength = 2 ** Math.ceil(Math.log2(length));
-    this.identity = this.root.createBuffer(d.arrayOf(d.u32, this.identityLength)).$usage('storage');
-    const indices = new Uint32Array(this.identityLength);
-    for (let i = 0; i < indices.length; i++) indices[i] = i;
-    this.root.device.queue.writeBuffer(this.identity.buffer, 0, indices);
-    this.identityVersion++;
-  }
-
-  private bindGroupOf(state: SlotState): LayoutGroup {
-    const key = `${this.renderer.resourceVersion}:${this.identityVersion}`;
-    if (!state.bindGroup || state.bindKey !== key) {
-      state.bindGroup = this.layoutGroup(this.renderer.frameBuffer, state.buffer!);
-      state.bindKey = key;
-    }
-    return state.bindGroup;
-  }
-
-  private layerBindGroupOf(target: LayerTarget, state: SlotState): LayoutGroup {
-    const key = `${this.renderer.resourceVersion}:${this.identityVersion}:${this.states.indexOf(state)}:${state.capacity}`;
-    if (!target.layerBind || target.layerBindKey !== key) {
-      target.layerBind = this.layoutGroup(target.frame, state.buffer!);
-      target.layerBindKey = key;
-    }
-    return target.layerBind;
-  }
-
-  private layoutGroup(frame: FrameBuffer, segs: SlotBuffer): LayoutGroup {
-    const r = this.renderer;
-    return this.root.createBindGroup(S.layout, { frame, items: r.itemBuffer, paints: r.paintBuffer, grads: r.gradBuffer, stops: r.stopBuffer, segs, order: this.identity });
+  private releaseAtlas() {
+    if (!this.atlas) return;
+    this.atlas.msaa.destroy();
+    this.atlas.depth.destroy();
+    this.atlas.resolve.destroy();
+    this.atlas = null;
+    this.composite = null;
   }
 }

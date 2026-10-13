@@ -1,0 +1,1 @@
+centrifuge-svg-phone-r1: frame p50 16.7 p95 16.7 p99 16.8 ms, dropped 1.2% | rAF cb 4.94 · script 4.96 · style 1.54 · layout 0.87 · task 10.97 ms/f | trace main 11.42 (paint 2.55) raster 0.44 gpu 2.67 (raster 2.08, wait 0.26) ms/f | GPU util 30% (before 29%) | LoAF 3 | nodes 38673 | page-frames 100%

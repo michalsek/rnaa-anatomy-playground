@@ -7,6 +7,8 @@
 // ms keys are totals (perf.mjs divides the window delta by frames); *N keys count entries.
 // Harmless on pages without these measures (counters stay 0).
 (() => {
+  // fix loop A pages emit these measures only when asked to (notes/GPU-API.md); M3 pages always do
+  window.__gpuProfile = true;
   const stats = (window.__benchStats ??= {});
   const KEYS = { "live-js": "gpuLiveJs", "adapter-parse": "gpuParse", "adapter-upload": "gpuUpload", "gpu-encode": "gpuEncode" };
   for (const key of Object.values(KEYS)) {
