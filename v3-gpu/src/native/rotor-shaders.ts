@@ -4,8 +4,9 @@
 //   ranges — so stroke coverage and ownership are the static scene's and the markup path's;
 // - FillVertex records (as array<u32>: pos.x, pos.y, item | paint << 16, layer | alpha16 << 16) for the existing
 //   opaque fill pipeline.
-// Which faces are drawn and their tones come from the part's facing / seam / shade bits (the kit's own decisions, made
-// on the CPU); the GPU only builds geometry.
+// Which faces are drawn and their tones come from the part's class record (facing / seam / shade bits: the kit's own
+// decisions, made on the CPU, any ring size); the GPU only builds geometry. The top face is the template's own CPU
+// triangulation (prism-templates.ts).
 //
 // Stroke slots of a part with an n-point ring, in v2's document order (kit solidSvg / extrude / ringSeam):
 //   CREASE    n  top edge i of facing faces                       (paths.crease, runs of facing)
@@ -15,13 +16,14 @@
 //   VERTICAL  n  top i → bottom i where facing changes at i       (paths.outline, verticals)
 //   BAND      n  seam edge i at bandZ                             (ringSeam runs)
 //   STRAP     1  the strap over the top                           (onTop([c − s·r, c + s·r], z0 + height))
-// Run-based blocks walk the ring from the first index where the block's mask changes (kit runsOf), so every run is a
+// Run-based blocks walk the ring from the first index where the block's mask changes (kit runsOf; the CPU sends that
+// index as facingRun / seamRun), so every run is a
 // contiguous slot range: a polyline [polyStart, polyEnd) the stroke shader's ownership loop can walk. Undrawn slots are
 // zero-alpha records far off-canvas.
 import tgpu from 'typegpu';
 import * as d from 'typegpu/data';
 import { FILL_ALPHA_SCALE, SEG, Seg } from '../core/schemas.ts';
-import { CROWD_NONE } from '../core/strokes.ts';
+import { CHAIN_TOLERANCE, CROWD_NONE, OWNERSHIP_WINDOW } from '../core/strokes.ts';
 import { PART_FLAG, PART_LAYER, RotorPart, RotorProjection, RotorStyle } from './rotor-schemas.ts';
 
 export const WORKGROUP_SIZE = 64;
@@ -31,6 +33,8 @@ export const rotorLayout = tgpu.bindGroupLayout({
   parts: { storage: d.arrayOf(RotorPart), access: 'readonly' },
   ring: { storage: d.arrayOf(d.vec2f), access: 'readonly' },
   styles: { storage: d.arrayOf(RotorStyle), access: 'readonly' },
+  classes: { storage: d.arrayOf(d.u32), access: 'readonly' },
+  triangles: { storage: d.arrayOf(d.u32), access: 'readonly' },
   segs: { storage: d.arrayOf(Seg), access: 'mutable' },
   fills: { storage: d.arrayOf(d.u32), access: 'mutable' },
 });
@@ -58,10 +62,12 @@ const CONSTS = {
   SEG_JOIN_START: u32Const(SEG.joinStart),
   SEG_JOIN_END: u32Const(SEG.joinEnd),
   CROWD_NONE_VALUE: f32Const(CROWD_NONE),
-  /** strokes.ts DIRECTION_EPSILON / HAIRPIN_EPSILON / PARALLEL_EPSILON. */
+  /** strokes.ts DIRECTION_EPSILON / HAIRPIN_EPSILON / PARALLEL_EPSILON (private there), CHAIN_TOLERANCE. */
   DIRECTION_EPS: f32Const(1e-12),
   HAIRPIN_EPS: f32Const(1e-6),
   PARALLEL_EPS: f32Const(1e-9),
+  CHAIN_TOL: f32Const(CHAIN_TOLERANCE),
+  WINDOW: u32Const(OWNERSHIP_WINDOW),
   OPAQUE_ALPHA16: u32Const(FILL_ALPHA_SCALE),
   /** Where undrawn slots go: far outside any canvas, so their quads are clipped before rasterization. */
   OFF_CANVAS: f32Const(-1e6),
@@ -79,17 +85,28 @@ const project = tgpu.fn([d.vec2f, d.f32], d.vec2f)/* wgsl */ `(w: vec2f, z: f32)
   return q.origin + w.x * q.xAxis + w.y * q.yAxis + vec2f(0.0, z * q.zAxis);
 }`.$uses({ rotorLayout });
 
-const bit = tgpu.fn([d.u32, d.u32, d.u32], d.bool)/* wgsl */ `(mask: u32, i: u32, n: u32) -> bool {
-  return ((mask >> (i % n)) & 1u) != 0u;
-}`;
+/** Bit `i mod n` of the mask that starts `at` words into the part's class record. */
+const classBit = tgpu.fn([RotorPart, d.u32, d.u32], d.bool)/* wgsl */ `(p: RotorPart, at: u32, i: u32) -> bool {
+  let j = i % p.ringCount;
+  return ((rotorLayout.$.classes[p.classFirst + at + j / 32u] >> (j % 32u)) & 1u) != 0u;
+}`.$uses({ rotorLayout, RotorPart });
 
-/** kit runsOf: the first index whose flag differs from its predecessor's (0 when the ring has a single run). */
-const runStart = tgpu.fn([d.u32, d.u32], d.u32)/* wgsl */ `(mask: u32, n: u32) -> u32 {
-  for (var i = 0u; i < n; i++) {
-    if (bit(mask, i, n) != bit(mask, i + n - 1u, n)) { return i; }
-  }
-  return 0u;
-}`.$uses({ bit });
+/** Face i (mod n) faces the viewer (kit extrude). */
+const facingAt = tgpu.fn([RotorPart, d.u32], d.bool)/* wgsl */ `(p: RotorPart, i: u32) -> bool {
+  return classBit(p, 0u, i);
+}`.$uses({ classBit, RotorPart });
+
+/** The seam runs along edge i (mod n) (kit ringSeam). */
+const seamAt = tgpu.fn([RotorPart, d.u32], d.bool)/* wgsl */ `(p: RotorPart, i: u32) -> bool {
+  return classBit(p, (p.ringCount + 31u) / 32u, i);
+}`.$uses({ classBit, RotorPart });
+
+/** Tone index of face i (kit extrude). */
+const shadeAt = tgpu.fn([RotorPart, d.u32], d.u32)/* wgsl */ `(p: RotorPart, i: u32) -> u32 {
+  let j = i % p.ringCount;
+  let at = p.classFirst + 2u * ((p.ringCount + 31u) / 32u) + j / 16u;
+  return (rotorLayout.$.classes[at] >> (2u * (j % 16u))) & 3u;
+}`.$uses({ rotorLayout, RotorPart });
 
 /** kit extrude: outward unit normal of edge i (length 0 → divided by 1). */
 const edgeNormal = tgpu.fn([RotorPart, d.u32], d.vec2f)/* wgsl */ `(p: RotorPart, i: u32) -> vec2f {
@@ -110,25 +127,25 @@ const bottomPoint = tgpu.fn([RotorPart, d.u32], d.vec2f)/* wgsl */ `(p: RotorPar
 /** kit extrude bevel: run ends stay on the top ring, interior points move inward along the corner bisector. */
 const bevelPoint = tgpu.fn([RotorPart, d.u32], d.vec2f)/* wgsl */ `(p: RotorPart, i: u32) -> vec2f {
   let n = p.ringCount;
-  if (!(bit(p.facing, i + n - 1u, n) && bit(p.facing, i, n))) { return topPoint(p, i); }
+  if (!(facingAt(p, i + n - 1u) && facingAt(p, i))) { return topPoint(p, i); }
   let m = edgeNormal(p, i + n - 1u) + edgeNormal(p, i);
   let l = length(m);
   let len = select(l, 1.0, l == 0.0);
   return project(ringPoint(p, i) - m / len * p.bevel, p.z0 + p.height);
-}`.$uses({ bit, topPoint, edgeNormal, ringPoint, project, RotorPart });
+}`.$uses({ facingAt, topPoint, edgeNormal, ringPoint, project, RotorPart });
 
 /** Whether slot k of a block draws anything. */
 const slotDrawn = tgpu.fn([RotorPart, d.u32, d.u32], d.bool)/* wgsl */ `(p: RotorPart, block: u32, k: u32) -> bool {
   let n = p.ringCount;
   if (block == STRAP) { return p.strap > 0.0; }
-  if (block == VERTICAL) { return p.height > 0.0 && bit(p.facing, k + n - 1u, n) != bit(p.facing, k, n); }
-  if (block == BAND) { return (p.flags & FLAG_BAND) != 0u && bit(p.seamFacing, runStart(p.seamFacing, n) + k, n); }
-  let facing = bit(p.facing, runStart(p.facing, n) + k, n);
+  if (block == VERTICAL) { return p.height > 0.0 && facingAt(p, k + n - 1u) != facingAt(p, k); }
+  if (block == BAND) { return (p.flags & FLAG_BAND) != 0u && seamAt(p, p.seamRun + k); }
+  let facing = facingAt(p, p.facingRun + k);
   if (block == CREASE) { return facing; }
   if (block == BEVEL) { return p.bevel > 0.0 && facing; }
   if (block == BACK) { return !facing; }
   return p.height > 0.0 && facing;
-}`.$uses({ bit, runStart, ...CONSTS });
+}`.$uses({ facingAt, seamAt, ...CONSTS });
 
 /** End points (viewBox units) of slot k of a block: xy = start, zw = end. */
 const slotEnds = tgpu.fn([RotorPart, d.u32, d.u32], d.vec4f)/* wgsl */ `(p: RotorPart, block: u32, k: u32) -> vec4f {
@@ -140,14 +157,14 @@ const slotEnds = tgpu.fn([RotorPart, d.u32, d.u32], d.vec4f)/* wgsl */ `(p: Roto
   }
   if (block == VERTICAL) { return vec4f(topPoint(p, k), bottomPoint(p, k)); }
   if (block == BAND) {
-    let e = runStart(p.seamFacing, n) + k;
+    let e = p.seamRun + k;
     return vec4f(project(ringPoint(p, e), p.bandZ), project(ringPoint(p, e + 1u), p.bandZ));
   }
-  let e = runStart(p.facing, n) + k;
+  let e = p.facingRun + k;
   if (block == BEVEL) { return vec4f(bevelPoint(p, e % n), bevelPoint(p, (e + 1u) % n)); }
   if (block == FRONT) { return vec4f(bottomPoint(p, e), bottomPoint(p, e + 1u)); }
   return vec4f(topPoint(p, e), topPoint(p, e + 1u));
-}`.$uses({ project, topPoint, bottomPoint, bevelPoint, ringPoint, runStart, ...CONSTS });
+}`.$uses({ project, topPoint, bottomPoint, bevelPoint, ringPoint, ...CONSTS });
 
 const direction = tgpu.fn([d.vec4f], d.vec2f)/* wgsl */ `(s: vec4f) -> vec2f {
   let u = s.zw - s.xy;
@@ -183,6 +200,30 @@ const pinchCrowd = tgpu.fn([d.vec4f, d.vec4f, d.vec4f], d.f32)/* wgsl */ `(prev:
   let pinch = vec2f((c1 * k.y - m.y * c2) / det, (m.x * c2 - c1 * k.x) / det);
   return pointSegmentDistance(pinch, s.xy, s.zw);
 }`.$uses({ direction, pointSegmentDistance, ...CONSTS });
+
+/** Distance between segments a and b (xy → zw); 0 when they cross (strokes.ts segmentDistance). */
+const segmentDistance = tgpu.fn([d.vec4f, d.vec4f], d.f32)/* wgsl */ `(a: vec4f, b: vec4f) -> f32 {
+  let r = a.zw - a.xy;
+  let s = b.zw - b.xy;
+  let den = r.x * s.y - r.y * s.x;
+  if (den != 0.0) {
+    let q = b.xy - a.xy;
+    let t = (q.x * s.y - q.y * s.x) / den;
+    let w = (q.x * r.y - q.y * r.x) / den;
+    if (t >= 0.0 && t <= 1.0 && w >= 0.0 && w <= 1.0) { return 0.0; }
+  }
+  return min(min(pointSegmentDistance(a.xy, b.xy, b.zw), pointSegmentDistance(a.zw, b.xy, b.zw)), min(pointSegmentDistance(b.xy, a.xy, a.zw), pointSegmentDistance(b.zw, a.xy, a.zw)));
+}`.$uses({ pointSegmentDistance });
+
+/**
+ * strokes.ts joinPolyline, ownership-window pair: segment `early` and the later segment `late` (2…WINDOW apart in one
+ * polyline) when they come closer than the chain between them: their distance, else none.
+ */
+const windowCrowd = tgpu.fn([d.vec4f, d.vec4f], d.f32)/* wgsl */ `(early: vec4f, late: vec4f) -> f32 {
+  let gap = segmentDistance(early, late);
+  let chain = length(late.xy - early.zw);
+  return select(CROWD_NONE_VALUE, gap, gap < chain * (1.0 - CHAIN_TOL));
+}`.$uses({ segmentDistance, ...CONSTS });
 
 /** Writes Seg slot `slot` of part `p`. */
 const writeSeg = tgpu.fn([RotorPart, d.u32])/* wgsl */ `(p: RotorPart, slot: u32) {
@@ -242,6 +283,11 @@ const writeSeg = tgpu.fn([RotorPart, d.u32])/* wgsl */ `(p: RotorPart, slot: u32
     if (k + 1u < last) { crowd = min(crowd, pinchCrowd(s, after, slotEnds(p, block, k + 2u))); }
     if (k > first) { crowd = min(crowd, pinchCrowd(slotEnds(p, block, k - 1u), s, after)); }
   }
+  // the ownership window's non-adjacent neighbours (k ± 2 … k ± WINDOW) inside the run
+  for (var apart = 2u; apart <= WINDOW; apart++) {
+    if (k >= first + apart) { crowd = min(crowd, windowCrowd(slotEnds(p, block, k - apart), s)); }
+    if (k + apart <= last) { crowd = min(crowd, windowCrowd(s, slotEnds(p, block, k + apart))); }
+  }
   rotorLayout.$.segs[index].p0 = s.xy;
   rotorLayout.$.segs[index].p1 = s.zw;
   rotorLayout.$.segs[index].joinStart = joinStart;
@@ -251,7 +297,7 @@ const writeSeg = tgpu.fn([RotorPart, d.u32])/* wgsl */ `(p: RotorPart, slot: u32
   rotorLayout.$.segs[index].polyStart = p.segFirst + block * n + first;
   rotorLayout.$.segs[index].polyEnd = p.segFirst + block * n + last + 1u;
   rotorLayout.$.segs[index].crowd = crowd;
-}`.$uses({ rotorLayout, slotDrawn, slotEnds, direction, joinCrowd, pinchCrowd, ...CONSTS });
+}`.$uses({ rotorLayout, slotDrawn, slotEnds, direction, joinCrowd, pinchCrowd, windowCrowd, ...CONSTS });
 
 const writeVertex = tgpu.fn([d.u32, d.vec2f, d.u32, d.u32, d.u32])/* wgsl */ `(vertex: u32, at: vec2f, item: u32, paint: u32, layer: u32) {
   let o = vertex * 4u;
@@ -261,21 +307,22 @@ const writeVertex = tgpu.fn([d.u32, d.vec2f, d.u32, d.u32, d.u32])/* wgsl */ `(v
   rotorLayout.$.fills[o + 3u] = layer | (OPAQUE_ALPHA16 << 16u);
 }`.$uses({ rotorLayout, ...CONSTS });
 
-/** Writes fill triangle `t` of part `p`: the top fan first, then two triangles per side face. */
+/** Writes fill triangle `t` of part `p`: the top face (the template's triangles) first, then two per side face. */
 const writeTriangle = tgpu.fn([RotorPart, d.u32])/* wgsl */ `(p: RotorPart, t: u32) {
   let n = p.ringCount;
   let style = rotorLayout.$.styles[p.style];
   let v = p.vertexFirst + t * 3u;
-  if (t < n - 2u) {
+  if (t < p.triangleCount) {
     let layer = p.layer + LAYER_TOP;
-    writeVertex(v, topPoint(p, 0u), p.item, style.top, layer);
-    writeVertex(v + 1u, topPoint(p, t + 1u), p.item, style.top, layer);
-    writeVertex(v + 2u, topPoint(p, t + 2u), p.item, style.top, layer);
+    let corner = p.triangleFirst + t * 3u;
+    writeVertex(v, topPoint(p, rotorLayout.$.triangles[corner]), p.item, style.top, layer);
+    writeVertex(v + 1u, topPoint(p, rotorLayout.$.triangles[corner + 1u]), p.item, style.top, layer);
+    writeVertex(v + 2u, topPoint(p, rotorLayout.$.triangles[corner + 2u]), p.item, style.top, layer);
     return;
   }
-  let face = (t - (n - 2u)) / 2u;
-  let half = (t - (n - 2u)) % 2u;
-  if (!bit(p.facing, face, n)) {
+  let face = (t - p.triangleCount) / 2u;
+  let half = (t - p.triangleCount) % 2u;
+  if (!facingAt(p, face)) {
     // a face turned away: a zero-area triangle (rasterizes nothing)
     let at = topPoint(p, face);
     writeVertex(v, at, p.item, style.top, p.layer);
@@ -283,7 +330,7 @@ const writeTriangle = tgpu.fn([RotorPart, d.u32])/* wgsl */ `(p: RotorPart, t: u
     writeVertex(v + 2u, at, p.item, style.top, p.layer);
     return;
   }
-  let shade = (p.shades >> (2u * face)) & 3u;
+  let shade = shadeAt(p, face);
   let paint = style.shade[shade];
   let layer = p.layer + LAYER_SHADE + shade;
   let a = topPoint(p, face);
@@ -296,7 +343,7 @@ const writeTriangle = tgpu.fn([RotorPart, d.u32])/* wgsl */ `(p: RotorPart, t: u
     writeVertex(v + 1u, c, p.item, paint, layer);
     writeVertex(v + 2u, bottomPoint(p, face), p.item, paint, layer);
   }
-}`.$uses({ rotorLayout, topPoint, bottomPoint, bit, writeVertex, ...CONSTS });
+}`.$uses({ rotorLayout, topPoint, bottomPoint, facingAt, shadeAt, writeVertex, ...CONSTS });
 
 export const expandParts = tgpu.computeFn({
   in: { lid: d.builtin.localInvocationIndex, wid: d.builtin.workgroupId },
@@ -305,5 +352,5 @@ export const expandParts = tgpu.computeFn({
   let p = rotorLayout.$.parts[in.wid.x];
   let n = p.ringCount;
   for (var slot = in.lid; slot < 6u * n + 1u; slot += WG) { writeSeg(p, slot); }
-  for (var t = in.lid; t < 3u * n - 2u; t += WG) { writeTriangle(p, t); }
+  for (var t = in.lid; t < p.triangleCount + 2u * n; t += WG) { writeTriangle(p, t); }
 }`.$uses({ rotorLayout, writeSeg, writeTriangle, ...CONSTS });

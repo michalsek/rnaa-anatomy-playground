@@ -9,7 +9,7 @@
 // still cover it per sample through the depth test.
 import type { StorageFlag, TgpuBindGroup, TgpuBuffer, TgpuCommandEncoder, TgpuRenderPass, TgpuRoot, VertexFlag } from 'typegpu';
 import * as d from 'typegpu/data';
-import type { FrameBuffer, LayoutGroup, SharedBindings } from '../core/bindings.ts';
+import type { FrameBuffer, FrameValues, LayoutGroup, SharedBindings } from '../core/bindings.ts';
 import { createMsaaColor, createMsaaDepth, createResolveColor, type MsaaColor, type MsaaDepth, type ResolveColor } from '../core/gpu-types.ts';
 import { fillPipelineOf, strokePipelineOf } from '../core/pipelines.ts';
 import { depthOfSlot, Frame, GROUP_PARAMS_RECORD, GroupParams, Seg, SEG_RECORD } from '../core/schemas.ts';
@@ -30,6 +30,11 @@ const ATLAS_STEP = 64;
 const ATLAS_ROW_WIDTH = 1024;
 /** Frames without any layered group after which the atlas is released. */
 const ATLAS_IDLE_FRAMES = 120;
+/** Frames in a row needing less than half the atlas area after which it is reallocated at the size needed. */
+const ATLAS_SHRINK_FRAMES = 120;
+
+/** Atlas sizes are rounded up to whole ATLAS_STEPs. */
+const atlasStep = (n: number) => Math.ceil(n / ATLAS_STEP) * ATLAS_STEP;
 
 interface SlotState {
   geometry: SlotGeometry | null;
@@ -77,11 +82,19 @@ export class LiveSlots implements SlotPainter {
   private readonly released: Uint8Array;
   private atlas: Atlas | null = null;
   private idleFrames = 0;
-  private active: ActiveGroup[] = [];
+  /** Frames in a row the active groups needed less than half the atlas. */
+  private smallFrames = 0;
+  /** This frame's layered groups: the first `activeCount` entries (objects reused across frames). */
+  private readonly active: ActiveGroup[] = [];
+  private activeCount = 0;
+  /** Indices of the active groups, tallest first (shelf packing order). */
+  private readonly packOrder: number[] = [];
+  private readonly cellFrame: FrameValues = { scale: 0, translate: [0, 0], width: 0, height: 0, dpr: 1, depthTotal: 0 };
   /** Position in `active` of [state][group], −1 when not composited this frame. */
   private readonly activeOf: number[][];
   private params: TgpuBuffer<d.WgslArray<typeof GroupParams>> & StorageFlag;
-  private paramsHost: ArrayBuffer;
+  private paramsI32: Int32Array;
+  private paramsF32: Float32Array;
   private cells: CellBinding[] = [];
   private composite: CompositeGroup | null = null;
 
@@ -95,7 +108,8 @@ export class LiveSlots implements SlotPainter {
     this.released = new Uint8Array(slots.length);
     this.activeOf = slots.map(() => []);
     this.params = root.createBuffer(d.arrayOf(GroupParams, 4)).$usage('storage');
-    this.paramsHost = this.params.arrayBuffer;
+    this.paramsI32 = new Int32Array(this.params.arrayBuffer);
+    this.paramsF32 = new Float32Array(this.params.arrayBuffer);
   }
 
   /** Whether this painter still draws `slot` (the renderer may have given it to another painter). */
@@ -104,13 +118,28 @@ export class LiveSlots implements SlotPainter {
     return i !== undefined && !this.released[i];
   }
 
+  /** The slots now belong to another painter: nothing is uploaded or drawn for them, their buffers are freed. */
   release(slots: readonly number[]) {
     for (const slot of slots) {
       const i = this.index.get(slot);
       if (i === undefined) continue;
       this.released[i] = 1;
-      this.states[i].geometry = null;
+      const state = this.states[i];
+      state.buffer?.destroy();
+      state.buffer = null;
+      state.capacity = 0;
+      state.group = null;
+      state.geometry = null;
       this.activeOf[i].length = 0;
+    }
+    this.version++;
+  }
+
+  /** The renderer gave `slots` back (a native machine fell back): they are uploaded and drawn again. */
+  acquire(slots: readonly number[]) {
+    for (const slot of slots) {
+      const i = this.index.get(slot);
+      if (i !== undefined) this.released[i] = 0;
     }
     this.version++;
   }
@@ -126,8 +155,8 @@ export class LiveSlots implements SlotPainter {
       state.group = null;
     }
     this.bindings.identityOf(geometry.segCount);
-    if (geometry.byteLength) {
-      const buffer = state.buffer!;
+    const buffer = state.buffer;
+    if (geometry.byteLength && buffer) {
       const host = buffer.arrayBuffer;
       new Uint8Array(host).set(new Uint8Array(geometry.bytes, 0, geometry.byteLength));
       buffer.write(host, { endOffset: geometry.byteLength });
@@ -152,50 +181,61 @@ export class LiveSlots implements SlotPainter {
   }
 
   get activeGroups() {
-    return this.active.length;
+    return this.activeCount;
   }
 
   prepare(frame: FrameContext, encoder: TgpuCommandEncoder) {
     this.collectGroups(frame);
-    if (!this.active.length) {
+    const count = this.activeCount;
+    if (!count) {
       if (this.atlas && ++this.idleFrames > ATLAS_IDLE_FRAMES) this.releaseAtlas();
       return;
     }
     this.idleFrames = 0;
     const atlas = this.ensureAtlas(frame);
-    this.ensureParams();
-    const host = this.paramsHost;
-    const i32 = new Int32Array(host);
-    const f32 = new Float32Array(host);
+    this.ensureParams(atlas);
+    const { paramsI32: i32, paramsF32: f32, cellFrame } = this;
+    cellFrame.scale = frame.scale;
+    cellFrame.translate = frame.translate;
+    cellFrame.width = atlas.width;
+    cellFrame.height = atlas.height;
+    cellFrame.dpr = frame.dpr;
+    cellFrame.depthTotal = frame.depthTotal;
     const pass = encoder.beginRenderPass({
       colorAttachments: [{ view: atlas.msaa, resolveTarget: atlas.resolve, clearValue: [0, 0, 0, 0], loadOp: 'clear', storeOp: 'discard' }],
       depthStencilAttachment: { view: atlas.depth, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard', stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard' },
     });
-    this.active.forEach((g, k) => {
+    for (let k = 0; k < count; k++) {
+      const g = this.active[k];
       const state = this.states[g.slot];
-      const geometry = state.geometry!;
+      const geometry = state.geometry;
+      const buffer = state.buffer;
+      if (!geometry || !buffer) continue;
       const group = geometry.groups[g.group];
       const cell = this.cellOf(k);
-      this.bindings.writeFrame({ scale: frame.scale, translate: frame.translate, width: atlas.width, height: atlas.height, dpr: frame.dpr, depthTotal: frame.depthTotal }, cell.frame, [g.x0 - g.ax, g.y0 - g.ay]);
+      this.bindings.writeFrame(cellFrame, cell.frame, g.x0 - g.ax, g.y0 - g.ay);
       const o = k * GROUP_PARAMS_RECORD.words;
-      i32.set([g.ax, g.ay], o + GROUP_PARAMS_RECORD.atlasOrigin);
-      i32.set([g.x0, g.y0], o + GROUP_PARAMS_RECORD.canvasOrigin);
-      i32.set([g.width, g.height], o + GROUP_PARAMS_RECORD.size);
+      i32[o + GROUP_PARAMS_RECORD.atlasOrigin] = g.ax;
+      i32[o + GROUP_PARAMS_RECORD.atlasOrigin + 1] = g.ay;
+      i32[o + GROUP_PARAMS_RECORD.canvasOrigin] = g.x0;
+      i32[o + GROUP_PARAMS_RECORD.canvasOrigin + 1] = g.y0;
+      i32[o + GROUP_PARAMS_RECORD.size] = g.width;
+      i32[o + GROUP_PARAMS_RECORD.size + 1] = g.height;
       f32[o + GROUP_PARAMS_RECORD.depth] = depthOfSlot(frame.depthBase(this.slots[g.slot]) + group.frontLayer, frame.depthTotal);
       f32[o + GROUP_PARAMS_RECORD.alpha] = group.alpha;
       pass.setScissorRect(g.ax, g.ay, g.width, g.height);
-      pass.setBindGroup(S.layout, this.cellGroup(cell, state.buffer!, geometry.segCount));
-      pass.setVertexBuffer(S.fillLayout, state.buffer!.buffer, geometry.segCount * SEG_RECORD.bytes);
+      pass.setBindGroup(S.layout, this.cellGroup(cell, buffer, geometry.segCount));
+      pass.setVertexBuffer(S.fillLayout, buffer.buffer, geometry.segCount * SEG_RECORD.bytes);
       if (group.opaque.count) {
         pass.setPipeline(frame.pipelines.fillOpaque);
         pass.draw(group.opaque.count, 1, group.opaque.first);
       }
       for (const draw of group.draws) if (draw.kind !== 'group') this.drawBlended(frame, pass, draw);
       this.stats.layerPixels += g.width * g.height;
-    });
+    }
     pass.end();
-    this.params.write(host, { endOffset: this.active.length * GROUP_PARAMS_RECORD.bytes });
-    this.stats.groups += this.active.length;
+    this.params.write(this.params.arrayBuffer, { endOffset: count * GROUP_PARAMS_RECORD.bytes });
+    this.stats.groups += count;
   }
 
   drawOpaque(frame: FrameContext, pass: TgpuRenderPass) {
@@ -207,18 +247,19 @@ export class LiveSlots implements SlotPainter {
         pass.setPipeline(frame.pipelines.fillOpaque);
         pipelineSet = true;
       }
-      pass.setBindGroup(S.layout, this.groupOf(state));
+      pass.setBindGroup(S.layout, this.groupOf(state, state.buffer));
       pass.setVertexBuffer(S.fillLayout, state.buffer.buffer, geometry.segCount * SEG_RECORD.bytes);
       pass.draw(geometry.opaque.count, 1, geometry.opaque.first);
     }
   }
 
   drawSlot(frame: FrameContext, pass: TgpuRenderPass, slot: number) {
-    const i = this.index.get(slot)!;
+    const i = this.index.get(slot);
+    if (i === undefined) return;
     const state = this.states[i];
     const geometry = state.geometry;
     if (!geometry?.draws.length || !state.buffer) return;
-    pass.setBindGroup(S.layout, this.groupOf(state));
+    pass.setBindGroup(S.layout, this.groupOf(state, state.buffer));
     pass.setVertexBuffer(S.fillLayout, state.buffer.buffer, geometry.segCount * SEG_RECORD.bytes);
     for (const draw of geometry.draws) {
       if (draw.kind !== 'group') {
@@ -257,9 +298,9 @@ export class LiveSlots implements SlotPainter {
     }
   }
 
-  private groupOf(state: SlotState): LayoutGroup {
+  private groupOf(state: SlotState, buffer: SlotBuffer): LayoutGroup {
     if (!state.group || state.groupVersion !== this.bindings.version) {
-      state.group = this.bindings.layoutGroup(state.buffer!, this.bindings.identityOf(state.geometry?.segCount ?? 1));
+      state.group = this.bindings.layoutGroup(buffer, this.bindings.identityOf(state.geometry?.segCount ?? 1));
       state.groupVersion = this.bindings.version;
     }
     return state.group;
@@ -281,14 +322,15 @@ export class LiveSlots implements SlotPainter {
 
   /** Device-px boxes of this frame's layered groups (empty or off-canvas groups are dropped). */
   private collectGroups(frame: FrameContext) {
-    this.active.length = 0;
-    this.states.forEach((state, i) => {
+    this.activeCount = 0;
+    for (let i = 0; i < this.states.length; i++) {
       const index = this.activeOf[i];
       index.length = 0;
-      const geometry = state.geometry;
-      if (!geometry?.groups.length) return;
+      const geometry = this.states[i].geometry;
+      if (!geometry?.groups.length) continue;
       const [ox, oy] = frame.offsetOf(this.slots[i]);
-      geometry.groups.forEach((group: LayerGroup, g) => {
+      for (let g = 0; g < geometry.groups.length; g++) {
+        const group: LayerGroup = geometry.groups[g];
         const margin = group.halfWidth * frame.dpr + LAYER_MARGIN_PX;
         const x0 = Math.max(0, Math.floor((group.bounds.x0 + ox) * frame.scale + frame.translate[0] - margin));
         const y0 = Math.max(0, Math.floor((group.bounds.y0 + oy) * frame.scale + frame.translate[1] - margin));
@@ -296,19 +338,35 @@ export class LiveSlots implements SlotPainter {
         const y1 = Math.min(frame.height, Math.ceil((group.bounds.y1 + oy) * frame.scale + frame.translate[1] + margin));
         if (!(x1 > x0 && y1 > y0)) {
           index[g] = -1;
-          return;
+          continue;
         }
-        index[g] = this.active.length;
-        this.active.push({ slot: i, group: g, x0, y0, width: x1 - x0, height: y1 - y0, ax: 0, ay: 0 });
-      });
-    });
+        index[g] = this.activeCount;
+        const active = (this.active[this.activeCount++] ??= { slot: 0, group: 0, x0: 0, y0: 0, width: 0, height: 0, ax: 0, ay: 0 });
+        active.slot = i;
+        active.group = g;
+        active.x0 = x0;
+        active.y0 = y0;
+        active.width = x1 - x0;
+        active.height = y1 - y0;
+      }
+    }
   }
 
-  /** Shelf-packs the active groups into the atlas (tallest first), growing it when they do not fit. */
+  /**
+   * Shelf-packs the active groups into the atlas (tallest first), growing it when they do not fit and shrinking it
+   * when they have needed less than half of it for a while.
+   */
   private ensureAtlas(frame: FrameContext): Atlas {
-    const widest = Math.max(...this.active.map((g) => g.width));
+    const count = this.activeCount;
+    const order = this.packOrder;
+    order.length = 0;
+    let widest = 0;
+    for (let k = 0; k < count; k++) {
+      order.push(k);
+      widest = Math.max(widest, this.active[k].width);
+    }
     const rowWidth = Math.max(widest, Math.min(frame.width, ATLAS_ROW_WIDTH));
-    const order = this.active.map((_, k) => k).sort((a, b) => this.active[b].height - this.active[a].height);
+    order.sort(this.tallestFirst);
     let x = 0, y = 0, shelf = 0, used = 0;
     for (const k of order) {
       const g = this.active[k];
@@ -323,13 +381,15 @@ export class LiveSlots implements SlotPainter {
       shelf = Math.max(shelf, g.height);
       used = Math.max(used, x);
     }
-    const step = (n: number) => Math.ceil(n / ATLAS_STEP) * ATLAS_STEP;
-    const width = step(used);
-    const height = step(y + shelf);
+    const width = atlasStep(used);
+    const height = atlasStep(y + shelf);
     let atlas = this.atlas;
-    if (!atlas || atlas.width < width || atlas.height < height || atlas.canvasWidth !== frame.width) {
+    this.smallFrames = atlas && 2 * width * height < atlas.width * atlas.height ? this.smallFrames + 1 : 0;
+    const shrink = this.smallFrames > ATLAS_SHRINK_FRAMES;
+    if (!atlas || atlas.width < width || atlas.height < height || atlas.canvasWidth !== frame.width || shrink) {
       this.releaseAtlas();
-      const keep = atlas?.canvasWidth === frame.width ? atlas : null;
+      this.smallFrames = 0;
+      const keep = atlas?.canvasWidth === frame.width && !shrink ? atlas : null;
       const size: [number, number] = [Math.max(width, keep?.width ?? 0), Math.max(height, keep?.height ?? 0)];
       atlas = { width: size[0], height: size[1], canvasWidth: frame.width, msaa: createMsaaColor(this.root, size, frame.format), depth: createMsaaDepth(this.root, size), resolve: createResolveColor(this.root, size, frame.format) };
       this.atlas = atlas;
@@ -339,14 +399,17 @@ export class LiveSlots implements SlotPainter {
     return atlas;
   }
 
-  private ensureParams() {
-    if (!this.composite || this.params.dataType.elementCount < this.active.length) {
-      if (this.params.dataType.elementCount < this.active.length) {
+  private readonly tallestFirst = (a: number, b: number) => this.active[b].height - this.active[a].height;
+
+  private ensureParams(atlas: Atlas) {
+    if (!this.composite || this.params.dataType.elementCount < this.activeCount) {
+      if (this.params.dataType.elementCount < this.activeCount) {
         this.params.destroy();
-        this.params = this.root.createBuffer(d.arrayOf(GroupParams, 2 ** Math.ceil(Math.log2(this.active.length)))).$usage('storage');
-        this.paramsHost = this.params.arrayBuffer;
+        this.params = this.root.createBuffer(d.arrayOf(GroupParams, 2 ** Math.ceil(Math.log2(this.activeCount)))).$usage('storage');
+        this.paramsI32 = new Int32Array(this.params.arrayBuffer);
+        this.paramsF32 = new Float32Array(this.params.arrayBuffer);
       }
-      this.composite = this.root.createBindGroup(S.compositeLayout, { atlas: this.atlas!.resolve, groups: this.params });
+      this.composite = this.root.createBindGroup(S.compositeLayout, { atlas: atlas.resolve, groups: this.params });
     }
   }
 

@@ -9,6 +9,9 @@
 //   motion [--quick] [--mutate pop]           consecutive frames: GPU-only flicker and frame-to-frame change vs SVG
 //   determinism [--ticks 3000] [--mutate no-rebase]   runtime state per tick: SVG vs GPU page, two runs of each, identical
 //   calib [--quick] [--mutate contrast]       hairline ink per calibration cell, GPU / SVG (src/fixture/make-calib.mjs)
+//   identity [--quick] [--mutate skip-invalidate|skip-growth]   static cache: cached frame == ?cache=0 (0 px) at envelope
+//                                             growth ticks, after a theme switch, a resize and a device loss; native and
+//                                             ?native=0 (--mutate: ?cacheBug=… on the cached page, which must fail)
 //   perf                                      CPU cost per frame from __gpu.frameStats() (numbers only, never fails)
 // Tools (no gate): timeline [--ticks 2400] · record [--ticks 1800] (→ tools/fixtures/live-markup.json) ·
 //   sheet --from 600 --count 60 [--theme dark] [--page gpu|svg] [--box x,y,w,h]
@@ -16,7 +19,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PNG } from "pngjs";
-import { CALIB, LIVE, MOTION, PERF, STATIC } from "./gates.config.mjs";
+import { CALIB, IDENTITY, LIVE, MOTION, PERF, STATIC } from "./gates.config.mjs";
 import { compareImages, crop, erode, largestCluster, readPng, STRICT_DELTA } from "./diff.mjs";
 import {
   GATES_OUT, PAGES, ROOT, RUNTIME_STATE, TICK_GATE, advanceTo, createChecks, fileUrl, lockstepPreload, openPage, openRuntimePage,
@@ -39,6 +42,9 @@ const MUTATIONS = {
   // a 5 × 5 CSS px patch shows on one frame only (tick 880): a part popping for a frame
   pop: `window.__factoryHooks.push((f) => { let patch; f.onFrame(() => { if (!patch) { const c = document.querySelector("canvas.iso-svg"); const r = c.getBoundingClientRect(); patch = document.createElement("div"); patch.style.cssText = "position:absolute;width:5px;height:5px;left:" + (r.left + scrollX + r.width * 0.5) + "px;top:" + (r.top + scrollY + r.height * 0.42) + "px;background:#808080"; document.body.append(patch); } patch.hidden = __tickGate.ticks !== 880; }); });`,
 };
+
+/** Static-cache defects of the identity gate's self-tests (renderer CacheFault through ?cacheBug=). */
+const CACHE_FAULTS = ["skip-invalidate", "skip-growth"];
 
 const pct = (value) => `${value}%`;
 const describeDiff = (d) => `loose ${pct(d.loosePct)} (blob ${d.looseCluster}, solid ${d.solidCluster}) · incl. AA ${pct(d.withAAPct)} · Δ>${STRICT_DELTA} ${pct(d.strictPct)}`;
@@ -358,6 +364,103 @@ async function calibGate(options) {
   checks.finish({ rows });
 }
 
+/** Ticks whose GPU frame grew a slot envelope (window.__growthTicks), observed through the __gpu.frames assignment. */
+const GROWTH_SCAN = `(() => {
+  window.__growthTicks = [];
+  let api;
+  let total = 0;
+  Object.defineProperty(window, "__gpu", { configurable: true, get: () => api, set(value) {
+    api = value;
+    let frames = value.frames;
+    Object.defineProperty(value, "frames", { configurable: true, enumerable: true, get: () => frames, set(next) {
+      frames = next;
+      const envelopes = value.frameStats().envelopes ?? {};
+      const sum = Object.values(envelopes).reduce((n, e) => n + (e ? e.growths : 0), 0);
+      if (sum > total && window.__tickGate) window.__growthTicks.push(__tickGate.ticks);
+      total = sum;
+    } });
+  } });
+})();`;
+
+/** `count` ticks spread evenly over `ticks`. */
+const spread = (ticks, count) => (ticks.length <= count ? ticks : Array.from({ length: count }, (_, i) => ticks[Math.round((i * (ticks.length - 1)) / (count - 1))]));
+
+/** Runs a page through `stops` (sorted), applying the identity events at their ticks and shooting at `shots`. */
+async function identityRun(browser, { url, dpr, stops, shots, events, dir, prefix }) {
+  const { cdp, problems, warnings, close } = await openRuntimePage(browser, { path: url, dpr });
+  try {
+    const files = {};
+    let losses = 0;
+    for (const tick of stops) {
+      await advanceTo(cdp, tick);
+      const event = events.find((e) => e.tick === tick);
+      if (event?.kind === "theme") await cdp.evaluate(`document.body.dataset.theme = document.body.dataset.theme === "light" ? "dark" : "light"`);
+      if (event?.kind === "resize") await cdp.send("Emulation.setDeviceMetricsOverride", { width: event.width, height: 1400, deviceScaleFactor: event.dpr, mobile: false });
+      if (event?.kind === "loss") {
+        losses++;
+        await cdp.evaluate("__gpu.simulateDeviceLoss()");
+        await waitFor(cdp, `__gpu.frameStats().reinits === ${losses} && "lastEncodeMs" in __gpu.frameStats()`, 15000);
+      }
+      if (!shots.includes(tick)) continue;
+      await settle(cdp);
+      files[tick] = await shot(cdp, join(dir, `${prefix}-t${tick}.png`), await stageBox(cdp));
+    }
+    const stats = await cdp.evaluate("(() => { const s = __gpu.frameStats(); return { cachedFrames: s.cachedFrames, fullFrames: s.fullFrames, cacheRebuilds: s.cacheRebuilds, reinits: s.reinits, errors: __gpu.errors.slice(), error: __gpu.error, native: s.native }; })()");
+    return { files, stats, problems: [...problems, ...warnings] };
+  } finally {
+    await close();
+  }
+}
+
+/**
+ * Static-cache identity: the cached page and its ?cache=0 twin, driven through the same ticks and events, must show
+ * the same frame to the last bit at every shot (envelope growth ticks and the ticks after a theme switch, a resize and
+ * a device loss), with the native rotor and on the markup path (?native=0).
+ */
+async function identityGate(options) {
+  const fault = options.mutate;
+  const checks = createChecks(fault ? `identity-mutate-${fault}` : "identity");
+  const configs = options.quick ? IDENTITY.quickConfigs : IDENTITY.configs;
+  const growthCount = options.quick ? IDENTITY.quickGrowthTicks : IDENTITY.growthTicks;
+  const report = [];
+  await withBrowser(async (browser) => {
+    for (const { theme, native } of configs) {
+      const name = `${theme}${native === "0" ? " ?native=0" : ""}`;
+      const dir = join(GATES_OUT, "identity", `${theme}-native${native}`);
+      const base = `${fileUrl(PAGES.gpu(theme))}?native=${native}`;
+      // envelope growth ticks of this configuration (deterministic under lockstep)
+      const scan = await openRuntimePage(browser, { path: base, dpr: IDENTITY.dpr, preloads: [GROWTH_SCAN] });
+      let growth;
+      try {
+        await advanceTo(scan.cdp, IDENTITY.scan.to);
+        growth = [...new Set(await scan.cdp.evaluate("__growthTicks"))].filter((t) => t >= IDENTITY.scan.from && t < IDENTITY.scan.to);
+      } finally {
+        await scan.close();
+      }
+      checks.check(growth.length >= growthCount, `${name}: the scan found envelope growth ticks to compare`, `${growth.length} growth ticks in [${IDENTITY.scan.from}, ${IDENTITY.scan.to})`);
+      const chosen = spread(growth, growthCount);
+      const shots = [...new Set([...chosen.flatMap((t) => [t, t + 1]), ...IDENTITY.events.flatMap((e) => e.shots)])].sort((a, b) => a - b);
+      const stops = [...new Set([...shots, ...IDENTITY.events.map((e) => e.tick)])].sort((a, b) => a - b);
+      const run = (url, prefix) => identityRun(browser, { url, dpr: IDENTITY.dpr, stops, shots, events: IDENTITY.events, dir, prefix });
+      const cached = await run(fault ? `${base}&cacheBug=${fault}` : base, "cached");
+      const uncached = await run(`${base}&cache=0`, "uncached");
+      const differing = [];
+      for (const tick of shots) {
+        const d = compareImages(cached.files[tick], uncached.files[tick], { diffFile: join(dir, `diff-t${tick}.png`) });
+        const kind = chosen.includes(tick) ? "growth" : chosen.includes(tick - 1) ? "after growth" : IDENTITY.events.find((e) => e.shots.includes(tick))?.kind ?? "";
+        report.push({ config: name, tick, kind, withAA: d.withAA });
+        checks.check(d.withAA === 0, `${name} t${tick} (${kind}): cached == ?cache=0`, `${d.withAA} px differ`);
+        if (d.withAA) differing.push(tick);
+      }
+      checks.check(cached.stats.cachedFrames > 0 && uncached.stats.cachedFrames === 0, `${name}: the cached page drew cached frames, ?cache=0 none`, JSON.stringify({ cached: cached.stats.cachedFrames, rebuilds: cached.stats.cacheRebuilds, uncached: uncached.stats.cachedFrames }));
+      checks.check(cached.stats.reinits === 1 && uncached.stats.reinits === 1 && !cached.stats.error && !uncached.stats.error, `${name}: both pages re-initialised after the loss, no error`, JSON.stringify({ cached: cached.stats.reinits, uncached: uncached.stats.reinits, error: cached.stats.error ?? uncached.stats.error }));
+      if (native !== "0") checks.check(cached.stats.native?.drawing && uncached.stats.native?.drawing, `${name}: the native painter draws on both pages`, JSON.stringify(cached.stats.native?.drawing));
+      checks.check(!cached.problems.length && !uncached.problems.length, `${name}: consoles clean`, [...cached.problems, ...uncached.problems].slice(0, 3).join(" | "));
+    }
+  });
+  checks.finish({ fault: fault ?? null, report });
+}
+
 /** CPU cost per frame without lockstep (real rAF pacing), from the page's own User Timing samples. Never fails. */
 async function perf(options) {
   const results = [];
@@ -477,11 +580,11 @@ async function sheet(options) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const options = parseArgs(["quick"]);
-  const commands = { static: staticGate, live: liveGate, motion: motionGate, determinism: determinismGate, calib: calibGate, perf, timeline, record, sheet };
+  const commands = { static: staticGate, live: liveGate, motion: motionGate, determinism: determinismGate, calib: calibGate, identity: identityGate, perf, timeline, record, sheet };
   // command names before fix loop B
   Object.assign(commands, { compare: liveGate, baseline: staticGate, cost: perf });
   const command = commands[options._[0]];
-  if (!command || (options.mutate && !MUTATIONS[options.mutate] && options.mutate !== "no-rebase")) {
+  if (!command || (options.mutate && !MUTATIONS[options.mutate] && options.mutate !== "no-rebase" && !CACHE_FAULTS.includes(options.mutate))) {
     const usage = readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n");
     console.log(usage.slice(0, usage.findIndex((line) => !line.startsWith("//"))).join("\n"));
     process.exit(2);

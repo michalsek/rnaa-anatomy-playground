@@ -37,7 +37,9 @@ export class SharedBindings {
   /** Bumped whenever a bound buffer is replaced: bind groups built on the old one are stale. */
   version = 0;
   private paintVersion = -1;
-  private readonly frameValues = new Float32Array(8);
+  /** Frame uniform values last written to `frame` (as f32), and the scratch the next ones are compared in. */
+  private readonly frameValues = new Float32Array(8).fill(Number.NaN);
+  private readonly nextFrameValues = new Float32Array(8);
 
   constructor(private readonly root: TgpuRoot, itemCount: number) {
     this.frame = root.createBuffer(Frame).$usage('uniform');
@@ -49,12 +51,27 @@ export class SharedBindings {
     this.ensureIdentity(1);
   }
 
-  /** Writes the frame uniform when any value changed; returns whether it did. */
-  writeFrame(values: FrameValues, target: FrameBuffer = this.frame, origin: [number, number] = [0, 0]): boolean {
-    const next = [values.scale, values.scale, values.translate[0] - origin[0], values.translate[1] - origin[1], values.width, values.height, values.dpr, values.depthTotal + 2];
-    const current = target === this.frame ? this.frameValues : null;
-    if (current && next.every((v, i) => Math.fround(v) === current[i])) return false;
-    if (current) current.set(next);
+  /**
+   * Writes a frame uniform (`target`: the shared one, or a layer's with its `origin` subtracted); the shared one only
+   * when a value changed. Returns whether it wrote.
+   */
+  writeFrame(values: FrameValues, target: FrameBuffer = this.frame, originX = 0, originY = 0): boolean {
+    const next = this.nextFrameValues;
+    next[0] = values.scale;
+    next[1] = values.scale;
+    next[2] = values.translate[0] - originX;
+    next[3] = values.translate[1] - originY;
+    next[4] = values.width;
+    next[5] = values.height;
+    next[6] = values.dpr;
+    next[7] = values.depthTotal + 2;
+    if (target === this.frame) {
+      const current = this.frameValues;
+      let same = true;
+      for (let i = 0; i < next.length && same; i++) same = next[i] === current[i];
+      if (same) return false;
+      current.set(next);
+    }
     target.write({ toDev: d.vec4f(next[0], next[1], next[2], next[3]), viewport: d.vec2f(next[4], next[5]), dpr: next[6], depthDenominator: next[7] });
     return true;
   }

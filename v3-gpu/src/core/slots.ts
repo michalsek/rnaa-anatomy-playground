@@ -43,11 +43,14 @@ export interface FrameContext {
   readonly depthTotal: number;
   /** Explode offset of the slot (its anchor's), viewBox units. */
   offsetOf(slot: number): [number, number];
+  /** The painter that draws `slot` now (the renderer's ownership record, the only one). */
+  ownerOf(slot: number): SlotPainter | null;
 }
 
 /**
- * Draws the content of one or more live slots. Slot ownership lives in the renderer (`setSlotPainter`); a painter only
- * ever draws the slots it still owns. The renderer calls, per frame: `prepare` (offscreen passes, before the
+ * Draws the content of one or more live slots. Slot ownership lives in the renderer (`setSlotPainter`, the only
+ * record: painters ask `FrameContext.ownerOf`); a painter only ever draws the slots it owns. Ownership moves both ways:
+ * a slot released to another painter may be acquired back later (a native machine falling back to the markup path). The renderer calls, per frame: `prepare` (offscreen passes, before the
  * main pass), `drawOpaque` (depth-writing content, in the opaque phase), then `drawSlot` at each slot's painter
  * position. Content must stay inside the depth slots [depthBase, depthBase + capacity) the renderer reserved
  * (`layersOf` reports the need; growing it re-lays the depth range) and inside `extentOf` (the static cache treats
@@ -64,10 +67,70 @@ export interface SlotPainter {
    * hold. A painter that owns no slot any more is no longer called at all.
    */
   release(slots: readonly number[]): void;
+  /**
+   * The renderer gave `slots` to this painter (again): draw them from the next frame on. Optional: a painter that only
+   * ever owns the slots it was created for needs nothing here.
+   */
+  acquire?(slots: readonly number[]): void;
+  /**
+   * Work this painter encoded into the last frame may not have run (the frame threw before or at submit, or a WebGPU
+   * validation error made its results unknown): redo it in the next `prepare`. Optional: painters that encode nothing
+   * of their own need nothing here.
+   */
+  invalidate?(): void;
   prepare(frame: FrameContext, encoder: TgpuCommandEncoder): void;
   drawOpaque(frame: FrameContext, pass: TgpuRenderPass): void;
   drawSlot(frame: FrameContext, pass: TgpuRenderPass, slot: number): void;
   /** Pipelines to compile ahead of the first frame. */
   pipelines(): { initAsync(): Promise<void> }[];
   dispose(): void;
+}
+
+/**
+ * Who draws each live slot: the renderer's single ownership record. Moving slots tells each previous owner what it
+ * lost (`release`) and the new owner what it gained (`acquire`), so ownership can move back and forth (a native machine
+ * taking the rotor slots from the markup path, and giving them back when it fails). DOM- and GPU-free (unit-tested).
+ */
+export class SlotOwners {
+  /** Every painter known (compiled and disposed with the renderer), whether or not it owns a slot now. */
+  readonly painters: SlotPainter[] = [];
+  /** Painters that own at least one slot: the only ones prepared and drawn. */
+  active: SlotPainter[] = [];
+  private readonly owners: (SlotPainter | null)[];
+
+  constructor(slotCount: number) {
+    this.owners = Array.from({ length: slotCount }, () => null);
+  }
+
+  /** Makes a painter known without giving it slots. */
+  add(painter: SlotPainter) {
+    if (!this.painters.includes(painter)) this.painters.push(painter);
+  }
+
+  ownerOf(slot: number): SlotPainter | null {
+    return this.owners[slot] ?? null;
+  }
+
+  /** Gives `slots` to `painter`; returns whether any slot changed hands. */
+  assign(painter: SlotPainter, slots: readonly number[]): boolean {
+    this.add(painter);
+    const released = new Map<SlotPainter, number[]>();
+    const gained: number[] = [];
+    for (const slot of slots) {
+      const previous = this.owners[slot];
+      if (previous === painter) continue;
+      if (previous) {
+        const lost = released.get(previous);
+        if (lost) lost.push(slot);
+        else released.set(previous, [slot]);
+      }
+      this.owners[slot] = painter;
+      gained.push(slot);
+    }
+    if (!gained.length) return false;
+    for (const [previous, lost] of released) previous.release(lost);
+    painter.acquire?.(gained);
+    this.active = this.painters.filter((p) => this.owners.includes(p));
+    return true;
+  }
 }

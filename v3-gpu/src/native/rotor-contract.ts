@@ -27,7 +27,7 @@ export interface RotorRelease {
 
 /** v2 releasePose(): where a released packet is; `pos` is a world point (x, y used), `z` the packet's bottom. */
 export interface RotorPose {
-  stage: 'rotor' | 'spout' | 'fall' | string;
+  stage: 'rotor' | 'spout' | 'fall';
   pos: ArrayLike<number>;
   a: number;
   z: number;
@@ -54,3 +54,9 @@ export interface MachineGpu {
 
 /** The text tools/build.mjs inserts after `function drawRotor(now) {` (keep the two in sync: build.mjs imports it). */
 export const ROTOR_HOOK_LINE = 'if (api.gpu?.rotor?.(Ad, pockets, releasing, now, releasePose, drawRotor)) return;';
+
+/**
+ * v2's packet kinds (shared/kit.mjs KINDS): their styles are registered when the native rotor is created, so a template
+ * that does not match fails at boot. tools/test-native.mjs checks the list against v2's.
+ */
+export const V2_PACKET_KINDS = ['fluff', 'control', 'graph', 'data', 'audio', 'garbage'] as const;

@@ -4,7 +4,7 @@
 import type { TgpuBindGroup, TgpuBuffer, TgpuCommandEncoder, TgpuRenderPass, TgpuRoot, TgpuSampler, UniformFlag } from 'typegpu';
 import * as d from 'typegpu/data';
 import type { LayoutGroup } from './bindings.ts';
-import type { FillBuffer } from './gpu-types.ts';
+import { sampledTargetUsage, type FillBuffer } from './gpu-types.ts';
 import type { PaintTable } from './paint.ts';
 import { MASK_FORMAT, type Pipelines } from './pipelines.ts';
 import { Blur, HaloParams } from './schemas.ts';
@@ -21,7 +21,7 @@ const MIN_SIGMA_TEXELS = 0.5;
 /** Device px added around a halo's box (bilinear footprint of the half-resolution mask). */
 const BOX_MARGIN_PX = 2;
 
-const createMask = (root: TgpuRoot, size: [number, number]) => root.createTexture({ size, format: MASK_FORMAT }).$usage('render', 'sampled');
+const createMask = (root: TgpuRoot, size: [number, number]) => root.createTexture({ size, format: MASK_FORMAT }).$overrideFlags(sampledTargetUsage());
 type MaskTexture = ReturnType<typeof createMask>;
 type BlurBuffer = TgpuBuffer<typeof Blur> & UniformFlag;
 type ParamsBuffer = TgpuBuffer<typeof HaloParams> & UniformFlag;
@@ -40,6 +40,9 @@ interface HaloTargets {
   /** Composite parameters last written (colour, shift, depth): unchanged ones are not re-uploaded. */
   written: Float32Array;
 }
+
+/** Composite parameter words compared per frame: colour (4), shift (2), depth (1). */
+const PARAM_WORDS = 7;
 
 export interface HaloView {
   scale: number;
@@ -68,27 +71,36 @@ export class HaloEffect {
 
   /**
    * Renders and blurs every mask when invalidated (before the main pass), and writes the composite parameters: colour,
-   * shift (explode offset + CSS translate) and depth at the halo's painter position.
+   * shift (explode offset + CSS translate) and depth at the halo's painter position. `offsets` holds the explode offset
+   * (x, y) per item. The masks count as rendered from here on: a frame that fails must `invalidate()`.
    */
-  prepare(encoder: TgpuCommandEncoder, halos: HaloPrim[], vertices: FillBuffer, group: LayoutGroup, view: HaloView, paints: PaintTable, offsetOf: (item: number) => [number, number], depthOf: (item: number, layer: number) => number) {
+  prepare(encoder: TgpuCommandEncoder, halos: HaloPrim[], vertices: FillBuffer, group: LayoutGroup, view: HaloView, paints: PaintTable, offsets: Float32Array, depthOf: (item: number, layer: number) => number) {
     if (this.maskDirty || this.targets.length !== halos.length) this.renderMasks(encoder, halos, vertices, group, view, paints);
-    halos.forEach((halo, i) => {
+    for (let i = 0; i < halos.length; i++) {
+      const halo = halos[i];
       const paint = paints.resolved[halo.paint];
-      const [ox, oy] = offsetOf(halo.item);
-      const shift: [number, number] = [(ox + paint.translate[0]) * view.scale, (oy + paint.translate[1]) * view.scale];
+      const shiftX = (offsets[halo.item * 2] + paint.translate[0]) * view.scale;
+      const shiftY = (offsets[halo.item * 2 + 1] + paint.translate[1]) * view.scale;
       const t = this.targets[i];
       const depth = depthOf(halo.item, halo.layer);
-      const values = [...paint.rgba, shift[0], shift[1], depth];
-      if (values.some((v, k) => Math.fround(v) !== t.written[k])) {
-        t.written.set(values);
-        t.params.write({ color: d.vec4f(...paint.rgba), shift: d.vec2f(...shift), depth });
+      const written = t.written;
+      const [r, g, b, a] = paint.rgba;
+      if (Math.fround(r) !== written[0] || Math.fround(g) !== written[1] || Math.fround(b) !== written[2] || Math.fround(a) !== written[3] || Math.fround(shiftX) !== written[4] || Math.fround(shiftY) !== written[5] || Math.fround(depth) !== written[6]) {
+        written[0] = r;
+        written[1] = g;
+        written[2] = b;
+        written[3] = a;
+        written[4] = shiftX;
+        written[5] = shiftY;
+        written[6] = depth;
+        t.params.write({ color: d.vec4f(r, g, b, a), shift: d.vec2f(shiftX, shiftY), depth });
       }
       const reach = this.sigmaOf(paint.blur, view.scale) * BLUR_EXTENT_SIGMAS / MASK_SCALE + BOX_MARGIN_PX;
-      t.box.x0 = Math.max(0, Math.floor(halo.bounds.x0 * view.scale + view.translate[0] + shift[0] - reach));
-      t.box.y0 = Math.max(0, Math.floor(halo.bounds.y0 * view.scale + view.translate[1] + shift[1] - reach));
-      t.box.x1 = Math.min(view.width, Math.ceil(halo.bounds.x1 * view.scale + view.translate[0] + shift[0] + reach));
-      t.box.y1 = Math.min(view.height, Math.ceil(halo.bounds.y1 * view.scale + view.translate[1] + shift[1] + reach));
-    });
+      t.box.x0 = Math.max(0, Math.floor(halo.bounds.x0 * view.scale + view.translate[0] + shiftX - reach));
+      t.box.y0 = Math.max(0, Math.floor(halo.bounds.y0 * view.scale + view.translate[1] + shiftY - reach));
+      t.box.x1 = Math.min(view.width, Math.ceil(halo.bounds.x1 * view.scale + view.translate[0] + shiftX + reach));
+      t.box.y1 = Math.min(view.height, Math.ceil(halo.bounds.y1 * view.scale + view.translate[1] + shiftY + reach));
+    }
   }
 
   boxOf(halo: number): DeviceRect {
@@ -139,7 +151,7 @@ export class HaloEffect {
         blurV: this.root.createBindGroup(S.blurLayout, { src: scratch, params: vertical }),
         composite: this.root.createBindGroup(S.haloLayout, { tex: mask, samp: this.sampler, params }),
         box: { x0: 0, y0: 0, x1: 0, y1: 0 },
-        written: new Float32Array(7).fill(Number.NaN),
+        written: new Float32Array(PARAM_WORDS).fill(Number.NaN),
       };
       this.targets.push(targets);
       const silhouette = encoder.beginRenderPass({ colorAttachments: [{ view: mask, clearValue: [0, 0, 0, 0], loadOp: 'clear', storeOp: 'store' }] });

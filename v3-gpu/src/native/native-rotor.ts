@@ -1,28 +1,20 @@
-// The native rotor as the web host wires it: the hook v2's drawRotor calls (rotor-contract.ts), the CPU model, and a
-// RotorPainter for every renderer the view creates (a PainterHost, so device-loss re-inits get one too).
-//
-// Lifecycle: inactive until `activate()` (the host calls it once the GPU figure is ready, so the vector preview shown
-// while WebGPU boots keeps getting v2's strings). The first hook call after that takes over the four slots for good:
-// the renderer gives them to the RotorPainter (the live painter releases them) and the slot source keeps v2's strings
-// only on demand (`refreshMarkup`: drawRotor re-run with the hook bypassed). `deactivate()` (fallback) hands every
-// later frame back to v2.
+// The native centrifuge rotor: a native machine kind (native-host.ts) for every v2 machine whose slots include
+// rotorBack, rotorFront, spout and fall. Its hook is the line tools/build.mjs injects into v2's drawRotor
+// (rotor-contract.ts); its CPU model mirrors drawRotor (rotor-model.ts) and its painter expands the model on the GPU
+// (rotor-painter.ts). The machine-agnostic lifecycle — activation, slot ownership, error containment, painters per
+// renderer — lives in NativeMachine.
 import type { TgpuRoot } from 'typegpu';
-import type { PainterHost } from '../core/frame-loop.ts';
 import type { ChainNode, PaintResolver, PaintTable } from '../core/paint.ts';
 import { RollingTimings, type Clock } from '../core/profiler.ts';
 import type { Renderer } from '../core/renderer.ts';
 import type { Projection } from './kit-mirror.ts';
-import type { MachineGpu, RotorData, RotorItem, RotorPoseOf, RotorRelease } from './rotor-contract.ts';
+import { NativeMachine, type NativeHost, type NativeKind } from './native-host.ts';
+import { V2_PACKET_KINDS, type MachineGpu, type RotorData, type RotorItem, type RotorPoseOf, type RotorRelease } from './rotor-contract.ts';
 import { ROTOR_SLOTS, RotorModel } from './rotor-model.ts';
-import { RotorPainter } from './rotor-painter.ts';
+import { RotorPainter, type RotorExpansion } from './rotor-painter.ts';
 import { RotorStyles } from './rotor-styles.ts';
 
-/** Where the native slots' markup lives (the DOM slot source). */
-export interface NativeSlotOwner {
-  ownNatively(slots: readonly number[], refresh: () => void): void;
-}
-
-export interface NativeRotorOptions {
+export interface RotorKindOptions {
   paints: PaintTable;
   resolver: PaintResolver;
   /** Probe ancestors of slot content (the live builder's chain): paint keys equal the markup path's. */
@@ -31,10 +23,9 @@ export interface NativeRotorOptions {
   slotNames: readonly string[];
   /** Item index of slot 0's pseudo-item (the scene's item count). */
   itemBase: number;
-  owner: NativeSlotOwner;
   clock: Clock;
-  /** Something the native painter draws changed: draw a frame (folded into the runtime's tick). */
-  onChange(): void;
+  /** Where parts become records (RotorPainter): the compute pass, or the CPU (`?native=cpu`, evaluation). */
+  expansion?: RotorExpansion;
 }
 
 /** The machine api fields the native rotor reads (FACTORY.define's api). */
@@ -43,88 +34,70 @@ export interface MachineApi {
   P: Projection;
 }
 
-export class NativeRotor implements PainterHost {
+/** The rotor kind: one RotorMachine per v2 machine that has the four rotor slots. */
+export const rotorKind = (options: RotorKindOptions): NativeKind<MachineApi> => ({
+  create(id, api, host) {
+    const slots = ROTOR_SLOTS.map((name) => options.slotNames.indexOf(`${id}:${name}`));
+    if (slots.some((slot) => slot < 0)) return undefined;
+    return new RotorMachine(id, slots, host, api, options);
+  },
+});
+
+/** The guards drawRotor's data must pass (a renamed v2 field fails at define time, not as NaN geometry). */
+function assertRotorData(data: unknown): asserts data is RotorData {
+  const d = data as Partial<RotorData> | null;
+  const finite = (value: unknown) => typeof value === 'number' && Number.isFinite(value);
+  const ok = !!d && Number.isInteger(d.pockets) && (d.pockets ?? 0) > 0
+    && Array.isArray(d.centre) && finite(d.centre[0]) && finite(d.centre[1])
+    && Array.isArray(d.toward) && finite(d.toward[0]) && finite(d.toward[1])
+    && !!d.r && finite(d.r.vaneIn) && finite(d.r.vaneOut) && finite(d.r.pocket)
+    && !!d.z && finite(d.z.pocket) && finite(d.z.vane) && finite(d.z.packet);
+  if (!ok) throw new Error('api.data lacks the fields drawRotor reads (pockets, centre, toward, r.vaneIn/vaneOut/pocket, z.pocket/vane/packet)');
+}
+
+export class RotorMachine extends NativeMachine {
+  readonly gpu: MachineGpu;
   readonly counters = { calls: 0, changedFrames: 0, markupRefreshes: 0 };
   readonly timings = { model: new RollingTimings() };
   private readonly styles: RotorStyles;
-  private model: RotorModel | null = null;
-  private projection: Projection | null = null;
-  private slots: number[] = [];
-  private renderer: Renderer | null = null;
-  private root: TgpuRoot | null = null;
-  private painter: RotorPainter | null = null;
-  private registered = false;
-  private active = false;
-  private owning = false;
+  private readonly model: RotorModel;
+  private readonly projection: Projection;
+  private rotorPainter: RotorPainter | null = null;
   private bypass = false;
   private redraw: ((now: number) => void) | null = null;
   private lastNow = 0;
   private markupStale = false;
 
-  constructor(private readonly options: NativeRotorOptions) {
-    this.styles = new RotorStyles(options.paints, options.slotChain);
-  }
-
-  /** `api.gpu` for machine `id`, or undefined when the figure has no rotor slots of that machine. */
-  machineGpu(id: string, api: MachineApi): MachineGpu | undefined {
-    const slots = ROTOR_SLOTS.map((name) => this.options.slotNames.indexOf(`${id}:${name}`));
-    if (this.model || slots.some((slot) => slot < 0)) return undefined;
-    this.slots = slots;
+  constructor(id: string, slots: readonly number[], host: NativeHost, api: MachineApi, private readonly options: RotorKindOptions) {
+    super(id, slots, host);
+    assertRotorData(api.data);
     this.projection = api.P;
-    this.model = new RotorModel(api.data as RotorData, api.P, slots.map((slot) => this.options.itemBase + slot), (kind) => this.styles.styleOf(kind), () => this.styles.maxHalfWidth);
-    return { rotor: (angle, pockets, releasing, now, poseOf, redraw) => this.rotor(angle, pockets, releasing, now, poseOf, redraw) };
-  }
-
-  get isActive() {
-    return this.active;
+    // v2's packet kinds are registered now: a template that does not match its markup fails here, at define time
+    this.styles = new RotorStyles(options.paints, options.slotChain, V2_PACKET_KINDS);
+    this.model = new RotorModel(api.data, api.P, slots.map((slot) => options.itemBase + slot), (kind) => this.styles.styleOf(kind), () => this.styles.maxHalfWidth);
+    this.gpu = { rotor: (angle, pockets, releasing, now, poseOf, redraw) => this.rotor(angle, pockets, releasing, now, poseOf, redraw) };
   }
 
   get stats() {
     return {
-      active: this.active,
-      drawing: this.registered,
-      parts: this.model?.partCount ?? 0,
+      parts: this.model.partCount,
       ...this.counters,
-      gpu: this.painter ? { ...this.painter.stats } : null,
+      gpu: this.rotorPainter ? { ...this.rotorPainter.stats } : null,
       ms: { model: this.timings.model.summary() },
     };
   }
 
-  /** The GPU figure is on screen: the next hook call takes the rotor slots. */
-  activate() {
-    this.active = true;
-  }
-
-  /** The GPU path is gone (fallback): v2 draws every later frame. */
-  deactivate() {
-    this.active = false;
-  }
-
-  attach(root: TgpuRoot, renderer: Renderer) {
-    this.root = root;
-    this.renderer = renderer;
-    this.registered = false;
-    if (this.owning) this.takeSlots();
-  }
-
-  detach() {
-    this.root = null;
-    this.renderer = null;
-    this.painter = null;
-    this.registered = false;
-  }
-
   /** Debug / tooling: this frame's GPU-expanded records, the model's slot ranges and the rotor's hull paints. */
   async readback() {
-    const painter = this.painter;
-    const model = this.model;
-    if (!painter || !model) return null;
+    const painter = this.rotorPainter;
+    if (!painter || !this.isDrawing) return null;
     const records = await painter.readback();
     if (!records) return null;
-    return { ...records, slots: model.slots.map((s, i) => ({ slot: this.slots[i], item: this.options.itemBase + this.slots[i], ...s, extent: undefined })), hullPaints: this.styles.hullPaints };
+    const { itemBase } = this.options;
+    return { ...records, slots: this.model.slots.map((s, i) => ({ slot: this.slots[i], item: itemBase + this.slots[i], ...s, extent: undefined })), hullPaints: this.styles.hullPaints };
   }
 
-  /** v2's slot markup for the state the native painter draws (written through the slots' setters). */
+  /** v2's slot markup for the state the native painter draws (drawRotor re-run with the hook bypassed). */
   refreshMarkup() {
     if (!this.markupStale || !this.redraw) return;
     this.markupStale = false;
@@ -137,8 +110,24 @@ export class NativeRotor implements PainterHost {
     }
   }
 
+  protected createPainter(root: TgpuRoot, renderer: Renderer) {
+    this.rotorPainter = new RotorPainter(root, renderer.bindings, this.slots, this.model, this.styles, this.projection, this.options.expansion, this.options.clock);
+    return this.rotorPainter;
+  }
+
+  /** The hook (rotor-contract.ts): true when the native painter draws this frame; never throws into v2's tick. */
   private rotor(angle: number, pockets: readonly (RotorItem | null)[], releasing: readonly RotorRelease[], now: number, poseOf: RotorPoseOf, redraw: (now: number) => void): boolean {
-    if (this.bypass || !this.active || !this.model) return false;
+    if (this.bypass || !this.canDraw) return false;
+    try {
+      this.drawFrame(angle, pockets, releasing, now, poseOf, redraw);
+      return true;
+    } catch (error) {
+      this.fail(error);
+      return false;
+    }
+  }
+
+  private drawFrame(angle: number, pockets: readonly (RotorItem | null)[], releasing: readonly RotorRelease[], now: number, poseOf: RotorPoseOf, redraw: (now: number) => void) {
     const { clock, paints, resolver } = this.options;
     const t0 = clock.now();
     this.counters.calls++;
@@ -147,28 +136,13 @@ export class NativeRotor implements PainterHost {
     const changed = this.model.update(angle, pockets, releasing, now, poseOf);
     // a packet kind seen for the first time registered its paints
     if (paints.hasPending) paints.resolvePending(resolver);
-    if (!this.owning) {
-      this.owning = true;
-      this.options.owner.ownNatively(this.slots, () => this.refreshMarkup());
-    }
-    const took = this.takeSlots();
+    const took = this.own();
     if (changed) {
       this.markupStale = true;
       this.counters.changedFrames++;
-      this.painter?.modelChanged();
+      this.rotorPainter?.modelChanged();
     }
-    if (changed || took) this.options.onChange();
+    if (changed || took) this.host.options.onChange();
     this.timings.model.push(clock.now() - t0);
-    return true;
-  }
-
-  /** Creates this renderer's painter and gives it the rotor slots; returns whether it just did. */
-  private takeSlots(): boolean {
-    const { renderer, root, model, projection } = this;
-    if (this.registered || !renderer || !root || !model || !projection) return false;
-    this.painter ??= new RotorPainter(root, renderer.bindings, this.slots, model, this.styles, projection);
-    renderer.setSlotPainter(this.painter);
-    this.registered = true;
-    return true;
   }
 }

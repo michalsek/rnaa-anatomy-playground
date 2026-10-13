@@ -38,7 +38,11 @@ const ENVELOPE_CELL = 8;
 /** The envelope grid extends this fraction of the viewBox beyond each side (content outside it is clamped in). */
 const ENVELOPE_MARGIN = 0.25;
 
-/** Every cell each slot's extents have touched, grown adaptively (growth invalidates the cache partition). */
+/**
+ * Every cell each slot's extents have touched, grown adaptively (growth invalidates the cache partition). The cells
+ * cover the viewBox plus ENVELOPE_MARGIN on each side; an extent reaching beyond that grid cannot be covered by cells,
+ * so its slot is "off-grid" until its extent is back inside, and frames are full redraws meanwhile.
+ */
 export class SlotEnvelopes {
   private readonly cells: (Uint8Array | null)[];
   private readonly halfWidths: number[];
@@ -49,6 +53,9 @@ export class SlotEnvelopes {
   private readonly y0: number;
   private readonly columns: number;
   private readonly rows: number;
+  /** Per slot: its current extent reaches beyond the grid. */
+  private readonly offGrid: Uint8Array;
+  private offGridCount = 0;
   /** Bumped on every growth. */
   version = 0;
 
@@ -61,6 +68,12 @@ export class SlotEnvelopes {
     this.cells = Array.from({ length: slotCount }, () => null);
     this.halfWidths = new Array<number>(slotCount).fill(0);
     this.growths = new Array<number>(slotCount).fill(0);
+    this.offGrid = new Uint8Array(slotCount);
+  }
+
+  /** Some slot's current extent reaches beyond the envelope grid: no envelope covers it. */
+  get anyOffGrid() {
+    return this.offGridCount > 0;
   }
 
   /** Bounding box of the slot's envelope (null before its first content). */
@@ -70,8 +83,17 @@ export class SlotEnvelopes {
     return isEmptyBox(box) ? null : { box, halfWidth: this.halfWidths[slot] };
   }
 
-  get halfWidthOf() {
-    return (slot: number) => this.halfWidths[slot];
+  halfWidthOf(slot: number) {
+    return this.halfWidths[slot];
+  }
+
+  /** Whether the slot's envelope covers `extent` (every cell the box touches is claimed, and the box is on the grid). */
+  covers(slot: number, extent: SlotExtent): boolean {
+    const cells = this.cells[slot];
+    if (!cells || !this.onGrid(extent.box) || extent.halfWidth > this.halfWidths[slot]) return false;
+    const b = extent.box;
+    for (let r = this.rowOf(b.y0); r <= this.rowOf(b.y1); r++) for (let c = this.columnOf(b.x0); c <= this.columnOf(b.x1); c++) if (!cells[r * this.columns + c]) return false;
+    return true;
   }
 
   /** Every slot's envelope as row runs of cells (a new partition reads them all). */
@@ -95,30 +117,29 @@ export class SlotEnvelopes {
     return rects;
   }
 
-  /** Makes the slot's envelope contain `extent`; returns whether it had to grow. */
+  /**
+   * Makes the slot's envelope contain `extent` (as far as the grid reaches; the part beyond it marks the slot
+   * off-grid); returns whether it had to grow.
+   */
   include(slot: number, extent: SlotExtent | null): boolean {
-    if (!extent || isEmptyBox(extent.box)) return false;
+    const empty = !extent || isEmptyBox(extent.box);
+    this.setOffGrid(slot, !empty && !this.onGrid(extent.box));
+    if (empty) return false;
     let cells = this.cells[slot];
     if (!cells) cells = this.cells[slot] = new Uint8Array(this.columns * this.rows);
-    const clampColumn = (x: number) => Math.min(this.columns - 1, Math.max(0, Math.floor((x - this.x0) / ENVELOPE_CELL)));
-    const clampRow = (y: number) => Math.min(this.rows - 1, Math.max(0, Math.floor((y - this.y0) / ENVELOPE_CELL)));
     const b = extent.box;
     let grew = extent.halfWidth > this.halfWidths[slot];
-    if (grew) this.halfWidths[slot] = extent.halfWidth;
+    if (grew) {
+      this.halfWidths[slot] = extent.halfWidth;
+      // a wider stroke pads every cell of the slot more: all of them count as added
+      for (const box of this.rectsOf(slot)) this.added.push({ slot, box });
+    }
     // an extent that leaves the envelope claims its cells and their neighbours: moving content then crosses into
     // claimed cells for a while instead of re-growing the envelope every few frames
-    const inside = () => {
-      for (let r = clampRow(b.y0); r <= clampRow(b.y1); r++) for (let c = clampColumn(b.x0); c <= clampColumn(b.x1); c++) if (!cells[r * this.columns + c]) return false;
-      return true;
-    };
-    if (grew) {
-      // a wider stroke pads every cell of the slot more: all of them count as added
-      this.added.push(...this.rectsOf(slot).map((box) => ({ slot, box })));
-    }
-    if (!inside()) {
+    if (!this.claims(cells, b)) {
       grew = true;
-      for (let r = clampRow(b.y0 - ENVELOPE_CELL); r <= clampRow(b.y1 + ENVELOPE_CELL); r++)
-        for (let c = clampColumn(b.x0 - ENVELOPE_CELL); c <= clampColumn(b.x1 + ENVELOPE_CELL); c++) {
+      for (let r = this.rowOf(b.y0 - ENVELOPE_CELL); r <= this.rowOf(b.y1 + ENVELOPE_CELL); r++)
+        for (let c = this.columnOf(b.x0 - ENVELOPE_CELL); c <= this.columnOf(b.x1 + ENVELOPE_CELL); c++) {
           if (cells[r * this.columns + c]) continue;
           cells[r * this.columns + c] = 1;
           this.added.push({ slot, box: this.cellBox(c, r) });
@@ -129,6 +150,31 @@ export class SlotEnvelopes {
       this.growths[slot]++;
     }
     return grew;
+  }
+
+  /** Whether every grid cell the box touches (clamped to the grid) is claimed. */
+  private claims(cells: Uint8Array, b: Box) {
+    for (let r = this.rowOf(b.y0); r <= this.rowOf(b.y1); r++) for (let c = this.columnOf(b.x0); c <= this.columnOf(b.x1); c++) if (!cells[r * this.columns + c]) return false;
+    return true;
+  }
+
+  private onGrid(b: Box) {
+    return b.x0 >= this.x0 && b.y0 >= this.y0 && b.x1 <= this.x0 + this.columns * ENVELOPE_CELL && b.y1 <= this.y0 + this.rows * ENVELOPE_CELL;
+  }
+
+  private setOffGrid(slot: number, off: boolean) {
+    if (this.offGrid[slot] === Number(off)) return;
+    this.offGrid[slot] = Number(off);
+    this.offGridCount += off ? 1 : -1;
+  }
+
+  /** Grid column / row of a coordinate, clamped to the grid. */
+  private columnOf(x: number) {
+    return Math.min(this.columns - 1, Math.max(0, Math.floor((x - this.x0) / ENVELOPE_CELL)));
+  }
+
+  private rowOf(y: number) {
+    return Math.min(this.rows - 1, Math.max(0, Math.floor((y - this.y0) / ENVELOPE_CELL)));
   }
 
   /** Cells added to the envelopes since the last call (viewBox units, with their slot). */
@@ -194,21 +240,6 @@ export class OccupancyGrid {
     return sums[(r1 + 1) * w + c1 + 1] - sums[r0 * w + c1 + 1] - sums[(r1 + 1) * w + c0] + sums[r0 * w + c0] > 0;
   }
 
-  /**
-   * Whether a marked cell lies within `pad` of segment a–b: boxes around points at most one cell apart along it (a
-   * diagonal hairline's bounding box would claim a whole square).
-   */
-  testSegment(ax: number, ay: number, bx: number, by: number, pad: number): boolean {
-    const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / GRID_CELL_PX));
-    const reach = pad + GRID_CELL_PX / 2;
-    for (let i = 0; i <= steps; i++) {
-      const x = ax + ((bx - ax) * i) / steps;
-      const y = ay + ((by - ay) * i) / steps;
-      if (this.test(x - reach, y - reach, x + reach, y + reach)) return true;
-    }
-    return false;
-  }
-
   private seal(): Uint32Array {
     const w = this.columns + 1;
     const sums = new Uint32Array(w * (this.rows + 1));
@@ -259,7 +290,10 @@ class RectRegion {
     return false;
   }
 
-  /** Whether the region lies within `pad` of segment a–b (boxes around points at most one cell apart along it). */
+  /**
+   * Whether the region lies within `pad` of segment a–b: boxes around points at most one grid cell apart along it (a
+   * diagonal hairline's bounding box would claim a whole square).
+   */
   testSegment(ax: number, ay: number, bx: number, by: number, pad: number): boolean {
     const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / GRID_CELL_PX));
     const reach = pad + GRID_CELL_PX / 2;
@@ -313,7 +347,7 @@ export class CachePartition {
     this.stepRects = steps.map((step) => {
       if (step.item < 0) return null;
       const entry = entries[step.item][step.index];
-      return entry.kind === 'halo' ? view.haloBox(entry.halo) : deviceRectOf(entry.bounds, offsetOf(view, step.item), entry.halfWidth, view);
+      return entry.kind === 'halo' ? { ...view.haloBox(entry.halo) } : deviceRectOf(entry.bounds, offsetOf(view, step.item), entry.halfWidth, view);
     });
     this.fillRects = opaqueFills.map((fill) => deviceRectOf(fill.bounds, offsetOf(view, fill.item), 0, view));
   }

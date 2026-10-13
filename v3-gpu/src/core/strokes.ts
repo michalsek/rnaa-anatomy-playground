@@ -4,16 +4,17 @@
 // Ownership (no double blend inside a stroke): every pixel of a polyline is drawn by exactly one segment. Between
 // adjacent segments that is decided by the join line: the line through the shared point whose normal is the sum of
 // the two unit directions (the bisector of the angle the segments make). Near a polyline the nearest segment is the one
-// whose region between its two join lines contains the point, as long as those regions do not pinch off and no far end
-// of a neighbour comes close — so each segment carries the distance at which that stops holding (`crowd`): where its
-// join lines meet, and, at turns sharper than a right angle, how near the adjacent segments' far ends come; a hairpin
-// join (directions cancel) has no join line and gets 0. The shader falls back to the exact nearest-segment loop (±3
-// neighbours, the old ownership rule) when `crowd` is within reach at the current scale.
+// whose region between its two join lines contains the point, as long as those regions do not pinch off and no other
+// segment comes close — so each segment carries the distance at which that stops holding (`crowd`): where its join
+// lines meet; at turns sharper than a right angle, how near the adjacent segments' far ends come; how near a segment of
+// the ownership window (i ± 2, i ± 3) comes when it crosses, touches or folds back closer than the segments between
+// them explain. A hairpin join (directions cancel) has no join line and gets 0. The shader falls back to the exact
+// nearest-segment loop (±OWNERSHIP_WINDOW neighbours) when `crowd` is within reach at the current scale.
 import { SEG, SEG_RECORD } from './schemas.ts';
 
 /** Stand-in for "no neighbour within any reach" (finite, so it survives every f32 path). */
 export const CROWD_NONE = 3e38;
-/** Neighbours the exact ownership loop examines on each side (the shader's loop bounds; the old ownership rule). */
+/** Neighbours the exact ownership loop examines on each side (the shader's loop bounds). */
 export const OWNERSHIP_WINDOW = 3;
 const DIRECTION_EPSILON = 1e-12;
 const HAIRPIN_EPSILON = 1e-6;
@@ -189,7 +190,37 @@ export class SegWriter {
       lower((i + n - 1) % n, distance);
       lower((i + 1) % n, distance);
     }
+    // Non-adjacent segments of the exact loop's window: where they come closer than the gap between the ends of the
+    // segments joining them (they cross, touch or bend back towards each other), both may own the same pixels by their
+    // join lines alone. Along a smooth curve their closest points are those chain ends, which the pinch points cover.
+    for (let i = 0; i < n; i++) {
+      for (let k = 2; k <= OWNERSHIP_WINDOW; k++) {
+        if (closed ? 2 * k > n || (2 * k === n && i >= n / 2) : i + k >= n) break;
+        const j = (i + k) % n;
+        const gap = segmentDistance(ax(i), ay(i), bx(i), by(i), ax(j), ay(j), bx(j), by(j));
+        const forward = Math.hypot(ax(j) - bx(i), ay(j) - by(i));
+        const chain = closed && 2 * k === n ? Math.min(forward, Math.hypot(ax(i) - bx(j), ay(i) - by(j))) : forward;
+        if (gap >= chain * (1 - CHAIN_TOLERANCE)) continue;
+        lower(i, gap);
+        lower(j, gap);
+      }
+    }
   }
+}
+
+/** Relative slack below which a segment pair counts as closer than the chain between them. */
+export const CHAIN_TOLERANCE = 1e-6;
+
+/** Distance between segments p0–p1 and q0–q1 (0 when they cross). */
+function segmentDistance(px: number, py: number, qx: number, qy: number, ux: number, uy: number, vx: number, vy: number) {
+  const rx = qx - px, ry = qy - py, sx = vx - ux, sy = vy - uy;
+  const denominator = rx * sy - ry * sx;
+  if (denominator !== 0) {
+    const t = ((ux - px) * sy - (uy - py) * sx) / denominator;
+    const w = ((ux - px) * ry - (uy - py) * rx) / denominator;
+    if (t >= 0 && t <= 1 && w >= 0 && w <= 1) return 0;
+  }
+  return Math.min(pointSegmentDistance(px, py, ux, uy, vx, vy), pointSegmentDistance(qx, qy, ux, uy, vx, vy), pointSegmentDistance(ux, uy, px, py, qx, qy), pointSegmentDistance(vx, vy, px, py, qx, qy));
 }
 
 /** Intersection of the lines {x : (x − p) · m = 0} and {x : (x − q) · k = 0}; null when they are (nearly) parallel. */

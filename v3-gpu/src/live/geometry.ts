@@ -5,19 +5,24 @@
 //
 // Style cache: what an element's markup decides apart from its geometry (role, paint ids, opacities, stroke style) is
 // cached per ancestor context, keyed by the element's tag text without its path data, so a new shape costs only its
-// path parse, tessellation and segment records. (Caching whole elements was tried as well: live content moves on
-// every frame, so they hit 7 % of the time and saved nothing measurable.)
+// path parse, tessellation and segment records (whole elements are not cached: live content moves every frame).
 import { paintKeyOf, probeNode } from '../../export/palette-key.mjs';
 import { polylinesOf, ringOfCircle } from '../../export/polylines.mjs';
 import { roleOf } from '../../export/roles.mjs';
 import { attrsOf, numberAttr, opacityAttr, parsePathData, scanTags, strokeWidthOf, type Subpath, type SvgElement } from '../../export/svgsub.mjs';
 import { cleanRing, EPS, triangulate } from '../../export/tess.mjs';
 import { FillWriter } from '../core/fills.ts';
-import type { BlendMode, ChainNode, PaintTable } from '../core/paint.ts';
+import { isOpaqueAlpha, type BlendMode, type ChainNode, type PaintTable } from '../core/paint.ts';
 import { FILL_VERTEX_RECORD, SEG_RECORD } from '../core/schemas.ts';
 import type { SlotExtent } from '../core/slots.ts';
 import { emptyBox, growBox, isEmptyBox, unionBox, type Box } from '../core/static-geometry.ts';
 import { SegWriter } from '../core/strokes.ts';
+
+/**
+ * An opacity attribute clamped to [0, 1], as CSS clamps it: an easing that overshoots must not brighten the GPU
+ * figure (group layer and record alphas are multiplied in unclamped otherwise).
+ */
+const unitOpacity = (node: SvgElement, name: string) => Math.min(1, Math.max(0, opacityAttr(node, name)));
 
 /** Cache entries kept before the caches start over (content that never repeats cannot pile up). */
 const CACHE_LIMIT = 4096;
@@ -297,7 +302,7 @@ export class SlotGeometryBuilder {
     let extentHalfWidth = 0;
     let layer = 0;
     const visible = (p: SlotPrim) => paints.classes[p.prim.paint].visible && p.alpha > 0;
-    const opaque = (p: SlotPrim) => paints.classes[p.prim.paint].opaque && p.alpha >= 0.999;
+    const opaque = (p: SlotPrim) => paints.classes[p.prim.paint].opaque && isOpaqueAlpha(p.alpha);
     // Pass 1: segments (strokes and dots) in document order; a layer for every drawn primitive.
     for (let i = 0; i < n; i++) {
       const p = prims[i];
@@ -386,7 +391,7 @@ export class SlotGeometryBuilder {
     let info = this.groupInfos.get(raw);
     if (!info) {
       const node = { tag: 'g', attrs: attrsOf('g', attrSource) };
-      info = { node, probe: probeNode(node), opacity: opacityAttr(node, 'opacity'), hasOpacity: node.attrs.opacity !== undefined };
+      info = { node, probe: probeNode(node), opacity: unitOpacity(node, 'opacity'), hasOpacity: node.attrs.opacity !== undefined };
       this.groupInfos.set(raw, info);
       this.counted();
     }
@@ -460,12 +465,12 @@ export class SlotGeometryBuilder {
     const widthOverride = strokeWidthOf(node);
     const elProbe = probeNode(node);
     const paintOf = (prop: 'fill' | 'stroke') => this.paints.idOf(paintKeyOf(prop, frame.probeChain, elProbe), () => ({ kind: 'probe', prop, ancestors: frame.probeChain, el: elProbe }));
-    const opacity = opacityAttr(node, 'opacity');
+    const opacity = unitOpacity(node, 'opacity');
     // a circle always paints its fill (a dot); a path only when its role fills
     const fills = node.tag === 'circle' || role.fill;
     return {
-      fill: fills ? { paint: paintOf('fill'), alpha: opacity * opacityAttr(node, 'fill-opacity') } : null,
-      stroke: role.stroke ? { paint: paintOf('stroke'), alpha: opacity * opacityAttr(node, 'stroke-opacity'), width: widthOverride ?? role.stroke.width, cap: role.stroke.cap } : null,
+      fill: fills ? { paint: paintOf('fill'), alpha: opacity * unitOpacity(node, 'fill-opacity') } : null,
+      stroke: role.stroke ? { paint: paintOf('stroke'), alpha: opacity * unitOpacity(node, 'stroke-opacity'), width: widthOverride ?? role.stroke.width, cap: role.stroke.cap } : null,
     };
   }
 

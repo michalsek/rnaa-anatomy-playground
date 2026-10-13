@@ -9,14 +9,14 @@ import { sceneFromDl } from '../core/dl-loader.ts';
 import { GpuView, type DeviceSize, type GpuHost } from '../core/frame-loop.ts';
 import { PaintTable, type ChainNode } from '../core/paint.ts';
 import { NO_PROFILER, type Profiler, type TimingSpan } from '../core/profiler.ts';
-import type { CacheMode } from '../core/renderer.ts';
+import type { CacheFault, CacheMode } from '../core/renderer.ts';
 import { decodeBase64, sceneFromWire, type GpuScene } from '../core/scene.ts';
 import type { SlotPlacement } from '../core/slots.ts';
 import { LiveAdapter } from '../live/adapter.ts';
 import { CollectedSlot, SlotGeometryBuilder } from '../live/geometry.ts';
 import { LiveSlotPath } from '../live/live-path.ts';
-import { NativeRotor, type MachineApi } from '../native/native-rotor.ts';
-import type { MachineGpu } from '../native/rotor-contract.ts';
+import { NativeHost } from '../native/native-host.ts';
+import { RotorMachine, rotorKind, type MachineApi } from '../native/native-rotor.ts';
 import { createApi, type GpuApi } from './api.ts';
 import { DomSlotSource } from './dom-slots.ts';
 import { DomPaintResolver } from './palette-dom.ts';
@@ -27,8 +27,8 @@ declare const __GPU_DEV__: boolean;
 /** Probe ancestors of slot content in the v2 page: `<g class="fx-parts">` › `<g data-slot>` (data-slot is no key). */
 const SLOT_CHAIN: ChainNode[] = [{ tag: 'g', attrs: { class: 'fx-parts' } }, { tag: 'g', attrs: {} }];
 
-/** A machine's api as FACTORY.define hands it to the machine (runtime.js). */
-type MachineApiOf = MachineApi & { gpu?: MachineGpu };
+/** A machine's api as FACTORY.define hands it to the machine (runtime.js); `gpu` is what native machines add. */
+type MachineApiOf = MachineApi & { gpu?: object };
 
 /** The v2 runtime (FACTORY, runtime.js): the hook every tick calls first, and how machines are created. */
 interface FactoryHandle {
@@ -90,6 +90,8 @@ function whenFactory(use: (factory: FactoryHandle) => void) {
 }
 
 const cacheModeOf = (param: string | null): CacheMode => (param === '0' || param === 'off' ? 'off' : param === 'overlay' ? 'overlay' : 'on');
+/** `?cacheBug=skip-invalidate|skip-growth`: a deliberate static-cache defect (the identity gate's self-test). */
+const cacheFaultOf = (param: string | null): CacheFault | undefined => (param === 'skip-invalidate' || param === 'skip-growth' ? param : undefined);
 
 function boot(api: GpuApi) {
   const canvas = document.querySelector<HTMLCanvasElement>('canvas[data-gpu]');
@@ -116,7 +118,7 @@ function boot(api: GpuApi) {
 
   let source: DomSlotSource | null = null;
   let path: LiveSlotPath | null = null;
-  let native: NativeRotor | null = null;
+  let native: NativeHost | null = null;
   let view: GpuView | null = null;
   const sync = () => {
     if (!view) return;
@@ -143,16 +145,25 @@ function boot(api: GpuApi) {
       onWarning: (message) => console.warn(message),
     });
     path = new LiveSlotPath(source, adapter);
-    // ?native=0: the rotor slots stay on the markup path (v2 builds their strings every frame)
+    // ?native=0: every slot stays on the markup path (v2 builds the rotor's strings every frame)
     if (params.get('native') !== '0') {
-      const nativeRotor = new NativeRotor({
-        paints, resolver, slotChain: SLOT_CHAIN, slotNames: slots.map(({ name }) => name), itemBase: scene.items.length, owner: source, clock: eventClock,
-        onChange: () => view?.request(),
-      });
-      native = nativeRotor;
+      const host = new NativeHost(
+        {
+          owner: source,
+          onChange: () => view?.request(),
+          // a native machine failed and fell back to the markup path: a non-fatal error, the figure keeps running
+          onError: (error) => {
+            console.warn(error.message);
+            view?.recordError(error, false);
+          },
+        },
+        [rotorKind({ paints, resolver, slotChain: SLOT_CHAIN, slotNames: slots.map(({ name }) => name), itemBase: scene.items.length, clock: eventClock, expansion: params.get('native') === 'cpu' ? 'cpu' : 'gpu' })],
+      );
+      native = host;
       if (__GPU_DEV__) {
         api.nativeCheck = async () => {
-          const gpu = await nativeRotor.readback();
+          const rotor = host.machines.find((machine): machine is RotorMachine => machine instanceof RotorMachine);
+          const gpu = await rotor?.readback();
           if (!gpu) return null;
           const reference = gpu.slots.map(({ slot }) => {
             const collected = new CollectedSlot();
@@ -207,7 +218,12 @@ function boot(api: GpuApi) {
   // GPU timestamps cost an extra pass and two submits per measured frame: only when asked for (not by __gpuProfile, so
   // CPU breakdowns measured through User Timing stay free of them)
   const timestamps = params.has('profile') || params.has('gpuTime') || window.__gpuTimestamps === true;
-  view = new GpuView(host, { scene, slots, paints, cache: cacheModeOf(params.get('cache')), live: path, painters: native ? [native] : [], timestamps, measureRepeat: Number(params.get('gpuRepeat') ?? 1) });
+  view = new GpuView(host, {
+    scene, slots, paints, live: path, painters: native ? [native] : [], timestamps,
+    cache: cacheModeOf(params.get('cache')),
+    cacheFault: cacheFaultOf(params.get('cacheBug')),
+    measureRepeat: Number(params.get('gpuRepeat') ?? 1),
+  });
   const gpuView = view;
   gpuView.onFrame = () => {
     api.frames = gpuView.frames;
@@ -216,12 +232,13 @@ function boot(api: GpuApi) {
   if (live) {
     whenFactory((factory) => {
       factory.onFrame(() => gpuView.beginRuntimeFrame());
-      const nativeRotor = native;
-      if (!nativeRotor) return;
-      // every machine gets `api.gpu` (the centrifuge's drawRotor calls api.gpu.rotor, src/native/rotor-contract.ts)
+      const host = native;
+      if (!host) return;
+      // machines a native kind recognizes get `api.gpu` (the centrifuge's drawRotor calls api.gpu.rotor,
+      // src/native/rotor-contract.ts); every other machine is defined unchanged
       const define = factory.define;
       factory.define = (id, make) => define.call(factory, id, (machineApi) => {
-        const gpu = nativeRotor.machineGpu(id, machineApi);
+        const gpu = host.machineGpu(id, machineApi);
         if (gpu) machineApi.gpu = gpu;
         return make(machineApi);
       });
@@ -239,6 +256,9 @@ function boot(api: GpuApi) {
     const pick = (devicePixels: number | undefined, css: number) => (devicePx ? devicePixels! : snappedCssPx ? Math.round(devicePixels! * ratio) : Math.max(1, Math.round(css * ratio)));
     const width = pick(device?.inlineSize, cssWidth);
     const height = pick(device?.blockSize, cssHeight);
+    // a hidden canvas (display:none, a transient 0 × 0 box during a screenshot) keeps its backing and targets: a 0-sized
+    // canvas or texture is a WebGPU error; drawing resumes at the next real size
+    if (!(width >= 1 && height >= 1)) return;
     const size: DeviceSize = { width, height, dpr: cssWidth > 0 ? width / cssWidth : ratio };
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
@@ -255,6 +275,8 @@ function boot(api: GpuApi) {
   } catch {
     resizeObserver.observe(canvas);
   }
+  // every listener below is removed by `__gpu.dispose()`
+  const teardown = new AbortController();
   // DPR changes (zoom, moving windows, emulation) do not always reach the observer: watch the resolution query too
   const watchResolution = () => {
     matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => {
@@ -263,12 +285,13 @@ function boot(api: GpuApi) {
         applySize(r.width, r.height);
       }
       watchResolution();
-    }, { once: true });
+    }, { once: true, signal: teardown.signal });
   };
   watchResolution();
   // Theme: kit pages switch with body[data-theme]; pages that follow the OS scheme switch with the media query
-  new MutationObserver(() => gpuView.repaint()).observe(document.body, { attributes: true, attributeFilter: ['data-theme'] });
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => gpuView.repaint());
+  const themeObserver = new MutationObserver(() => gpuView.repaint());
+  themeObserver.observe(document.body, { attributes: true, attributeFilter: ['data-theme'] });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => gpuView.repaint(), { signal: teardown.signal });
 
   api.frameStats = () => {
     const ms = { liveJs: gpuView.timings.liveJs, encode: gpuView.timings.encode, encodeWithGroups: gpuView.timings.encodeWithGroups, gpu: gpuView.timings.gpu, gpuCacheRebuild: gpuView.timings.gpuCacheRebuild };
@@ -307,6 +330,22 @@ function boot(api: GpuApi) {
   };
   api.redraw = () => gpuView.request();
   api.simulateDeviceLoss = () => gpuView.simulateDeviceLoss();
+  // Teardown (multi-figure / SPA hosts, tests): every observer and listener off, the renderer, its painters and the
+  // device released, the slots handed back to the DOM and the SVG figure shown; the runtime keeps animating it.
+  api.dispose = () => {
+    if (teardown.signal.aborted) return;
+    teardown.abort();
+    resizeObserver.disconnect();
+    themeObserver.disconnect();
+    gpuView.dispose();
+    native?.deactivate();
+    source?.release();
+    canvas.remove();
+    figure.removeAttribute('style');
+    figure.removeAttribute('aria-hidden');
+    api.ready = false;
+    document.documentElement.dataset.gpu = 'disposed';
+  };
   gpuView.start().then(sync, (error: Error) => {
     gpuView.recordError(error, true);
     host.onFallback(`start-failed: ${error.message}`);

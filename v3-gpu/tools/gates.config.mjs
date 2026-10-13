@@ -67,6 +67,11 @@ export const EDGE = {
   userTimingEntries: 7000,
   /** A 520 px wide page (resize storm) vs the SVG page: a smaller frame, so AA is a larger share of it. */
   narrowLimits: { loosePct: 0.03, withAAPct: 0.15, solidCluster: 4 },
+  /**
+   * Stroke crossings at stroke-opacity .6: the darkest pixel near a crossing may be at most this many luminance levels
+   * darker on the GPU page than on the SVG page. A double blend there is 12–17 levels darker (QA-FIXA D4).
+   */
+  crossingDarkerLevels: 6,
 };
 
 /**
@@ -114,5 +119,62 @@ export const NATIVE = {
   sheet: { theme: "light", from: 700, count: 60 },
 };
 
+/**
+ * Static-cache identity (live-gate.mjs identity): a cached frame must equal the page's uncached frame (?cache=0)
+ * exactly, 0 px incl. AA. Both pages run the same ticks and the same events in lockstep.
+ */
+export const IDENTITY = {
+  dpr: 2,
+  /** Envelope growth ticks are found by a scan of the cached page over [from, to); `growthTicks` of them are compared (t, t + 1). */
+  scan: { from: 120, to: 1100 },
+  growthTicks: 10,
+  quickGrowthTicks: 4,
+  /** Applied to both pages while frozen at `tick`; `shots` follow. A device loss restarts the envelopes (re-growth). */
+  events: [
+    { tick: 1150, kind: "theme", shots: [1151, 1152] },
+    { tick: 1170, kind: "resize", width: 900, dpr: 1.5, shots: [1171, 1172] },
+    { tick: 1190, kind: "loss", shots: [1191, 1192, 1200, 1230] },
+  ],
+  configs: [{ theme: "dark", native: "1" }, { theme: "light", native: "1" }, { theme: "dark", native: "0" }],
+  quickConfigs: [{ theme: "dark", native: "1" }],
+};
+
 /** Optional perf smoke: numbers only, never fails the run. */
 export const PERF = { width: 1280, dpr: 2, throttles: [1, 4], frames: 300, warmupSeconds: 3 };
+
+// ---- fix loop C2 (native path): kept in its own block, appended by C2 --------------------------------------------------
+
+/**
+ * Native contract, stroke fields (tools/native-gate.mjs contract): the GPU writes joins and crowd in f32, the reference
+ * is SegWriter (f64 arithmetic, f32 records) run on the read-back polylines. The GPU recomputes a neighbour's end points
+ * per invocation, so they may differ from the stored ones by an f32 ulp (≈ 3e-5 at x ≈ 300); on the packets' 1.3-unit
+ * corner segments that tilts a join normal (a sum of two unit vectors) by up to ≈ 2.5e-5 (measured). A tilt of 1e-3
+ * moves the ownership boundary by 1e-3 × the half-width (≤ 0.002 device px at DPR 4); a flipped or missing join is
+ * ≥ 1. A crowd matters only below the ownership reach (shaders.ts CROWD_REACH_*: ≤ ≈ 2.25 device px at DPR 1, a few
+ * viewBox units), so crowds above `crowdIrrelevant` both count as "no crowding".
+ */
+export const NATIVE_STROKES = { joinTolerance: 1e-3, crowdTolerance: 1e-3, crowdIrrelevant: 10 };
+
+/** Packets of every v2 kind (and two unknown kinds: the style table grows) injected into the native gates' runs. */
+export const NATIVE_INJECT = [
+  { tick: 60, kinds: ["audio", "garbage"] },
+  { tick: 400, kinds: ["fluff", "mystery"] },
+  { tick: 1300, kinds: ["unknown-b", "audio"] },
+];
+
+/**
+ * Error containment: a packet kind the native rotor refuses (not a plain name) fails the machine, not the page. Injected
+ * at `injectAt`, it waits in the intake queue (drawn by v2's funnel code) and reaches the rotor between `before` and the
+ * first of `ticks`; from then on the page must equal the ?native=0 page.
+ */
+export const NATIVE_FAULT = { theme: "dark", dpr: 2, injectAt: 200, kind: "bad kind", before: 300, ticks: [600, 711, 884, 932, 1100] };
+
+/**
+ * Native gate rows added by fix loop C2 (tools/gates.mjs spreads them: notes/FIXC-COORD.md R2). The contract gate
+ * mutates its own read-back records at every tick (crowd, join, width, tone, item, caps) and requires each mutation to
+ * be rejected, so it needs no separate self-test row; the identity gate gets one (a 1 CSS px patch).
+ */
+export const NATIVE_ROWS = [
+  { name: "native:fault", modes: ["quick", "full"], args: ["tools/native-gate.mjs", "fault"] },
+  { name: "selftest:native:identity", modes: ["full"], expect: "fail", args: ["tools/native-gate.mjs", "identity", "--quick", "--mutate", "patch"] },
+];

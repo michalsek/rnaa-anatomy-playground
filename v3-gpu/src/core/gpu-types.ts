@@ -10,18 +10,26 @@ export type FillBuffer = TgpuBuffer<d.Disarray<typeof FillVertex>> & VertexFlag;
 export const createFillBuffer = (root: TgpuRoot, vertices: number) => root.createBuffer(d.disarrayOf(FillVertex, Math.max(1, vertices))).$usage('vertex');
 
 /**
- * The MSAA colour and depth / stencil targets are always cleared on load and discarded on store (only their resolve
- * survives a pass), so where the browser supports transient attachments they never need memory (tile memory on
- * tile-based GPUs).
+ * Usage flags are exactly what each texture is used for (TypeGPU's `$usage` adds COPY_SRC | COPY_DST to every texture,
+ * which costs memory / compression on some GPUs). The MSAA colour and depth / stencil targets are always cleared on
+ * load and discarded on store (only their resolve survives a pass), so where the browser supports transient
+ * attachments they never need memory (tile memory on tile-based GPUs). Read when a texture is created, so the module
+ * loads where WebGPU's globals do not exist.
  */
-const ATTACHMENT_USAGE = typeof GPUTextureUsage !== 'undefined' && 'TRANSIENT_ATTACHMENT' in GPUTextureUsage ? 'transient' : 'render';
+const attachmentUsage = () => {
+  // newer than @webgpu/types
+  const transient = (GPUTextureUsage as { readonly TRANSIENT_ATTACHMENT?: number }).TRANSIENT_ATTACHMENT ?? 0;
+  return GPUTextureUsage.RENDER_ATTACHMENT | transient;
+};
+/** A target that is rendered (resolved) into and sampled later: the static cache, the group-layer atlas, halo masks. */
+export const sampledTargetUsage = () => GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
 
 export const createMsaaColor = (root: TgpuRoot, size: [number, number], format: GPUTextureFormat) =>
-  root.createTexture({ size, format, sampleCount: SAMPLES }).$usage(ATTACHMENT_USAGE);
+  root.createTexture({ size, format, sampleCount: SAMPLES }).$overrideFlags(attachmentUsage());
 export const createMsaaDepth = (root: TgpuRoot, size: [number, number]) =>
-  root.createTexture({ size, format: DEPTH_FORMAT, sampleCount: SAMPLES }).$usage(ATTACHMENT_USAGE);
+  root.createTexture({ size, format: DEPTH_FORMAT, sampleCount: SAMPLES }).$overrideFlags(attachmentUsage());
 export const createResolveColor = (root: TgpuRoot, size: [number, number], format: GPUTextureFormat) =>
-  root.createTexture({ size, format }).$usage('render', 'sampled');
+  root.createTexture({ size, format }).$overrideFlags(sampledTargetUsage());
 
 export type MsaaColor = ReturnType<typeof createMsaaColor>;
 export type MsaaDepth = ReturnType<typeof createMsaaDepth>;

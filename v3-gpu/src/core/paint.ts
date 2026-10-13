@@ -45,7 +45,10 @@ export interface ProbedPaint {
   width: number;
   cap: LineCap;
   blend: BlendMode;
-  /** CSS filter blur (std deviation, CSS px) and the translation of the computed transform (CSS px). */
+  /**
+   * CSS filter blur (std deviation) and the translation of the computed transform, in the `px` of the element's own
+   * coordinate system: SVG user units, i.e. viewBox units (not screen CSS px).
+   */
   blur: number;
   translate: [number, number];
 }
@@ -105,6 +108,13 @@ export class PaintTable {
    * resolution does not count: nothing was built with it yet.
    */
   classVersion = 0;
+  /**
+   * Bumped whenever a resolved paint draws differently (colour, width, cap, blend, blur, translate, gradient stops):
+   * every cached rendering of it is stale. First resolutions do not count.
+   */
+  appearanceVersion = 0;
+  /** Bumped whenever a resolved paint's class, width or cap changes: geometry built from them (stroke pads, cap flags). */
+  geometryVersion = 0;
   private readonly settled: boolean[] = [];
 
   get size() {
@@ -159,7 +169,7 @@ export class PaintTable {
     const probeList = [...probeIds];
     const probed = resolver.resolve(probeList.map((id) => this.descs[id] as ProbeDesc));
     const byId = new Map(probeList.map((id, i) => [id, probed[i]]));
-    for (const id of probeList) this.store(id, resolvedProbe(this.descs[id] as ProbeDesc, byId.get(id)!));
+    probeList.forEach((id, i) => this.store(id, resolvedProbe(this.descs[id] as ProbeDesc, probed[i])));
     for (const id of ids) {
       const desc = this.descs[id];
       if (desc.kind === 'linear') this.store(id, resolvedLinear(desc, byId));
@@ -169,12 +179,28 @@ export class PaintTable {
 
   private store(id: number, paint: ResolvedPaint) {
     const next = classifyPaint(paint);
-    const previous = this.classes[id];
-    if (this.settled[id] && (previous.visible !== next.visible || previous.opaque !== next.opaque || previous.blend !== next.blend)) this.classVersion++;
+    if (this.settled[id]) {
+      const previous = this.classes[id];
+      const before = this.resolved[id];
+      const classChanged = previous.visible !== next.visible || previous.opaque !== next.opaque || previous.blend !== next.blend;
+      if (classChanged) this.classVersion++;
+      if (classChanged || before.width !== paint.width || before.cap !== paint.cap) this.geometryVersion++;
+      if (!drawsAlike(before, paint)) this.appearanceVersion++;
+    }
     this.settled[id] = true;
     this.resolved[id] = paint;
     this.classes[id] = next;
   }
+}
+
+const sameRgba = (a: Rgba, b: Rgba) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+
+function drawsAlike(a: ResolvedPaint, b: ResolvedPaint): boolean {
+  if (a.visible !== b.visible || a.width !== b.width || a.cap !== b.cap || a.blend !== b.blend || a.blur !== b.blur) return false;
+  if (a.translate[0] !== b.translate[0] || a.translate[1] !== b.translate[1] || !sameRgba(a.rgba, b.rgba)) return false;
+  const stopsA = a.stops ?? [];
+  const stopsB = b.stops ?? [];
+  return stopsA.length === stopsB.length && stopsA.every((stop, i) => stop.offset === stopsB[i].offset && sameRgba(stop.rgba, stopsB[i].rgba));
 }
 
 function resolvedProbe(desc: ProbeDesc, probe: ProbedPaint): ResolvedPaint {
@@ -185,9 +211,14 @@ function resolvedProbe(desc: ProbeDesc, probe: ProbedPaint): ResolvedPaint {
 }
 
 function resolvedLinear(desc: LinearDesc, probes: Map<number, ProbedPaint>): ResolvedPaint {
-  const own = probes.get(desc.paint)!;
+  const probeOf = (id: number) => {
+    const probe = probes.get(id);
+    if (!probe) throw new Error(`paint table: gradient probe ${id} was not resolved`);
+    return probe;
+  };
+  const own = probeOf(desc.paint);
   const stops = desc.stops.map((stop) => {
-    const probe = probes.get(stop.paint)!;
+    const probe = probeOf(stop.paint);
     const c = probe.color ?? [0, 0, 0, 0];
     return { offset: stop.offset, rgba: [c[0], c[1], c[2], c[3] * probe.alpha * stop.alpha] as Rgba };
   });

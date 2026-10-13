@@ -4,9 +4,10 @@ import * as d from 'typegpu/data';
 
 /**
  * A prism: the template ring `ring[ringFirst … ringFirst + ringCount)` (part-local x, y) turned by `rotation` (cos, sin)
- * about `centre` (world x, y), extruded from `z0` by `height`. Facing / seam / shade bits come from the CPU (kit-mirror),
- * so the GPU never re-decides a classification. Output slots: `segFirst` (6 · ringCount + 1 Seg records) and
- * `vertexFirst` (3 · (3 · ringCount − 2) fill vertices).
+ * about `centre` (world x, y), extruded from `z0` by `height`; its top face is the template's triangles
+ * `triangles[triangleFirst … + 3 · triangleCount)`. Facing / seam / shade bits come from the CPU (kit-mirror, the class
+ * record at `classes[classFirst]`), so the GPU never re-decides a classification. Output slots: `segFirst`
+ * (segSlotsOf(ringCount) Seg records) and `vertexFirst` (vertexSlotsOf fill vertices).
  */
 export const RotorPart = d.struct({
   centre: d.vec2f,
@@ -21,10 +22,14 @@ export const RotorPart = d.struct({
   strap: d.f32,
   ringFirst: d.u32,
   ringCount: d.u32,
+  triangleFirst: d.u32,
+  triangleCount: d.u32,
   flags: d.u32,
-  facing: d.u32,
-  seamFacing: d.u32,
-  shades: d.u32,
+  /** First word of the part's class record (kit-mirror classifyRing layout). */
+  classFirst: d.u32,
+  /** kit runsOf start of the facing bits and of the seam bits. */
+  facingRun: d.u32,
+  seamRun: d.u32,
   style: d.u32,
   /** Slot pseudo-item (depth base, explode offset). */
   item: d.u32,
@@ -75,11 +80,6 @@ export const PART_LAYER = {
   count: 10,
 } as const;
 
-/** Seg slots of a part with an n-point ring: crease, bevel, back top, front bottom, verticals, band (n each), strap. */
-export const segSlotsOf = (ringCount: number) => 6 * ringCount + 1;
-/** Fill vertices of a part: top fan (n − 2 triangles) and two triangles per side face. */
-export const vertexSlotsOf = (ringCount: number) => 3 * (3 * ringCount - 2);
-
 const wordOf = <T extends d.BaseData>(schema: T, accessor: (proxy: d.Infer<T>) => unknown) => {
   const { offset } = d.memoryLayoutOf(schema, accessor);
   if (offset % 4) throw new Error(`rotor schemas: field at byte ${offset} is not word-aligned`);
@@ -98,10 +98,12 @@ export const PART_RECORD = {
   strap: wordOf(RotorPart, (p) => p.strap),
   ringFirst: wordOf(RotorPart, (p) => p.ringFirst),
   ringCount: wordOf(RotorPart, (p) => p.ringCount),
+  triangleFirst: wordOf(RotorPart, (p) => p.triangleFirst),
+  triangleCount: wordOf(RotorPart, (p) => p.triangleCount),
   flags: wordOf(RotorPart, (p) => p.flags),
-  facing: wordOf(RotorPart, (p) => p.facing),
-  seamFacing: wordOf(RotorPart, (p) => p.seamFacing),
-  shades: wordOf(RotorPart, (p) => p.shades),
+  classFirst: wordOf(RotorPart, (p) => p.classFirst),
+  facingRun: wordOf(RotorPart, (p) => p.facingRun),
+  seamRun: wordOf(RotorPart, (p) => p.seamRun),
   style: wordOf(RotorPart, (p) => p.style),
   item: wordOf(RotorPart, (p) => p.item),
   layer: wordOf(RotorPart, (p) => p.layer),

@@ -17,6 +17,11 @@ export interface GpuApi {
   redraw(): void;
   simulateDeviceLoss(): void;
   /**
+   * Tears the GPU figure down: observers off, renderer / painters / device released, slots handed back to the DOM, the
+   * SVG figure shown (`html[data-gpu=disposed]`).
+   */
+  dispose(): void;
+  /**
    * Dev pages with the native rotor only (tools/native-gate.mjs): the native painter's GPU-expanded records of the
    * current frame, and the records the markup path builds from v2's strings for the same state.
    */
@@ -45,6 +50,7 @@ export function createApi(): GpuApi {
     setTheme: () => {},
     redraw: () => {},
     simulateDeviceLoss: () => {},
+    dispose: () => {},
   };
   // an assignment (not defineProperty): tools may observe it through a window setter
   window.__gpu = api;

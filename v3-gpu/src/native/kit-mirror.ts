@@ -57,23 +57,53 @@ export function roundedPlan({ x, y, w, d, r }: { x: number; y: number; w: number
   return out;
 }
 
-/** How the kit draws an extruded ring: one bit per side face i (edge i → i + 1) and a 2-bit tone per face. */
+/**
+ * V8's two-argument `Math.hypot`, bit for bit, without its per-call allocation (the builtin copies its arguments into a
+ * fresh array). V8 normalizes by the larger magnitude and Kahan-sums the squares; with two terms the compensation is
+ * exactly 0, so the sum is (x/max)² + (y/max)². Infinity wins over NaN, ±0 gives 0, NaN propagates through `scaled`.
+ * One return expression: early returns of constants made TurboFan box the result (an allocation per call).
+ * tools/test-native.mjs proves equality with `Math.hypot`; tools/native-gate.mjs contract does so in the browser.
+ */
+export function hypot2(x: number, y: number): number {
+  const ax = Math.abs(x);
+  const ay = Math.abs(y);
+  const max = ax > ay ? ax : ay;
+  const nx = ax / max;
+  const ny = ay / max;
+  const scaled = Math.sqrt(nx * nx + ny * ny) * max;
+  return ax === Infinity || ay === Infinity ? Infinity : ax === 0 && ay === 0 ? 0 : scaled;
+}
+
+/** Words of a ring's class record: facing bits, seam bits (⌈n / 32⌉ words each), 2-bit shades (⌈n / 16⌉ words). */
+export const classWordsOf = (ringCount: number) => 2 * Math.ceil(ringCount / 32) + Math.ceil(ringCount / 16);
+/** Word offset of the seam bits inside a class record. */
+export const seamWordOf = (ringCount: number) => Math.ceil(ringCount / 32);
+/** Word offset of the shades inside a class record. */
+export const shadeWordOf = (ringCount: number) => 2 * Math.ceil(ringCount / 32);
+
+/** Reads face i's bit of the mask that starts at `words[at]`. */
+export const bitOf = (words: ArrayLike<number>, at: number, i: number) => (words[at + (i >>> 5)] >>> (i & 31)) & 1;
+/** Reads face i's tone from the shades that start at `words[at]`. */
+export const shadeOf = (words: ArrayLike<number>, at: number, i: number) => (words[at + (i >>> 4)] >>> (2 * (i & 15))) & 3;
+
+/** How the kit draws an extruded ring, besides the per-face bits `classifyRing` writes. */
 export interface RingClasses {
   /** kit `signedArea(ring) > 0`: outward normals are (dy, −dx) / length. */
   counter: boolean;
-  /** extrude: bit i set when face i faces the viewer (drawn, shaded; its top edge is a crease, its bottom edge outline). */
-  facing: number;
-  /** ringSeam: bit i set when the seam runs along edge i (the same test on the un-normalized normal). */
-  seamFacing: number;
-  /** extrude: tone index of face i in bits 2i…2i+1 (meaningful for facing faces). */
-  shades: number;
+  /** kit runsOf: the first face whose facing flag differs from its predecessor's (0 when all faces agree). */
+  facingRun: number;
+  /** The same for the seam flags. */
+  seamRun: number;
 }
 
 /**
- * Classifies the ring `xy[0 … 2·count)` (world x, y pairs) as kit extrude and ringSeam do, into `out`. Rings of up to
- * 16 points (the shades fit 32 bits).
+ * Classifies the ring `xy[0 … 2·count)` (world x, y pairs) as kit extrude and ringSeam do. Writes the class record
+ * (classWordsOf(count) words) at `words[at]`:
+ * - facing bit i: extrude draws side face i (edge i → i + 1), shaded; its top edge is a crease, its bottom edge outline;
+ * - seam bit i: ringSeam runs along edge i (the same test on the un-normalized normal);
+ * - shade i: extrude's tone index of face i (meaningful for facing faces).
  */
-export function classifyRing(xy: ArrayLike<number>, count: number, camera: Camera, out: RingClasses): RingClasses {
+export function classifyRing(xy: ArrayLike<number>, count: number, camera: Camera, words: Uint32Array, at: number, out: RingClasses): RingClasses {
   let area = 0;
   for (let index = 0; index < count; index++) {
     const next = (index + 1) % count;
@@ -83,27 +113,34 @@ export function classifyRing(xy: ArrayLike<number>, count: number, camera: Camer
   // towardViewer(P) = [cosA, sinA]; extrude's light direction = [−sinA, cosA]
   const vx = camera.cosA, vy = camera.sinA;
   const lx = -camera.sinA, ly = camera.cosA;
-  let facing = 0, seamFacing = 0, shades = 0;
+  const seamAt = at + seamWordOf(count);
+  const shadeAt = at + shadeWordOf(count);
+  words.fill(0, at, at + classWordsOf(count));
   for (let index = 0; index < count; index++) {
     const next = (index + 1) % count;
     const dx = xy[next * 2] - xy[index * 2];
     const dy = xy[next * 2 + 1] - xy[index * 2 + 1];
-    const length = Math.hypot(dx, dy) || 1;
+    const length = hypot2(dx, dy) || 1;
     const nx = counter ? dy / length : -dy / length;
     const ny = counter ? -dx / length : dx / length;
     if (nx * vx + ny * vy > FACING_EPSILON) {
-      facing |= 1 << index;
+      words[at + (index >>> 5)] |= 1 << (index & 31);
       const lit = (nx * lx + ny * ly + 1) / 2;
       const shade = Math.min(SHADES - 1, Math.max(0, Math.floor(lit * SHADES)));
-      shades |= shade << (2 * index);
+      words[shadeAt + (index >>> 4)] |= shade << (2 * (index & 15));
     }
     const sx = counter ? dy : -dy;
     const sy = counter ? -dx : dx;
-    if (sx * vx + sy * vy > FACING_EPSILON) seamFacing |= 1 << index;
+    if (sx * vx + sy * vy > FACING_EPSILON) words[seamAt + (index >>> 5)] |= 1 << (index & 31);
   }
   out.counter = counter;
-  out.facing = facing;
-  out.seamFacing = seamFacing;
-  out.shades = shades >>> 0;
+  out.facingRun = runStartOf(words, at, count);
+  out.seamRun = runStartOf(words, seamAt, count);
   return out;
+}
+
+/** kit runsOf's start: the first index whose bit differs from its predecessor's; 0 when every bit is the same. */
+function runStartOf(words: ArrayLike<number>, at: number, count: number) {
+  for (let i = 0; i < count; i++) if (bitOf(words, at, i) !== bitOf(words, at, (i + count - 1) % count)) return i;
+  return 0;
 }

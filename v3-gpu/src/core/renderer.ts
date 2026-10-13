@@ -3,10 +3,11 @@
 // in the painter's order (item base + layer), never a raw key; every live slot reserves a fixed depth range so static
 // depth values stay put while slot content changes. With the static cache on (static-cache.ts) the static frame is
 // rendered once into a resolved texture; a frame then copies it outside the slots' redraw region (stencil) and redraws
-// inside the region only what reaches it.
-import type { StorageFlag, TgpuBindGroup, TgpuBuffer, TgpuQuerySet, TgpuRenderPass, TgpuRoot } from 'typegpu';
+// inside the region only what reaches it. A frame's cache and halo-mask renders count only once its submit returned;
+// a frame that throws leaves them invalid, so the next frame redraws them.
+import type { TgpuBindGroup, TgpuQuerySet, TgpuRenderPass, TgpuRoot } from 'typegpu';
 import * as d from 'typegpu/data';
-import { SharedBindings, type LayoutGroup, type SegStorage, type StorageArray } from './bindings.ts';
+import { SharedBindings, type FrameValues, type LayoutGroup, type SegStorage, type StorageArray } from './bindings.ts';
 import { buildDraws, depthBasesOf, frameOrderOf, painterSequenceOf, slotsByAnchorOf, type Draw, type PainterStep, type SlotsByAnchor } from './draw-list.ts';
 import { createFillBuffer, createMsaaColor, createMsaaDepth, createResolveColor, type FillBuffer, type MsaaColor, type MsaaDepth, type ResolveColor } from './gpu-types.ts';
 import { HaloEffect } from './halo.ts';
@@ -16,7 +17,7 @@ import { NO_PROFILER, TIMING, type Clock, type Profiler } from './profiler.ts';
 import { orderOf, type GpuScene } from './scene.ts';
 import { DEBUG_RECT_RECORD, DebugRect, depthOfSlot, FILL_VERTEX_RECORD, Seg } from './schemas.ts';
 import * as S from './shaders.ts';
-import type { FrameContext, SlotPainter, SlotPlacement } from './slots.ts';
+import { SlotOwners, type FrameContext, type SlotPainter, type SlotPlacement } from './slots.ts';
 import { CachePartition, clippedRectOf, offsetOf, slotRectOf, SlotEnvelopes, type DeviceRect, type PartitionView } from './static-cache.ts';
 import type { FillWriter } from './fills.ts';
 import { buildStaticGeometry, type StaticGeometry } from './static-geometry.ts';
@@ -52,7 +53,20 @@ export interface RendererOptions {
    * pass and two extra submits (resolve, read-back).
    */
   timestamps?: boolean;
+  /** Test hook (identity gate self-test): a deliberate static-cache defect, see CacheFault. */
+  cacheFault?: CacheFault;
 }
+
+/**
+ * Deliberate static-cache defects the identity gate must catch: `skip-invalidate` keeps the rendered cache texture over
+ * every invalidation (stale colours after a theme switch), `skip-growth` does not extend the partition when an envelope
+ * grows (static primitives newly reached by a slot are not redrawn).
+ */
+export type CacheFault = 'skip-invalidate' | 'skip-growth';
+
+declare const __GPU_DEV__: boolean | undefined;
+/** Development builds check the static cache's invariants (tools/build.mjs and the tests define __GPU_DEV__). */
+const CHECK_INVARIANTS = typeof __GPU_DEV__ !== 'undefined' && __GPU_DEV__ === true;
 
 /**
  * Smallest depth range a slot reserves; ranges grow to the next power of two. Generous, because growing one re-lays
@@ -67,6 +81,10 @@ const PER_FRAME_COLOR: Rgba = [1, 0.1, 0.6, 0.9];
 const REGION_INSIDE = 1;
 /** Region rectangles only write the stencil; their colour is unused. */
 const REGION_COLOR: Rgba = [0, 0, 0, 0];
+/** Draw calls of a cached frame besides its draw list: the region mark, the cached-frame copy, the region's opaque fills. */
+const CACHED_FRAME_EXTRA_DRAWS = 3;
+/** Draw calls of a full frame besides its draw list: the opaque static fills. */
+const FULL_FRAME_EXTRA_DRAWS = 1;
 
 const createQuerySet = (root: TgpuRoot) => root.createQuerySet('timestamp', 2);
 type TimestampQuery = ReturnType<typeof createQuerySet>;
@@ -78,6 +96,23 @@ interface RectSet {
   buffer: StorageArray<typeof DebugRect>;
   group: ReturnType<typeof createDebugGroup>;
   count: number;
+}
+
+/** The static scene on the GPU, rebuilt with the geometry (when a paint's class, width or cap changes). */
+interface StaticResources {
+  geometry: StaticGeometry;
+  segs: SegStorage;
+  /** Segment indices: the full painter order, the static-only order (cache), the per-frame order. */
+  order: StorageArray<d.U32>;
+  /** View over the order buffer's host mirror (regions are packed into it and uploaded without a copy). */
+  orderIndices: Uint32Array<ArrayBuffer>;
+  opaque: FillBuffer;
+  blended: FillBuffer;
+  halos: FillBuffer;
+  /** Opaque static triangles reaching the slot envelopes (redrawn in a cached frame), created on the first partition. */
+  regionOpaque: FillBuffer | null;
+  group: LayoutGroup | null;
+  groupVersion: number;
 }
 
 export interface RendererStats {
@@ -103,6 +138,8 @@ export interface RendererStats {
   perFrameEntries: number;
   cachedEntries: number;
   perFrameSegments: number;
+  /** Frames drawn in full because a slot's extent reached beyond the envelope grid. */
+  offGridFrames: number;
 }
 
 interface Targets {
@@ -117,7 +154,7 @@ interface Targets {
 export class Renderer {
   readonly stats: RendererStats = {
     frames: 0, cachedFrames: 0, fullFrames: 0, cacheRebuilds: 0, lastRebuildReason: '', partitions: 0, lastPartitionMs: 0, lastEncodeMs: 0, avgEncodeMs: 0, lastGpuMs: null, lastGpuFrameRebuiltCache: false,
-    draws: 0, segments: 0, opaqueVertices: 0, blendedVertices: 0, reorders: 0, perFrameEntries: 0, cachedEntries: 0, perFrameSegments: 0,
+    draws: 0, segments: 0, opaqueVertices: 0, blendedVertices: 0, reorders: 0, perFrameEntries: 0, cachedEntries: 0, perFrameSegments: 0, offGridFrames: 0,
   };
   private readonly root: TgpuRoot;
   private readonly surface: RenderSurface;
@@ -129,6 +166,7 @@ export class Renderer {
   private readonly cacheMode: CacheMode;
   private readonly onGpuTime: (ms: number, rebuiltCache: boolean) => void;
   private readonly measureRepeat: number;
+  private readonly cacheFault: CacheFault | null;
   private readonly pipelines: Pipelines;
   /** Buffers every draw binds; slot painters build their bind groups on them. */
   readonly bindings: SharedBindings;
@@ -136,31 +174,19 @@ export class Renderer {
   private readonly itemCount: number;
   private readonly slotsByAnchor: SlotsByAnchor;
 
-  // static geometry (rebuilt when a paint's class changes)
-  private geometry: StaticGeometry | null = null;
-  private geometryClassVersion = -1;
-  private segBuffer: SegStorage | null = null;
-  private orderBuffer: (TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag) | null = null;
-  /** View over the order buffer's host mirror. */
-  private orderIndices: Uint32Array<ArrayBuffer> = new Uint32Array(0);
-  private opaqueVB: FillBuffer | null = null;
-  private blendedVB: FillBuffer | null = null;
-  private haloVB: FillBuffer | null = null;
-  /** Opaque static triangles reaching the slot envelopes (redrawn in a cached frame). */
-  private regionOpaqueVB: FillBuffer | null = null;
-  private staticGroup: LayoutGroup | null = null;
-  private staticGroupVersion = -1;
+  // static geometry (rebuilt when PaintTable.geometryVersion changes)
+  private statics: StaticResources | null = null;
+  private staticsVersion = -1;
 
   // painter's order and depth layout
-  /** Every painter known to the renderer (compiled and disposed with it), whether or not it owns a slot now. */
-  private readonly painters: SlotPainter[] = [];
-  /** Painters that own at least one slot: the only ones whose prepare / drawOpaque run. */
-  private activePainters: SlotPainter[] = [];
-  private readonly painterOfSlot: (SlotPainter | null)[];
+  /** Who draws each slot (the only ownership record; painters ask it through FrameContext.ownerOf). */
+  private readonly owners: SlotOwners;
   private readonly capacities: Uint32Array;
   private readonly slotEnvelopes: SlotEnvelopes;
   private readonly order: Uint32Array<ArrayBuffer>;
   private frameOrder: number[] = [];
+  /** The frame order before the last relayout (counts reorders without building strings). */
+  private previousOrder: number[] = [];
   private steps: PainterStep[] = [];
   private readonly bases: Uint32Array;
   private readonly offsets: Float32Array;
@@ -178,6 +204,13 @@ export class Renderer {
   /** The cache texture holds the current static frame. */
   private cacheValid = false;
   private cacheInvalidReason = 'first frame';
+  /** PaintTable.appearanceVersion the cache and the halo masks were rendered with. */
+  private appearanceVersion = -1;
+  /** View transform of the current targets: device px = viewBox · scale + translate (updated in place). */
+  private readonly translate: [number, number] = [0, 0];
+  private readonly haloView = { scale: 0, translate: this.translate, width: 0, height: 0 };
+  private readonly depthOfLayer = (item: number, layer: number) => depthOfSlot(this.bases[item] + layer, this.depthTotal);
+  private readonly frameValues: FrameValues = { scale: 0, translate: this.translate, width: 0, height: 0, dpr: 1, depthTotal: 0 };
   /** The per-frame lists for the current layout (null: start a new one); envelope growth extends it. */
   private partition: CachePartition | null = null;
   private uploadedRegionVertices = 0;
@@ -206,12 +239,13 @@ export class Renderer {
     this.cacheMode = options.cache;
     this.onGpuTime = options.onGpuTime ?? (() => {});
     this.measureRepeat = Math.max(1, Math.floor(options.measureRepeat ?? 1));
+    this.cacheFault = options.cacheFault ?? null;
     this.itemCount = this.scene.items.length;
     this.pipelines = createPipelines(root, this.surface.format);
     this.bindings = new SharedBindings(root, this.itemCount + this.slots.length);
     this.halo = new HaloEffect(root, this.pipelines);
     this.slotsByAnchor = slotsByAnchorOf(this.slots);
-    this.painterOfSlot = this.slots.map(() => null);
+    this.owners = new SlotOwners(this.slots.length);
     this.capacities = new Uint32Array(this.slots.length).fill(MIN_SLOT_CAPACITY);
     this.slotEnvelopes = new SlotEnvelopes(this.slots.length, this.scene.viewBox);
     this.order = new Uint32Array(this.itemCount);
@@ -225,7 +259,7 @@ export class Renderer {
       bindings: this.bindings,
       format: this.surface.format,
       get scale() { return renderer.viewScale(); },
-      get translate() { return renderer.viewTranslate(); },
+      get translate() { return renderer.translate; },
       get width() { return renderer.targets?.width ?? 0; },
       get height() { return renderer.targets?.height ?? 0; },
       get dpr() { return renderer.dpr; },
@@ -234,41 +268,32 @@ export class Renderer {
       depthBase: (slot) => this.bases[this.itemCount + slot],
       get depthTotal() { return renderer.depthTotal; },
       offsetOf: (slot) => [this.offsets[(this.itemCount + slot) * 2], this.offsets[(this.itemCount + slot) * 2 + 1]],
+      ownerOf: (slot) => this.painterOf(slot),
     };
   }
 
   /** Makes a painter known without giving it slots: it is compiled with the renderer and disposed with it. */
   addPainter(painter: SlotPainter) {
-    if (!this.painters.includes(painter)) this.painters.push(painter);
+    this.owners.add(painter);
   }
 
   /**
-   * Gives `slots` (default: every slot the painter names) to `painter`. A previous owner is told to release them and
-   * no longer draws them; a painter left without slots is no longer prepared or drawn.
+   * Gives `slots` (default: every slot the painter names) to `painter` (SlotOwners.assign: previous owners release
+   * them, the new owner acquires them). A painter left without slots is no longer prepared or drawn.
    */
   setSlotPainter(painter: SlotPainter, slots: readonly number[] = painter.slots) {
-    this.addPainter(painter);
-    const released = new Map<SlotPainter, number[]>();
-    for (const slot of slots) {
-      const previous = this.painterOfSlot[slot];
-      if (previous === painter) continue;
-      if (previous) released.set(previous, [...(released.get(previous) ?? []), slot]);
-      this.painterOfSlot[slot] = painter;
-    }
-    for (const [previous, lost] of released) previous.release(lost);
-    this.activePainters = this.painters.filter((p) => this.painterOfSlot.includes(p));
-    this.invalidateCache('slot painter');
+    if (this.owners.assign(painter, slots)) this.invalidateCache('slot painter');
   }
 
   /** The painter that draws `slot` now (null: nothing). */
   painterOf(slot: number): SlotPainter | null {
-    return this.painterOfSlot[slot] ?? null;
+    return this.owners.ownerOf(slot);
   }
 
   /** Compiles every pipeline (the renderer's and the slot painters') ahead of the first frame. */
   async compile() {
     await compilePipelines(this.pipelines);
-    await compilePipelines(this.painters.flatMap((p) => p.pipelines()));
+    await compilePipelines(this.owners.painters.flatMap((p) => p.pipelines()));
   }
 
   get width() {
@@ -279,13 +304,18 @@ export class Renderer {
     return this.targets?.height ?? 0;
   }
 
-  /** (Re)allocates the targets for a canvas of `width × height` device px; the host sizes the canvas itself. */
+  /**
+   * (Re)allocates the targets for a canvas of `width × height` device px; the host sizes the canvas itself. A zero
+   * size (hidden canvas) is ignored: the targets keep their last size.
+   */
   resize(width: number, height: number, dpr: number) {
+    if (!(width >= 1 && height >= 1)) return;
     if (this.targets && this.targets.width === width && this.targets.height === height && this.dpr === dpr) return;
     this.destroyTargets();
     const size: [number, number] = [width, height];
     this.targets = { width, height, color: createMsaaColor(this.root, size, this.surface.format), depth: createMsaaDepth(this.root, size), cache: null };
     this.dpr = dpr;
+    this.updateViewTransform();
     this.halo.invalidate();
     this.invalidateCache('resize');
   }
@@ -296,60 +326,86 @@ export class Renderer {
     this.invalidateCache('background');
   }
 
-  /** The paint table changed (theme, new live paints): colours are re-uploaded, geometry rebuilt when a class changed. */
-  paintsChanged() {
+  /** Whatever was rendered offscreen (static cache, halo masks) is redone on the next frame (e.g. a GPU error). */
+  invalidate(reason: string) {
     this.halo.invalidate();
-    this.invalidateCache('paints');
+    this.invalidateCache(reason);
+    for (const painter of this.owners.painters) painter.invalidate?.();
   }
 
-  render(share: number) {
+  /**
+   * Encodes and submits one frame; false when there is nothing to draw yet (no size, empty paint table). A frame that
+   * throws (encoding or submit) leaves the cache and the halo masks invalid: the next frame renders them again.
+   */
+  render(share: number): boolean {
     const targets = this.targets;
-    if (!targets || !this.paints.size) return;
+    if (!targets || !this.paints.size) return false;
+    try {
+      this.encodeFrame(targets, share);
+      return true;
+    } catch (error) {
+      this.invalidate('frame error');
+      throw error;
+    }
+  }
+
+  private encodeFrame(targets: Targets, share: number) {
     const t0 = this.clock.now();
     this.profiler.begin(TIMING.encode);
-    this.syncGeometry();
+    const statics = this.syncGeometry();
     this.bindings.writePaints(this.paints);
+    if (this.paints.appearanceVersion !== this.appearanceVersion) {
+      this.appearanceVersion = this.paints.appearanceVersion;
+      this.invalidate('paints');
+    }
     this.updateShare(share);
     this.updateSlots();
-    if (this.layoutDirty) this.relayout();
-    const [tx, ty] = this.viewTranslate();
-    const frameChanged = this.bindings.writeFrame({ scale: this.viewScale(), translate: [tx, ty], width: targets.width, height: targets.height, dpr: this.dpr, depthTotal: this.depthTotal });
+    if (this.layoutDirty) this.relayout(statics);
+    const frame = this.frameValues;
+    frame.scale = this.viewScale();
+    frame.width = targets.width;
+    frame.height = targets.height;
+    frame.dpr = this.dpr;
+    frame.depthTotal = this.depthTotal;
+    const frameChanged = this.bindings.writeFrame(frame);
     if (frameChanged) this.invalidateCache('frame uniform');
-    const geometry = this.geometry!;
-    const group = this.staticGroupOf();
+    const geometry = statics.geometry;
+    const group = this.staticGroupOf(statics);
     const encoder = this.root['~unstable'].createCommandEncoder();
     const query = this.query && !this.query.busy ? this.query : null;
     if (query) this.beginTimestamp(encoder, query.set);
-    this.halo.prepare(encoder, geometry.halos, this.haloVB!, group, { scale: this.viewScale(), translate: [tx, ty], width: targets.width, height: targets.height }, this.paints,
-      (item) => [this.offsets[item * 2], this.offsets[item * 2 + 1]], (item, layer) => depthOfSlot(this.bases[item] + layer, this.depthTotal));
-    for (const painter of this.activePainters) painter.prepare(this.frameContext, encoder);
-    const cached = this.cacheMode !== 'off' && this.stableShareFrames >= STABLE_SHARE_FRAMES;
+    this.halo.prepare(encoder, geometry.halos, statics.halos, group, this.haloView, this.paints, this.offsets, this.depthOfLayer);
+    for (const painter of this.owners.active) painter.prepare(this.frameContext, encoder);
+    const stable = this.cacheMode !== 'off' && this.stableShareFrames >= STABLE_SHARE_FRAMES;
+    // an extent beyond the envelope grid is in no envelope: its static surroundings were never selected
+    const offGrid = stable && this.slotEnvelopes.anyOffGrid;
+    const cached = stable && !offGrid;
     let rebuilt = false;
     if (cached) {
-      this.updatePartition(targets);
-      if (!this.cacheValid) {
-        this.renderCache(encoder, targets, group);
-        rebuilt = true;
-      }
+      this.updatePartition(targets, statics);
+      if (!this.cacheValid) rebuilt = this.renderCache(encoder, targets, statics, group);
       this.writeRegion(targets);
     }
     for (let pass = 1; pass <= this.measureRepeat; pass++) {
       const last = pass === this.measureRepeat;
-      this.encodeMainPass(encoder, targets, group, cached, last && query ? query.set : null);
-    }
-    if (cached) {
-      this.stats.cachedFrames++;
-      this.stats.draws = this.frameDraws.length + 3;
-    } else {
-      this.stats.fullFrames++;
-      this.stats.draws = this.fullDraws.length + 1;
+      this.encodeMainPass(encoder, targets, statics, group, cached, last && query ? query.set : null);
     }
     encoder.submit();
+    // the cache holds the static frame only now that the frame that rendered it was submitted
+    if (rebuilt) this.cacheValid = true;
     this.surface.present?.();
     if (query) this.readTimestamps(query, rebuilt, this.measureRepeat);
     this.profiler.end(TIMING.encode);
     const ms = this.clock.now() - t0;
     const s = this.stats;
+    if (cached) {
+      s.cachedFrames++;
+      s.draws = this.frameDraws.length + CACHED_FRAME_EXTRA_DRAWS;
+    } else {
+      s.fullFrames++;
+      s.draws = this.fullDraws.length + FULL_FRAME_EXTRA_DRAWS;
+      if (offGrid) s.offGridFrames++;
+    }
     s.frames++;
     s.lastEncodeMs = ms;
     s.avgEncodeMs += (ms - s.avgEncodeMs) / s.frames;
@@ -359,39 +415,39 @@ export class Renderer {
    * The frame's main pass, resolved into the canvas. Cached: clear, mark the redraw region in the stencil, copy the
    * cached static frame outside it, then draw inside it what reaches it. Full: everything.
    */
-  private encodeMainPass(encoder: CommandEncoder, targets: Targets, group: LayoutGroup, cached: boolean, timestamps: TgpuQuerySet<'timestamp'> | null) {
+  private encodeMainPass(encoder: CommandEncoder, targets: Targets, statics: StaticResources, group: LayoutGroup, cached: boolean, timestamps: TgpuQuerySet<'timestamp'> | null) {
     const [r, g, b] = this.background;
     const pass = encoder.beginRenderPass({
       colorAttachments: [{ view: targets.color, resolveTarget: this.surface.context, clearValue: [r, g, b, 1], loadOp: 'clear', storeOp: 'discard' }],
       depthStencilAttachment: { view: targets.depth, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard', stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard' },
       ...(timestamps ? { timestampWrites: { querySet: timestamps, endOfPassWriteIndex: 1 } } : {}),
     });
-    if (cached) {
+    if (cached && this.region && this.cacheGroup) {
       pass.setStencilReference(REGION_INSIDE);
-      const region = this.region!;
+      const region = this.region;
       if (region.count) {
         pass.setPipeline(this.pipelines.markRegion);
         pass.setBindGroup(S.debugLayout, region.group);
         pass.draw(6, region.count);
       }
       pass.setPipeline(this.pipelines.cachedFrame);
-      pass.setBindGroup(S.cacheLayout, this.cacheGroup!);
+      pass.setBindGroup(S.cacheLayout, this.cacheGroup);
       pass.draw(3);
       pass.setBindGroup(S.layout, group);
       const regionOpaque = this.partition?.regionOpaque.count ?? 0;
-      if (regionOpaque) {
+      if (regionOpaque && statics.regionOpaque) {
         pass.setPipeline(this.pipelines.fillOpaque);
-        pass.setVertexBuffer(S.fillLayout, this.regionOpaqueVB!);
+        pass.setVertexBuffer(S.fillLayout, statics.regionOpaque);
         pass.draw(regionOpaque);
       }
-      for (const painter of this.activePainters) painter.drawOpaque(this.frameContext, pass);
-      this.drawList(pass, this.frameDraws, group);
+      for (const painter of this.owners.active) painter.drawOpaque(this.frameContext, pass);
+      this.drawList(pass, this.frameDraws, statics, group);
       if (this.cacheMode === 'overlay') this.drawOverlay(pass);
     } else {
       pass.setBindGroup(S.layout, group);
-      this.drawOpaqueStatic(pass);
-      for (const painter of this.activePainters) painter.drawOpaque(this.frameContext, pass);
-      this.drawList(pass, this.fullDraws, group);
+      this.drawOpaqueStatic(pass, statics);
+      for (const painter of this.owners.active) painter.drawOpaque(this.frameContext, pass);
+      this.drawList(pass, this.fullDraws, statics, group);
     }
     pass.end();
   }
@@ -409,7 +465,7 @@ export class Renderer {
     this.destroyTargets();
     this.destroyGeometry();
     this.halo.dispose();
-    for (const painter of this.painters) painter.dispose();
+    for (const painter of this.owners.painters) painter.dispose();
     this.bindings.dispose();
     this.region?.buffer.destroy();
     this.overlay?.buffer.destroy();
@@ -423,9 +479,14 @@ export class Renderer {
     return (this.targets?.width ?? 0) / this.scene.viewBox[2];
   }
 
-  private viewTranslate(): [number, number] {
-    const s = this.viewScale();
-    return [-this.scene.viewBox[0] * s, -this.scene.viewBox[1] * s];
+  /** Updates the view transform of the current targets in place (`translate`, the halo view). */
+  private updateViewTransform() {
+    const scale = this.viewScale();
+    this.translate[0] = -this.scene.viewBox[0] * scale;
+    this.translate[1] = -this.scene.viewBox[1] * scale;
+    this.haloView.scale = scale;
+    this.haloView.width = this.targets?.width ?? 0;
+    this.haloView.height = this.targets?.height ?? 0;
   }
 
   /** The static frame changed: the cache texture and the per-frame lists are redone before the next cached frame. */
@@ -436,48 +497,49 @@ export class Renderer {
     this.regionLayoutValid = false;
   }
 
-  private syncGeometry() {
-    if (this.geometry && this.geometryClassVersion === this.paints.classVersion) return;
+  /** The static scene's GPU resources for the current paint geometry (rebuilt when a class, width or cap changed). */
+  private syncGeometry(): StaticResources {
+    if (this.statics && this.staticsVersion === this.paints.geometryVersion) return this.statics;
     this.destroyGeometry();
     const geometry = buildStaticGeometry(this.scene, this.paints);
-    this.geometry = geometry;
-    this.geometryClassVersion = this.paints.classVersion;
+    this.staticsVersion = this.paints.geometryVersion;
     const segCount = geometry.segs.count;
-    const segBuffer = this.root.createBuffer(d.arrayOf(Seg, Math.max(1, segCount))).$usage('storage');
-    if (segCount) segBuffer.write(geometry.segs.f32.buffer.slice(0, geometry.segs.byteLength));
-    this.segBuffer = segBuffer;
+    const segs = this.root.createBuffer(d.arrayOf(Seg, Math.max(1, segCount))).$usage('storage');
+    if (segCount) segs.write(geometry.segs.f32.buffer.slice(0, geometry.segs.byteLength));
     // three regions of segment indices: the full painter order, the static-only order (cache), the per-frame order;
     // packed straight into the buffer's host mirror, so a region uploads without a copy
-    this.orderBuffer = this.root.createBuffer(d.arrayOf(d.u32, Math.max(1, segCount * 3))).$usage('storage');
-    this.orderIndices = new Uint32Array(this.orderBuffer.arrayBuffer);
+    const order = this.root.createBuffer(d.arrayOf(d.u32, Math.max(1, segCount * 3))).$usage('storage');
     const upload = (writer: StaticGeometry['opaque']) => {
       const buffer = createFillBuffer(this.root, writer.count);
       if (writer.count) buffer.write(writer.f32.buffer.slice(0, writer.byteLength));
       return buffer;
     };
-    this.opaqueVB = upload(geometry.opaque);
-    this.blendedVB = upload(geometry.blended);
-    this.haloVB = upload(geometry.haloVertices);
-    this.staticGroup = null;
+    this.statics = {
+      geometry, segs, order, orderIndices: new Uint32Array(order.arrayBuffer),
+      opaque: upload(geometry.opaque), blended: upload(geometry.blended), halos: upload(geometry.haloVertices), regionOpaque: null,
+      group: null, groupVersion: -1,
+    };
     this.halo.invalidate();
     this.layoutDirty = true;
     this.stats.segments = segCount;
     this.stats.opaqueVertices = geometry.opaque.count;
     this.stats.blendedVertices = geometry.blended.count;
+    return this.statics;
   }
 
   private destroyGeometry() {
-    for (const buffer of [this.segBuffer, this.orderBuffer, this.opaqueVB, this.blendedVB, this.haloVB, this.regionOpaqueVB]) buffer?.destroy();
-    this.segBuffer = this.orderBuffer = this.opaqueVB = this.blendedVB = this.haloVB = this.regionOpaqueVB = null;
-    this.geometry = null;
+    const statics = this.statics;
+    if (!statics) return;
+    for (const buffer of [statics.segs, statics.order, statics.opaque, statics.blended, statics.halos, statics.regionOpaque]) buffer?.destroy();
+    this.statics = null;
   }
 
-  private staticGroupOf(): LayoutGroup {
-    if (!this.staticGroup || this.staticGroupVersion !== this.bindings.version) {
-      this.staticGroup = this.bindings.layoutGroup(this.segBuffer!, this.orderBuffer!);
-      this.staticGroupVersion = this.bindings.version;
+  private staticGroupOf(statics: StaticResources): LayoutGroup {
+    if (!statics.group || statics.groupVersion !== this.bindings.version) {
+      statics.group = this.bindings.layoutGroup(statics.segs, statics.order);
+      statics.groupVersion = this.bindings.version;
     }
-    return this.staticGroup;
+    return statics.group;
   }
 
   private updateShare(share: number) {
@@ -489,7 +551,7 @@ export class Renderer {
   /** Slot depth capacities and envelopes; growth of either re-lays the depth range or re-partitions. */
   private updateSlots() {
     for (let slot = 0; slot < this.slots.length; slot++) {
-      const painter = this.painterOfSlot[slot];
+      const painter = this.owners.ownerOf(slot);
       if (!painter) continue;
       const layers = painter.layersOf(slot);
       if (layers > this.capacities[slot]) {
@@ -501,14 +563,16 @@ export class Renderer {
   }
 
   /** Painter's order, depth bases, explode offsets and the full draw list. */
-  private relayout() {
+  private relayout(statics: StaticResources) {
     this.layoutDirty = false;
-    const geometry = this.geometry!;
-    const previous = this.frameOrder.join(',');
+    const { geometry, order, orderIndices } = statics;
+    const previous = this.previousOrder;
+    previous.length = 0;
+    for (const item of this.frameOrder) previous.push(item);
     orderOf(this.scene.items, this.share, this.order);
     this.orderShare = this.share;
     frameOrderOf(this.order, this.slotsByAnchor, this.itemCount, this.frameOrder);
-    if (this.frameOrder.join(',') !== previous) this.stats.reorders++;
+    if (this.frameOrder.some((item, i) => item !== previous[i]) || this.frameOrder.length !== previous.length) this.stats.reorders++;
     this.steps = painterSequenceOf(this.frameOrder, geometry.entries, this.itemCount);
     this.depthTotal = depthBasesOf(this.frameOrder, (item) => (item < this.itemCount ? this.scene.items[item].layers : this.capacities[item - this.itemCount]), this.bases);
     for (let i = 0; i < this.itemCount + this.slots.length; i++) {
@@ -518,17 +582,16 @@ export class Renderer {
     }
     this.bindings.writeItems(this.offsets, this.bases, this.itemCount + this.slots.length);
     const segCount = geometry.segs.count;
-    this.fullDraws = buildDraws(this.steps, geometry.entries, () => true, this.orderIndices, 0).draws;
-    this.staticDraws = buildDraws(this.steps, geometry.entries, (s) => this.steps[s].item >= 0, this.orderIndices, segCount).draws;
-    this.orderBuffer!.write(this.orderBuffer!.arrayBuffer, { endOffset: Math.max(1, segCount * 2) * 4 });
+    this.fullDraws = buildDraws(this.steps, geometry.entries, () => true, orderIndices, 0).draws;
+    this.staticDraws = buildDraws(this.steps, geometry.entries, (s) => this.steps[s].item >= 0, orderIndices, segCount).draws;
+    order.write(order.arrayBuffer, { endOffset: Math.max(1, segCount * 2) * 4 });
     this.invalidateCache('layout');
   }
 
   private partitionView(targets: Targets): PartitionView {
-    const [tx, ty] = this.viewTranslate();
     return {
       scale: this.viewScale(),
-      translate: [tx, ty],
+      translate: [this.translate[0], this.translate[1]],
       dpr: this.dpr,
       width: targets.width,
       height: targets.height,
@@ -543,15 +606,17 @@ export class Renderer {
    * static segment and triangle that can reach the region is in the per-frame lists).
    */
   private writeRegion(targets: Targets) {
-    const contentVersion = this.activePainters.reduce((sum, painter) => sum + painter.version, 0);
+    let contentVersion = 0;
+    for (const painter of this.owners.active) contentVersion += painter.version;
     if (this.region && contentVersion === this.regionVersion && this.regionLayoutValid) return;
     this.regionVersion = contentVersion;
     this.regionLayoutValid = true;
     const view = this.partitionView(targets);
     const rects: [DeviceRect, Rgba][] = [];
     for (let slot = 0; slot < this.slots.length; slot++) {
-      const extent = this.painterOfSlot[slot]?.extentOf(slot);
+      const extent = this.owners.ownerOf(slot)?.extentOf(slot);
       if (!extent) continue;
+      if (CHECK_INVARIANTS && !this.slotEnvelopes.covers(slot, extent)) throw new Error(`static cache: the extent of slot ${this.slots[slot].name} lies outside its envelope`);
       const rect = clippedRectOf(slotRectOf(extent, offsetOf(view, this.itemCount + slot), view), view);
       if (rect) rects.push([rect, REGION_COLOR]);
     }
@@ -562,9 +627,9 @@ export class Renderer {
    * Brings the per-frame lists up to date with the slot envelopes: a new partition after a layout change, else only
    * the cells the envelopes gained since the last frame (the cached frame itself does not change when they grow).
    */
-  private updatePartition(targets: Targets) {
+  private updatePartition(targets: Targets, statics: StaticResources) {
     const t0 = this.clock.now();
-    const geometry = this.geometry!;
+    const { geometry, order, orderIndices } = statics;
     let fresh = false;
     if (!this.partition) {
       this.partition = new CachePartition(this.steps, geometry.entries, geometry.segs, geometry.opaque, geometry.opaqueFills, this.partitionView(targets));
@@ -573,14 +638,15 @@ export class Renderer {
       fresh = true;
     }
     const partition = this.partition;
-    const cells = fresh ? this.slotEnvelopes.allCells() : this.slotEnvelopes.takeAdded();
+    const added = fresh ? this.slotEnvelopes.allCells() : this.slotEnvelopes.takeAdded();
+    const cells = this.cacheFault === 'skip-growth' && !fresh ? [] : added;
     const changed = cells.length > 0 && partition.include(cells, this.slotEnvelopes);
     if (!changed && !fresh) return;
     const segCount = geometry.segs.count;
-    const frame = buildDraws(this.steps, geometry.entries, (s) => partition.perFrame[s] === 1, this.orderIndices, segCount * 2, partition.segmentMask);
+    const frame = buildDraws(this.steps, geometry.entries, (s) => partition.perFrame[s] === 1, orderIndices, segCount * 2, partition.segmentMask);
     this.frameDraws = frame.draws;
-    if (segCount) this.orderBuffer!.write(this.orderBuffer!.arrayBuffer, { startOffset: segCount * 2 * 4, endOffset: segCount * 3 * 4 });
-    this.uploadRegionOpaque(partition.regionOpaque);
+    if (segCount) order.write(order.arrayBuffer, { startOffset: segCount * 2 * 4, endOffset: segCount * 3 * 4 });
+    this.uploadRegionOpaque(statics, partition.regionOpaque);
     if (this.cacheMode === 'overlay') this.overlay = this.writeRects(this.overlay, [...partition.regionRects.map((r): [DeviceRect, Rgba] => [r, ENVELOPE_COLOR]), ...partition.entryRects.map((r): [DeviceRect, Rgba] => [r, PER_FRAME_COLOR])]);
     this.stats.perFrameEntries = partition.perFrameEntries;
     this.stats.cachedEntries = partition.cachedEntries;
@@ -590,20 +656,27 @@ export class Renderer {
   }
 
   /** Uploads the region's opaque triangles appended since the last upload (the buffer holds every opaque triangle). */
-  private uploadRegionOpaque(region: FillWriter) {
-    const geometry = this.geometry!;
-    if (!this.regionOpaqueVB) this.regionOpaqueVB = createFillBuffer(this.root, geometry.opaque.count);
+  private uploadRegionOpaque(statics: StaticResources, region: FillWriter) {
+    statics.regionOpaque ??= createFillBuffer(this.root, statics.geometry.opaque.count);
+    const buffer = statics.regionOpaque;
     const from = this.uploadedRegionVertices;
     if (region.count <= from) return;
     const W = FILL_VERTEX_RECORD.words;
-    const host = this.regionOpaqueVB.arrayBuffer;
+    const host = buffer.arrayBuffer;
     new Uint32Array(host).set(region.u32.subarray(from * W, region.count * W), from * W);
-    this.regionOpaqueVB.write(host, { startOffset: from * FILL_VERTEX_RECORD.bytes, endOffset: region.count * FILL_VERTEX_RECORD.bytes });
+    buffer.write(host, { startOffset: from * FILL_VERTEX_RECORD.bytes, endOffset: region.count * FILL_VERTEX_RECORD.bytes });
     this.uploadedRegionVertices = region.count;
   }
 
-  /** Renders the static frame (every static primitive, no slot) into the cache texture. */
-  private renderCache(encoder: CommandEncoder, targets: Targets, group: LayoutGroup) {
+  /**
+   * Renders the static frame (every static primitive, no slot) into the cache texture; true when it did (it counts
+   * as valid once the frame is submitted). The `skip-invalidate` test fault keeps a stale texture instead.
+   */
+  private renderCache(encoder: CommandEncoder, targets: Targets, statics: StaticResources, group: LayoutGroup): boolean {
+    if (this.cacheFault === 'skip-invalidate' && targets.cache) {
+      this.cacheValid = true;
+      return false;
+    }
     this.stats.cacheRebuilds++;
     this.stats.lastRebuildReason = this.cacheInvalidReason;
     if (!targets.cache) {
@@ -616,29 +689,29 @@ export class Renderer {
       depthStencilAttachment: { view: targets.depth, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard', stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard' },
     });
     pass.setBindGroup(S.layout, group);
-    this.drawOpaqueStatic(pass);
-    this.drawList(pass, this.staticDraws, group);
+    this.drawOpaqueStatic(pass, statics);
+    this.drawList(pass, this.staticDraws, statics, group);
     pass.end();
-    this.cacheValid = true;
+    return true;
   }
 
   // ---- drawing --------------------------------------------------------------------------------------------------------
 
-  private drawOpaqueStatic(pass: TgpuRenderPass) {
-    const count = this.geometry!.opaque.count;
+  private drawOpaqueStatic(pass: TgpuRenderPass, statics: StaticResources) {
+    const count = statics.geometry.opaque.count;
     if (!count) return;
     pass.setPipeline(this.pipelines.fillOpaque);
-    pass.setVertexBuffer(S.fillLayout, this.opaqueVB!);
+    pass.setVertexBuffer(S.fillLayout, statics.opaque);
     pass.draw(count);
   }
 
   /** Draws `draws` in order; slot painters bind their own `layout` group, so the static one is re-bound after them. */
-  private drawList(pass: TgpuRenderPass, draws: Draw[], group: LayoutGroup) {
+  private drawList(pass: TgpuRenderPass, draws: Draw[], statics: StaticResources, group: LayoutGroup) {
     pass.setBindGroup(S.layout, group);
     let staticBound = true;
     for (const draw of draws) {
       if (draw.kind === 'slot') {
-        const painter = this.painterOfSlot[draw.slot];
+        const painter = this.owners.ownerOf(draw.slot);
         if (!painter) continue;
         painter.drawSlot(this.frameContext, pass, draw.slot);
         staticBound = false;
@@ -657,7 +730,7 @@ export class Renderer {
         pass.draw(6, draw.count, 0, draw.first);
       } else {
         pass.setPipeline(fillPipelineOf(this.pipelines, draw.blend));
-        pass.setVertexBuffer(S.fillLayout, this.blendedVB!);
+        pass.setVertexBuffer(S.fillLayout, statics.blended);
         pass.draw(draw.count, 1, draw.first);
       }
     }

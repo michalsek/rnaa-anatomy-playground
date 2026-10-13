@@ -22,10 +22,16 @@ export const packetTemplate = (kind: string) =>
 
 /** Primitive order of a template: hull, 4 shades, top, then its lines. */
 const HULL = 0, FIRST_SHADE = 1, TOP = 5, FIRST_LINE = 6;
+/** Style records the table starts with (the vane, v2's six packet kinds, one spare); it doubles when full. */
+export const INITIAL_STYLE_CAPACITY = 8;
+/** Packet kinds that can be written into the template markup as they are (v2 writes them into an attribute unescaped). */
+const PLAIN_KIND = /^[\w-]+$/;
+/** Paint ids travel as u16 in fill vertices (schemas.ts FillVertex). */
+const U16_LIMIT = 0x10000;
 
 export class RotorStyles {
   /** Packed RotorStyle records (style 0 = vane, then packet kinds in order of first sight). */
-  records = new Uint32Array(8 * STYLE_RECORD.words);
+  records = new Uint32Array(INITIAL_STYLE_CAPACITY * STYLE_RECORD.words);
   count = 0;
   /** Bumped when a style is added. */
   version = 0;
@@ -40,15 +46,18 @@ export class RotorStyles {
   private readonly builder: SlotGeometryBuilder;
   private readonly collected = new CollectedSlot();
 
-  constructor(paints: PaintTable, slotChain: ChainNode[]) {
+  /** @param kinds packet kinds registered now (a template that does not match fails here, not in v2's tick) */
+  constructor(paints: PaintTable, slotChain: ChainNode[], kinds: readonly string[] = []) {
     this.builder = new SlotGeometryBuilder(paints, slotChain);
     this.add(VANE_TEMPLATE, false);
+    for (const kind of kinds) this.styleOf(kind);
   }
 
   /** Style index of a packet kind; the first sight registers its paints (resolved by the next `resolvePending`). */
   styleOf(kind: string): number {
     const known = this.byKind.get(kind);
     if (known !== undefined) return known;
+    if (!PLAIN_KIND.test(kind)) throw new Error(`native rotor: packet kind ${JSON.stringify(kind)} is not a plain name`);
     const style = this.add(packetTemplate(kind), true);
     this.byKind.set(kind, style);
     return style;
@@ -70,11 +79,14 @@ export class RotorStyles {
       this.strokePaints.push(p.paint);
       return { paint: p.paint, width };
     };
+    const fillPaintOf = (i: number) => {
+      const p = prim(i);
+      if (p.kind !== 'fill') throw new Error(`native rotor: template primitive ${i} is not a fill`);
+      if (p.paint >= U16_LIMIT) throw new Error(`native rotor: paint ${p.paint} does not fit a fill vertex`);
+      return p.paint;
+    };
+    for (let i = HULL; i <= TOP; i++) this.fillPaints.push(fillPaintOf(i));
     this.hullPaints.push(prim(HULL).paint);
-    for (let i = HULL; i <= TOP; i++) {
-      if (prim(i).kind !== 'fill') throw new Error(`native rotor: template primitive ${i} is not a fill`);
-      this.fillPaints.push(prim(i).paint);
-    }
     const crease = lineOf(FIRST_LINE);
     const bevel = packet ? lineOf(FIRST_LINE + 1) : crease;
     const edge = lineOf(packet ? FIRST_LINE + 2 : FIRST_LINE + 1);

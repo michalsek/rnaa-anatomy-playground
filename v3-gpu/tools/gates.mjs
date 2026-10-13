@@ -9,11 +9,12 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { GATES_OUT, ROOT, parseArgs } from "./harness.mjs";
+import { NATIVE_ROWS } from "./gates.config.mjs";
 
 const node = (...args) => [process.execPath, ...args];
 /** One row per command: `expect: "fail"` marks a self-test (the gate must reject a deliberate defect). */
 const ROWS = [
-  { name: "unit", modes: ["quick", "full"], command: node("--test", "tools/test-export.mjs", "tools/test-live.mjs", "tools/test-native.mjs") },
+  { name: "unit", modes: ["quick", "full"], command: node("--test", "tools/test-export.mjs", "tools/test-live.mjs", "tools/test-native.mjs", "tools/test-core.mjs") },
   { name: "dl", modes: ["quick", "full"], command: node("tools/gate.mjs") },
   { name: "static", modes: ["quick"], command: node("tools/live-gate.mjs", "static", "--quick") },
   { name: "static", modes: ["full"], command: node("tools/live-gate.mjs", "static") },
@@ -33,6 +34,9 @@ const ROWS = [
   { name: "native:identity", modes: ["full"], command: node("tools/native-gate.mjs", "identity") },
   { name: "native:compare", modes: ["full"], command: node("tools/native-gate.mjs", "compare") },
   { name: "native:sheet", modes: ["full"], command: node("tools/native-gate.mjs", "sheet") },
+  ...NATIVE_ROWS.map(({ args, ...row }) => ({ ...row, command: node(...args) })),
+  { name: "identity", modes: ["quick"], command: node("tools/live-gate.mjs", "identity", "--quick") },
+  { name: "identity", modes: ["full"], command: node("tools/live-gate.mjs", "identity") },
   { name: "selftest:dl", modes: ["full"], expect: "fail", command: node("tools/gate.mjs", "--mutate", "drop-fill", "--themes", "dark") },
   { name: "selftest:static", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "static", "--quick", "--mutate", "patch") },
   { name: "live:markup", modes: ["full"], command: node("tools/live-gate.mjs", "live", "--quick", "--native", "0") },
@@ -40,6 +44,8 @@ const ROWS = [
   { name: "selftest:live:markup", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "live", "--quick", "--native", "0", "--mutate", "drop-slot") },
   { name: "selftest:motion", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "motion", "--quick", "--mutate", "pop") },
   { name: "selftest:calib", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "calib", "--quick", "--mutate", "contrast") },
+  { name: "selftest:identity", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "identity", "--quick", "--mutate", "skip-growth") },
+  { name: "selftest:identity:invalidate", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "identity", "--quick", "--mutate", "skip-invalidate") },
   { name: "selftest:determinism", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "determinism", "--ticks", "300", "--real-ticks", "30", "--mutate", "no-rebase") },
   { name: "perf", modes: ["full"], gating: false, command: node("tools/live-gate.mjs", "perf") },
 ];

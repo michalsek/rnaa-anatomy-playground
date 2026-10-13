@@ -88,8 +88,9 @@ export function buildStaticGeometry(scene: GpuScene, paints: PaintTable): Static
     if (!paint.visible || fill.alpha <= 0) continue;
     if (fill.halo) {
       const first = haloVertices.triangles(tris, fill.first, fill.count, fill.item, fill.paint, fill.layer, fill.alpha);
-      halos.push({ item: fill.item, layer: fill.layer, paint: fill.paint, first, count: fill.count, bounds: fillBounds(fill.first, fill.count) });
-      entries[fill.item].push({ kind: 'halo', layer: fill.layer, halo: halos.length - 1, bounds: fillBounds(fill.first, fill.count), halfWidth: 0 });
+      const bounds = fillBounds(fill.first, fill.count);
+      halos.push({ item: fill.item, layer: fill.layer, paint: fill.paint, first, count: fill.count, bounds });
+      entries[fill.item].push({ kind: 'halo', layer: fill.layer, halo: halos.length - 1, bounds: { ...bounds }, halfWidth: 0 });
     } else if (paint.opaque && isOpaqueAlpha(fill.alpha)) {
       const first = opaque.triangles(tris, fill.first, fill.count, fill.item, fill.paint, fill.layer, fill.alpha);
       opaqueFills.push({ item: fill.item, first, count: fill.count, bounds: fillBounds(fill.first, fill.count) });
