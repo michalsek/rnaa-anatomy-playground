@@ -13,8 +13,13 @@
 
 export type Theme = 'light' | 'dark';
 
-/** Per-material tone slots, in GPU table order. */
-export const SLOTS = ['paper', 'face', 'top', 's0', 's1', 's2', 's3', 'hi'] as const;
+/**
+ * Per-material tone slots, in GPU table order. `paper`..`s3` fill faces; `hi`, `mid`, `lo`,
+ * `faint` and `lit` are line tones (`iso.css`: outline = mid, crease = faint, ribs = lo).
+ */
+export const SLOTS = [
+  'paper', 'face', 'top', 's0', 's1', 's2', 's3', 'hi', 'mid', 'lo', 'faint', 'lit',
+] as const;
 export type Slot = (typeof SLOTS)[number];
 export const SLOT_COUNT = SLOTS.length;
 export const SLOT = Object.fromEntries(SLOTS.map((name, index) => [name, index])) as {
@@ -38,6 +43,10 @@ const graphite: MaterialTokens = {
   s2: '#2a2c31',
   s3: '#303338',
   hi: '#e6e8ec',
+  mid: '#8b8f97',
+  lo: '#5c6068',
+  faint: '#43464d',
+  lit: '#ffffff',
 };
 
 export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
@@ -51,6 +60,10 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
       s2: '#ededea',
       s3: '#f4f4f1',
       hi: '#26262a',
+      mid: '#8a8a8f',
+      lo: '#b4b4b8',
+      faint: '#d4d4d6',
+      lit: '#000000',
     },
     graphite,
     react: {
@@ -62,6 +75,10 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
       s2: '#85d0ea',
       s3: '#97daf2',
       hi: '#0f4256',
+      mid: '#2a6f86',
+      lo: '#4f97b1',
+      faint: '#7cc3dc',
+      lit: '#000000',
     },
   },
   dark: {
@@ -74,6 +91,10 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
       s2: '#151515',
       s3: '#181818',
       hi: '#d4d4d4',
+      mid: '#6a6a6a',
+      lo: '#3e3e3e',
+      faint: '#2a2a2a',
+      lit: '#ffffff',
     },
     graphite,
     react: {
@@ -85,6 +106,10 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
       s2: '#1b4554',
       s3: '#1f4d5e',
       hi: '#bfeefc',
+      mid: '#61dafb',
+      lo: '#3c8aa6',
+      faint: '#2a6377',
+      lit: '#ffffff',
     },
   },
 };

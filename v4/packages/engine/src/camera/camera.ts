@@ -200,3 +200,29 @@ export function cameraMatrices(
   out.light = lightOf(state);
   return out;
 }
+
+/**
+ * A named view: angles in degrees, zoom relative to the fit zoom at those angles, and an
+ * optional world point to centre (default: the fitted centre).
+ */
+export interface ViewPreset {
+  name: string;
+  yaw: number;
+  elevation: number;
+  zoom: number;
+  focus?: [number, number, number];
+}
+
+/** Camera for a view preset: fit the bounds at the view's angles, then zoom and re-centre. */
+export function viewCamera(bounds: Bounds, viewport: Viewport, view: ViewPreset): CameraState {
+  const fit = fitToBounds(bounds, viewport, {
+    yaw: view.yaw * DEG,
+    elevation: view.elevation * DEG,
+  });
+  return {
+    target: view.focus ? [...view.focus] : fit.target,
+    yaw: fit.yaw,
+    elevation: fit.elevation,
+    zoom: fit.zoom * view.zoom,
+  };
+}

@@ -1,51 +1,59 @@
 /**
- * The M0 renderer: one merged mesh, one pipeline, one MSAA pass with depth, resolved into the
- * canvas. One encoder and one submit per frame. Host-agnostic: it receives the TypeGPU root
- * (which owns the device), a configured canvas context, its format, size and DPR.
+ * The M1 renderer: one merged mesh pulled from storage buffers, one pipeline (fills with
+ * in-face lines), one MSAA pass with depth, resolved into the canvas. One encoder and one
+ * submit per frame. Host-agnostic: it receives the TypeGPU root (which owns the device), a
+ * configured canvas context, its format, size and DPR.
  */
-import tgpu, { d, std, type TgpuRoot } from 'typegpu';
+import { d, type TgpuRoot } from 'typegpu';
 import { mat4 } from 'wgpu-matrix';
 import { DEV, PLATFORM, log } from '#platform/env.ts';
 import {
   type CameraState,
+  type ViewPreset,
   type Viewport,
+  basisOf,
   cameraMatrices,
   createCameraMatrices,
   fitToBounds,
+  viewCamera,
 } from '../camera/camera.ts';
-import { vertexCount } from '../geo/mesh.ts';
+import { triangleCount, vertexCount } from '../geo/mesh.ts';
+import { buildTopology } from '../geo/topology.ts';
 import {
   MATERIALS,
   PAPER,
+  SLOT,
   SLOT_COUNT,
   type Theme,
   hexToRgb,
   paletteTable,
 } from '../palette/tokens.ts';
-import type { SceneSpec } from '../scene/m0.ts';
-import { toneOf, toneSlot } from '../shading/tone.ts';
+import { type LineSetSpec, type SceneSpec, partMatrix } from '../scene/m1.ts';
+import {
+  Frame,
+  GpuTri,
+  GpuVertex,
+  LineSet,
+  Part,
+  packTriangles,
+  packVertices,
+  sceneLayout,
+} from './schemas.ts';
+import { fillFragment, fillVertex } from './shaders.ts';
 
 const SAMPLES = 4;
 /** `GPUTextureUsage.RENDER_ATTACHMENT`; the literal avoids relying on a host global. */
 const RENDER_ATTACHMENT = 0x10;
 const DEPTH_FORMAT = 'depth24plus';
+/** Placeholder so the line-set table is never empty (draws nothing: last < first). */
+const NO_LINES: LineSetSpec = {
+  count: 1, phase: 0, first: 0, last: -1, majorEvery: 0,
+  minor: 'lo', major: 'lo', width: 0, majorWidth: 0, fade: [0, 0],
+};
 
-const Frame = d.struct({
-  viewProjection: d.mat4x4f,
-  light: d.vec3f,
-});
-
-const Part = d.struct({
-  model: d.mat4x4f,
-  material: d.u32,
-});
-
-const Vertex = d.unstruct({
-  position: d.float32x3,
-  normal: d.float32x3,
-  part: d.uint32,
-});
-const VERTEX_FLOATS = 7;
+/** 0 = normal, 1 = line classes on paper (outline red, contour magenta, crease blue, ticks
+ * green), 2 = lines off. */
+export type DebugMode = 0 | 1 | 2;
 
 /** A canvas context; react-native-webgpu adds `present()`, which must follow each submit. */
 export type CanvasContext = GPUCanvasContext & { present?: () => void };
@@ -65,15 +73,18 @@ export interface RendererOptions {
 export interface Renderer {
   /**
    * Size in device pixels. The camera state (target, zoom in CSS px per unit) is kept, so a
-   * user's view survives; call `fit()` to refit.
+   * user's view survives; call `fit()` or `setView()` to refit.
    */
   resize(width: number, height: number, dpr: number): void;
   /** Fit the scene bounds into the current viewport, keeping the camera's yaw and elevation. */
   fit(): void;
+  /** Camera for a view preset (zoom relative to the fit at the preset's angles). */
+  setView(view: ViewPreset): void;
   getCamera(): CameraState;
   setCamera(state: CameraState): void;
+  setDebug(mode: DebugMode): void;
   setTheme(theme: Theme): void;
-  /** Render one frame; `time` in seconds. Plain function: no React, no DOM. */
+  /** Render one frame; `time` in seconds drives the spins. Plain function: no React, no DOM. */
   frame(time: number): void;
   destroy(): void;
 }
@@ -82,70 +93,60 @@ export function createRenderer(options: RendererOptions): Renderer {
   const { root, context, format, scene } = options;
   const device = root.device;
   const { mesh } = scene;
+  const topology = buildTopology(mesh);
+  const triCount = triangleCount(mesh);
+  const vCount = vertexCount(mesh);
 
   // ---- resources -------------------------------------------------------------------------
-  const frameUniform = root.createUniform(Frame);
-  const parts = root.createReadonly(d.arrayOf(Part, scene.parts.length));
-  const palette = root.createReadonly(d.arrayOf(d.vec4f, MATERIALS.length * SLOT_COUNT));
+  const frameBuffer = root.createBuffer(Frame).$usage('uniform');
+  const vertices = root.createBuffer(d.arrayOf(GpuVertex, vCount)).$usage('storage');
+  vertices.write(packVertices(mesh));
+  const tris = root.createBuffer(d.arrayOf(GpuTri, triCount)).$usage('storage');
+  tris.write(packTriangles(mesh, topology));
+  const parts = root.createBuffer(d.arrayOf(Part, scene.parts.length)).$usage('storage');
+  const lineSetCount = Math.max(1, scene.lineSets.length);
+  const lineSets = root.createBuffer(d.arrayOf(LineSet, lineSetCount)).$usage('storage');
+  const palette = root
+    .createBuffer(d.arrayOf(d.vec4f, MATERIALS.length * SLOT_COUNT))
+    .$usage('storage');
+  const owned = [frameBuffer, vertices, tris, parts, lineSets, palette];
 
-  const vertexLayout = tgpu.vertexLayout(d.disarrayOf(Vertex));
-  const vCount = vertexCount(mesh);
-  const interleaved = new Float32Array(vCount * VERTEX_FLOATS);
-  const asU32 = new Uint32Array(interleaved.buffer);
-  for (let v = 0; v < vCount; v++) {
-    const o = v * VERTEX_FLOATS;
-    interleaved.set(mesh.positions.subarray(v * 3, v * 3 + 3), o);
-    interleaved.set(mesh.normals.subarray(v * 3, v * 3 + 3), o + 3);
-    asU32[o + 6] = mesh.parts[v]!;
-  }
-  const vertexBuffer = root.createBuffer(vertexLayout.schemaForCount(vCount)).$usage('vertex');
-  vertexBuffer.write(interleaved.buffer);
-  const indexBuffer = root.createBuffer(d.arrayOf(d.u32, mesh.indices.length)).$usage('index');
-  indexBuffer.write(mesh.indices);
+  lineSets.write(
+    (scene.lineSets.length ? scene.lineSets : [NO_LINES]).map((s) => ({
+      count: s.count,
+      phase: s.phase,
+      first: s.first,
+      last: s.last,
+      majorEvery: s.majorEvery,
+      minorSlot: SLOT[s.minor],
+      majorSlot: SLOT[s.major],
+      width: s.width,
+      majorWidth: s.majorWidth,
+      fade: d.vec2f(...s.fade),
+    })),
+  );
 
-  // ---- shaders ---------------------------------------------------------------------------
-  const vertex = tgpu.vertexFn({
-    in: { position: d.vec3f, normal: d.vec3f, part: d.u32 },
-    out: {
-      clip: d.builtin.position,
-      normal: d.vec3f,
-      material: d.interpolate('flat', d.u32),
-    },
-  })((input) => {
-    'use gpu';
-    const part = parts.$[input.part];
-    const world = std.mul(part.model, d.vec4f(input.position, 1));
-    const normal = std.mul(part.model, d.vec4f(input.normal, 0)).xyz;
-    return {
-      clip: std.mul(frameUniform.$.viewProjection, world),
-      normal,
-      material: part.material,
-    };
-  });
-
-  const fragment = tgpu.fragmentFn({
-    in: { normal: d.vec3f, material: d.interpolate('flat', d.u32) },
-    out: d.vec4f,
-  })((input) => {
-    'use gpu';
-    const tone = toneOf(input.normal, frameUniform.$.light);
-    return palette.$[input.material * SLOT_COUNT + toneSlot(tone)];
+  const bindGroup = root.createBindGroup(sceneLayout, {
+    frame: frameBuffer,
+    vertices,
+    tris,
+    parts,
+    lineSets,
+    palette,
   });
 
   const pipeline = root
     .createRenderPipeline({
-      attribs: vertexLayout.attrib,
-      vertex,
-      fragment,
+      vertex: fillVertex,
+      fragment: fillFragment,
       targets: { format },
-      // The kit's projection is mirrored, so winding flips on screen; solids are closed and
-      // depth-tested, so no culling is needed for M0.
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      // Solids are closed and wound CCW from outside; the kit's projection is mirrored, so
+      // front faces are clockwise on screen.
+      primitive: { topology: 'triangle-list', frontFace: 'cw', cullMode: 'back' },
       depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'less' },
       multisample: { count: SAMPLES },
     })
-    .with(vertexLayout, vertexBuffer)
-    .withIndexBuffer(indexBuffer);
+    .with(bindGroup);
 
   // ---- per-size targets ------------------------------------------------------------------
   let targets: { width: number; height: number; color: GPUTexture; depth: GPUTexture } | null =
@@ -167,8 +168,10 @@ export function createRenderer(options: RendererOptions): Renderer {
   // ---- state -----------------------------------------------------------------------------
   const viewport: Viewport = { width: options.width, height: options.height, dpr: options.dpr };
   let camera: CameraState = fitToBounds(scene.bounds, viewport);
+  let debug: DebugMode = 0;
   const matrices = createCameraMatrices();
   let clear: [number, number, number, number] = [0, 0, 0, 1];
+  const rest = scene.parts.map((p) => partMatrix(p));
   const model = mat4.identity();
 
   const setTheme = (theme: Theme) => {
@@ -176,14 +179,9 @@ export function createRenderer(options: RendererOptions): Renderer {
     clear = [...hexToRgb(PAPER[theme]), 1];
   };
   setTheme(options.theme);
-  if (DEV) log(`[engine] renderer up on ${PLATFORM}: ${vCount} vertices, ${format}`);
-
-  parts.write(
-    scene.parts.map((p) => ({
-      model: mat4.translation(p.position),
-      material: p.material,
-    })),
-  );
+  if (DEV) {
+    log(`[engine] renderer up on ${PLATFORM}: ${vCount} vertices, ${triCount} triangles, ${format}`);
+  }
 
   const resize = (width: number, height: number, dpr: number) => {
     viewport.width = Math.max(1, Math.round(width));
@@ -200,6 +198,8 @@ export function createRenderer(options: RendererOptions): Renderer {
 
   const frame = (time: number) => {
     const texture = context.getCurrentTexture();
+    // A hidden or collapsed canvas has no pixels; there is nothing to draw until it has some.
+    if (texture.width === 0 || texture.height === 0) return;
     // The canvas may have been resized by the host since the last layout; trust the texture.
     if (texture.width !== viewport.width || texture.height !== viewport.height) {
       resize(texture.width, texture.height, viewport.dpr);
@@ -207,13 +207,31 @@ export function createRenderer(options: RendererOptions): Renderer {
     const { color, depth } = ensureTargets(texture.width, texture.height);
 
     cameraMatrices(camera, viewport, 1000, matrices);
-    frameUniform.write({ viewProjection: matrices.viewProjection, light: matrices.light });
-    scene.parts.forEach((p, index) => {
-      if (p.spin === 0) return;
-      mat4.translation(p.position, model);
-      mat4.rotateZ(model, time * p.spin, model);
-      parts.patch({ [index]: { model } });
+    // Line widths scale with zoom like a pinch-zoomed SVG: 1 CSS px at the fit zoom.
+    const fitZoom = fitToBounds(scene.bounds, viewport, {
+      yaw: camera.yaw,
+      elevation: camera.elevation,
+    }).zoom;
+    frameBuffer.write({
+      viewProjection: matrices.viewProjection,
+      light: d.vec3f(...matrices.light),
+      toward: d.vec3f(...basisOf(camera.yaw, camera.elevation).toward),
+      viewport: d.vec2f(viewport.width, viewport.height),
+      pxPerCss: (viewport.dpr * camera.zoom) / fitZoom,
+      debug,
     });
+    parts.write(
+      scene.parts.map((p, index) => {
+        mat4.rotateZ(rest[index]!, time * p.spin, model);
+        return {
+          model: mat4.clone(model),
+          material: p.material,
+          outlineSlot: SLOT[p.outline],
+          creaseSlot: SLOT[p.crease],
+          width: p.width,
+        };
+      }),
+    );
 
     const encoder = device.createCommandEncoder();
     pipeline
@@ -231,7 +249,7 @@ export function createRenderer(options: RendererOptions): Renderer {
         depthLoadOp: 'clear',
         depthStoreOp: 'discard',
       })
-      .drawIndexed(mesh.indices.length);
+      .draw(triCount * 3);
     device.queue.submit([encoder.finish()]);
     context.present?.();
   };
@@ -239,9 +257,15 @@ export function createRenderer(options: RendererOptions): Renderer {
   return {
     resize,
     fit,
+    setView: (view) => {
+      camera = viewCamera(scene.bounds, viewport, view);
+    },
     getCamera: () => copyCamera(camera),
     setCamera: (state) => {
       camera = copyCamera(state);
+    },
+    setDebug: (mode) => {
+      debug = mode;
     },
     setTheme,
     frame,
@@ -249,8 +273,7 @@ export function createRenderer(options: RendererOptions): Renderer {
       targets?.color.destroy();
       targets?.depth.destroy();
       targets = null;
-      for (const buffer of [frameUniform.buffer, parts.buffer, palette.buffer, vertexBuffer, indexBuffer])
-        buffer.destroy();
+      for (const buffer of owned) buffer.destroy();
     },
   };
 }

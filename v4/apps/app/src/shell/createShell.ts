@@ -3,9 +3,10 @@
 import type { TgpuRoot } from 'typegpu';
 import {
   type CanvasContext,
+  type DebugMode,
+  type SceneSpec,
   type Theme,
   createRenderer,
-  m0Scene,
 } from '@anatomy/engine';
 
 export interface CanvasLike {
@@ -20,9 +21,21 @@ export interface ShellSize {
   dpr: number;
 }
 
+/** What the UI controls; the shell applies it at start and whenever it changes. */
+export interface ShellControls {
+  theme: Theme;
+  /** Index into `scene.views`. */
+  view: number;
+  paused: boolean;
+  debug: DebugMode;
+}
+
 export interface Shell {
   resize(cssWidth: number, cssHeight: number, dpr: number): void;
   setTheme(theme: Theme): void;
+  setView(index: number): void;
+  setPaused(paused: boolean): void;
+  setDebug(mode: DebugMode): void;
   stop(): void;
 }
 
@@ -32,7 +45,8 @@ export function createShell(
   canvas: CanvasLike,
   format: GPUTextureFormat,
   size: ShellSize,
-  theme: Theme,
+  scene: SceneSpec,
+  controls: ShellControls,
   onFatal: (message: string) => void,
 ): Shell {
   const device = root.device;
@@ -63,16 +77,29 @@ export function createShell(
     width: px.width,
     height: px.height,
     dpr: px.dpr,
-    scene: m0Scene(),
-    theme,
+    scene,
+    theme: controls.theme,
   });
+  let view = controls.view;
+  const applyView = () => {
+    const preset = scene.views[view];
+    if (preset) renderer.setView(preset);
+    else renderer.fit();
+  };
+  applyView();
+  renderer.setDebug(controls.debug);
 
-  const start = performance.now();
+  // Scene time: wall time minus the time spent paused.
+  let paused = controls.paused;
+  let last = performance.now();
+  let time = 0;
   let raf = 0;
   const loop = (now: number) => {
     if (stopped) return;
+    if (!paused) time += (now - last) / 1000;
+    last = now;
     try {
-      renderer.frame((now - start) / 1000);
+      renderer.frame(time);
     } catch (err) {
       fatal(err);
       return;
@@ -85,9 +112,17 @@ export function createShell(
     resize(cssWidth, cssHeight, dpr) {
       const next = applySize(cssWidth, cssHeight, dpr);
       renderer.resize(next.width, next.height, next.dpr);
-      renderer.fit();
+      applyView();
     },
     setTheme: (next) => renderer.setTheme(next),
+    setView(index) {
+      view = index;
+      applyView();
+    },
+    setPaused(next) {
+      paused = next;
+    },
+    setDebug: (mode) => renderer.setDebug(mode),
     stop() {
       stopped = true;
       cancelAnimationFrame(raf);

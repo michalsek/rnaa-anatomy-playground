@@ -31,3 +31,23 @@ export const toneSlot = (tone: number) => {
   'use gpu';
   return std.select(d.u32(SLOT.s0) + d.u32(tone), d.u32(SLOT.top), d.u32(tone) >= TONE_TOP);
 };
+
+/**
+ * Anti-aliased band weights: `w_k` is how far the score is past threshold k, measured in
+ * screen pixels (`fw` = fwidth of the score), so band edges get a one-pixel ramp. Blend:
+ * s0 → s1 (w.x) → s2 (w.y) → s3 (w.z) → top (w.w). With fw = 0 this is `toneOf`.
+ */
+export const bandWeights = (score: number, fw: number) => {
+  'use gpu';
+  const inv = 1 / std.max(fw, 1e-6);
+  return std.clamp(
+    d.vec4f(
+      (score - BANDS[0]) * inv + 0.5,
+      (score - BANDS[1]) * inv + 0.5,
+      (score - BANDS[2]) * inv + 0.5,
+      (score - BANDS[3]) * inv + 0.5,
+    ),
+    d.vec4f(0),
+    d.vec4f(1),
+  );
+};

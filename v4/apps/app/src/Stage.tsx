@@ -4,13 +4,30 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { type LayoutChangeEvent, PixelRatio, StyleSheet, Text, View } from 'react-native';
 import { Canvas, type CanvasRef } from 'react-native-webgpu';
 import type { TgpuRoot } from 'typegpu';
-import type { CanvasContext, Theme } from '@anatomy/engine';
-import { type Shell, type ShellSize, createShell } from './shell/createShell.ts';
+import type { CanvasContext, SceneSpec } from '@anatomy/engine';
+import {
+  type Shell,
+  type ShellControls,
+  type ShellSize,
+  createShell,
+} from './shell/createShell.ts';
 
-export function Stage({ root, theme }: { root: TgpuRoot; theme: Theme }) {
+export function Stage({
+  root,
+  scene,
+  controls,
+}: {
+  root: TgpuRoot;
+  scene: SceneSpec;
+  controls: ShellControls;
+}) {
   const canvasRef = useRef<CanvasRef>(null);
   const shellRef = useRef<Shell | null>(null);
-  const themeRef = useRef(theme);
+  // The shell starts from the latest controls; later changes go through the setters below.
+  const controlsRef = useRef(controls);
+  useEffect(() => {
+    controlsRef.current = controls;
+  });
   // The latest layout lives in a ref (resizes must not restart the shell); `hasLayout` only
   // gates the first start.
   const layoutRef = useRef<ShellSize | null>(null);
@@ -38,7 +55,16 @@ export function Stage({ root, theme }: { root: TgpuRoot; theme: Theme }) {
       if (!context) throw new Error('No WebGPU canvas context.');
       const format = navigator.gpu.getPreferredCanvasFormat();
       context.configure({ device: root.device, format, alphaMode: 'opaque' });
-      shell = createShell(root, context, context.canvas, format, size, themeRef.current, setFatal);
+      shell = createShell(
+        root,
+        context,
+        context.canvas,
+        format,
+        size,
+        scene,
+        controlsRef.current,
+        setFatal,
+      );
     } catch (err) {
       setFatal(err instanceof Error ? err.message : String(err));
       return undefined;
@@ -48,12 +74,13 @@ export function Stage({ root, theme }: { root: TgpuRoot; theme: Theme }) {
       shell.stop();
       if (shellRef.current === shell) shellRef.current = null;
     };
-  }, [root, hasLayout]);
+  }, [root, hasLayout, scene]);
 
-  useEffect(() => {
-    themeRef.current = theme;
-    shellRef.current?.setTheme(theme);
-  }, [theme]);
+  const { theme, view, paused, debug } = controls;
+  useEffect(() => shellRef.current?.setTheme(theme), [theme]);
+  useEffect(() => shellRef.current?.setView(view), [view]);
+  useEffect(() => shellRef.current?.setPaused(paused), [paused]);
+  useEffect(() => shellRef.current?.setDebug(debug), [debug]);
 
   return (
     <View style={styles.fill}>
