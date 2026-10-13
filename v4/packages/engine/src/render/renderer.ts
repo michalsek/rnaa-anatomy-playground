@@ -63,8 +63,15 @@ export interface RendererOptions {
 }
 
 export interface Renderer {
-  /** Size in device pixels; the camera refits to the scene. */
+  /**
+   * Size in device pixels. The camera state (target, zoom in CSS px per unit) is kept, so a
+   * user's view survives; call `fit()` to refit.
+   */
   resize(width: number, height: number, dpr: number): void;
+  /** Fit the scene bounds into the current viewport, keeping the camera's yaw and elevation. */
+  fit(): void;
+  getCamera(): CameraState;
+  setCamera(state: CameraState): void;
   setTheme(theme: Theme): void;
   /** Render one frame; `time` in seconds. Plain function: no React, no DOM. */
   frame(time: number): void;
@@ -182,8 +189,14 @@ export function createRenderer(options: RendererOptions): Renderer {
     viewport.width = Math.max(1, Math.round(width));
     viewport.height = Math.max(1, Math.round(height));
     viewport.dpr = dpr;
-    camera = fitToBounds(scene.bounds, viewport);
   };
+  const fit = () => {
+    camera = fitToBounds(scene.bounds, viewport, { yaw: camera.yaw, elevation: camera.elevation });
+  };
+  const copyCamera = (state: CameraState): CameraState => ({
+    ...state,
+    target: [...state.target],
+  });
 
   const frame = (time: number) => {
     const texture = context.getCurrentTexture();
@@ -225,12 +238,19 @@ export function createRenderer(options: RendererOptions): Renderer {
 
   return {
     resize,
+    fit,
+    getCamera: () => copyCamera(camera),
+    setCamera: (state) => {
+      camera = copyCamera(state);
+    },
     setTheme,
     frame,
     destroy() {
       targets?.color.destroy();
       targets?.depth.destroy();
       targets = null;
+      for (const buffer of [frameUniform.buffer, parts.buffer, palette.buffer, vertexBuffer, indexBuffer])
+        buffer.destroy();
     },
   };
 }

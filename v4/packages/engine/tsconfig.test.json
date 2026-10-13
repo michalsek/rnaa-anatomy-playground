@@ -1,0 +1,10 @@
+{
+  // Tests and the Node platform stub run under Node, so they get Node's types; the engine
+  // itself stays on the DOM-less check in tsconfig.json.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["@webgpu/types", "node"]
+  },
+  "include": ["tests", "src/platform/node", "vitest.config.ts"],
+  "exclude": []
+}

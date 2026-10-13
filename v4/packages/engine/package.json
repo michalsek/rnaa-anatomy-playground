@@ -14,7 +14,7 @@
     "./*": "./src/*"
   },
   "scripts": {
-    "types": "tsc -p tsconfig.json --noEmit",
+    "types": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
@@ -22,6 +22,7 @@
     "wgpu-matrix": "3.4.2"
   },
   "devDependencies": {
+    "@types/node": "26.6.5",
     "@webgpu/types": "0.1.74",
     "typescript": "6.0.3",
     "unplugin-typegpu": "0.12.3",
