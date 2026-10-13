@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Anatomy v4",
+    "slug": "anatomy-v4",
+    "version": "0.0.1",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "eu.omaewa.anatomyv4"
+    },
+    "android": {
+      "package": "eu.omaewa.anatomyv4"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": ["react-native-webgpu", "./plugins/withSceneLifecycle.js"]
+  }
+}
