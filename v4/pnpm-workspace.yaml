@@ -1,0 +1,5 @@
+packages:
+  - apps/*
+  - packages/*
+# Flat node_modules: React Native / Metro autolinking and CocoaPods expect it (as in Bone Tide).
+nodeLinker: hoisted

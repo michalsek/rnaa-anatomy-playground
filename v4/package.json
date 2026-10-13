@@ -1,0 +1,18 @@
+{
+  "name": "anatomy-v4",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Anatomy-style 3D machines on TypeGPU: one engine, one Expo app for web + iOS/Android",
+  "type": "module",
+  "scripts": {
+    "web": "pnpm --filter @anatomy/app web",
+    "ios": "pnpm --filter @anatomy/app ios",
+    "android": "pnpm --filter @anatomy/app android",
+    "test": "pnpm --filter @anatomy/engine test",
+    "types": "pnpm -r run types"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  },
+  "packageManager": "pnpm@11.13.0"
+}

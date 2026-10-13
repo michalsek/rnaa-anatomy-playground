@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // No DOM on purpose (as in Bone Tide): this typecheck guards that engine code stays
+    // portable across web (DOM) and native (Hermes + react-native-webgpu).
+    "lib": ["ESNext"],
+    "types": ["@webgpu/types"],
+    "erasableSyntaxOnly": true
+  },
+  "include": ["src"],
+  // Node stubs for tests may use node: builtins that the DOM-less check rejects.
+  "exclude": ["src/platform/node"]
+}
