@@ -6,7 +6,11 @@
   "scripts": {
     "export": "node export/export.mjs",
     "gate": "node tools/gate.mjs",
-    "test:export": "node tools/test-export.mjs"
+    "test:export": "node tools/test-export.mjs",
+    "gates": "node tools/gates.mjs",
+    "gates:full": "node tools/gates.mjs --full",
+    "test": "node --test tools/test-export.mjs tools/test-live.mjs",
+    "build": "node tools/build.mjs"
   },
   "dependencies": {
     "earcut": "3.2.4",

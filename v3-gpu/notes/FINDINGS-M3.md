@@ -1,6 +1,6 @@
 # M3 findings — live adapter
 
-(Full M3 report incl. design, gate tables and cost breakdown: see notes/PLAN-M3.md and out/gpu/live-gate/*.json; summary here.)
+(Full M3 report incl. design: notes/PLAN-M3.md. The M3 gate reports that used to be committed under out/gpu/live-gate/ pointed at uncommitted shots and were removed by fix loop B; the gates now run with `npm run gates` (reports in out/tmp/gates/, thresholds in notes/GATES.md). The cost-*.json records below remain in out/gpu/live-gate/.)
 
 ## Gates (DPR 2, lockstep, pixelmatch thr 0.1 · incl. AA · Δ>8)
 - Static floor: dark 0.010 · 0.052 · 1.11 %; light 0.011 · 0.090 · 1.49 %.

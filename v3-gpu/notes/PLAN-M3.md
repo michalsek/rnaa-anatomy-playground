@@ -32,7 +32,7 @@ runtime.js queries `stage.querySelector("svg")` → the skeleton (template conte
 The GPU bundle is a classic inline script, so it runs during parsing, before the deferred module script: it installs
 the slot interceptors synchronously, then boots WebGPU asynchronously.
 
-### 3. Interception (`src/live/slots.ts`)
+### 3. Interception (`src/live/dom-slots.ts`)
 `Object.defineProperty(g, "innerHTML", { get, set })` on each skeleton slot element. The setter stores the string;
 identical to the last one → nothing; otherwise the slot is dirty. The first write of a frame queues one microtask
 (runs right after the runtime's rAF callback returns) that parses dirty slots, uploads and renders: one rAF drives
@@ -79,9 +79,10 @@ order (opaque fill range, blended entries: seg runs, translucent fill ranges, gr
 ### 6. Timing (`window.__gpu.frameStats()`)
 `performance.measure`: `live-js` (the runtime's rAF callback, measured by wrapping `requestAnimationFrame` before the
 module script runs), `adapter-parse`, `adapter-upload`, `gpu-encode` (+ M2's `gpu:encode` kept). frameStats keeps every
-M2 field and adds `live: { frames, slotWrites, slotsChanged, bytesUploaded, meshCache {hits, misses}, paints, groups,
-ms: { liveJs, parse, upload, encode } → { last, median, p95 } over the last 600 frames }`. Marks/measures of these
-names are cleared every 600 frames (observers still see them).
+M2 field and adds `live: { frames, slotsChanged, bytesUploaded, paints, errors, mesh: { meshHits, meshMisses, fills,
+segments }, gpu: { uploads, bytesUploaded, groups, layerPixels }, ms: { liveJs, parse, upload, encode,
+encodeWithGroups, gpu } → { last, median, p95 } over the last 600 frames }` (as built at 4231c6d). Marks/measures of
+these names are cleared every 600 GPU frames (observers still see them).
 
 ## Acceptance criteria
 1. `out/gpu/live.html` / `live-light.html` run the v2 script verbatim (build assertion) and animate like v2; readout

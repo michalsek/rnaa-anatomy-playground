@@ -19,6 +19,7 @@ import { nonzeroArea, triangleArea } from "../export/tess.mjs";
 import { itemMarkup, BACK_ITEM_NAME } from "../export/build-dl.mjs";
 import { parseSvg } from "../export/svgsub.mjs";
 import { sectionsOf, recordAt, FIELD_WORD, STRIDE_WORDS, PRIM_KIND, SEG_FLAG } from "../export/dl-format.mjs";
+import { largestCluster } from "./diff.mjs";
 
 const CAPTURE = `${process.env.HOME}/.claude/skills/anatomy/scripts/capture.mjs`;
 const PIXEL_DELTA = 8; // a pixel differs when any channel moves by more than this (of 255)
@@ -269,36 +270,6 @@ function capture(page, png) {
     child.stderr.on("data", (d) => (text += d));
     child.on("exit", (code) => (code ? fail(new Error(`capture ${page}: ${text}`)) : done(text)));
   });
-}
-
-// largest 8-connected cluster of differing pixels
-function largestCluster(mask, width, height) {
-  const seen = new Uint8Array(mask.length);
-  let largest = 0;
-  for (let start = 0; start < mask.length; start++) {
-    if (!mask[start] || seen[start]) continue;
-    let size = 0;
-    const stack = [start];
-    seen[start] = 1;
-    while (stack.length) {
-      const i = stack.pop();
-      size++;
-      const x = i % width;
-      const y = (i - x) / width;
-      for (let dy = -1; dy <= 1; dy++)
-        for (let dx = -1; dx <= 1; dx++) {
-          const nx = x + dx;
-          const ny = y + dy;
-          const j = ny * width + nx;
-          if (nx >= 0 && ny >= 0 && nx < width && ny < height && mask[j] && !seen[j]) {
-            seen[j] = 1;
-            stack.push(j);
-          }
-        }
-    }
-    largest = Math.max(largest, size);
-  }
-  return largest;
 }
 
 async function chromeChecks({ json, buffer }, theme, withPixels) {

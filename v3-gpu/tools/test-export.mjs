@@ -2,8 +2,7 @@
 // Chrome). Exit code 1 on any failure.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { parsePathData, parseSvg, drawables } from "../export/svgsub.mjs";
 import { triangulate, triangleArea, nonzeroArea } from "../export/tess.mjs";
 import { primitivesOf, createPalette, createSink, placeSlots, polylinesOf } from "../export/build-dl.mjs";
@@ -259,18 +258,16 @@ test("dl2svg draws every segment field: continuation starts, closing ends, per-s
   assert.equal(twoWidths.match(/<path /g).length, 2, "a width change inside a prim starts a new path");
 });
 
-// live slot markup the M3 adapter will feed through primitivesOf, built with the anatomy kit itself (not the v2
-// kit.mjs wrapper, which other work edits): the boundary contract for the live adapter
-const k = await import(join(homedir(), ".claude/skills/anatomy/kit/iso-kit.mjs"));
-test("live slot markup: packet, lamp glow (blend), strobe, tach needle", () => {
-  const P = k.fitProjection([[0, 0, 0], [100, 100, 100]], 640, 760, { pad: 30 });
-  const plan = { x: 10, y: 10, w: 10, d: 8, r: 0.6 };
-  const packet = `<g class="pk" data-kind="graph" opacity="0.60">${k.solidSvg(k.slabOf(plan, 5, 7, P, 2, 0.3), { tone: "hi" })}${k.lineSvg(k.sideSeam(plan, 8, P, 2), { tone: "lo" })}</g>`;
-  const glow = `<circle class="cf-glow-soft" cx="10" cy="10" r="4" opacity="0.150"/><circle class="cf-glow" cx="10" cy="10" r="2" opacity="0.850"/>`;
-  const tach = `<g class="it fx-graphite"><path class="iso-line" data-tone="hi" data-free="" style="stroke-width:1" d="M0 0L3 3"/>${k.dotsSvg([[1, 1]], { size: 0.8, tone: "hi" })}</g>`;
-  const { sink, palette } = sinkFor(packet + glow + `<path class="cf-strobe" d="${square(0, 0, 3)}"/>` + tach);
+// live slot markup recorded from the v2 page (tools/fixtures/live-markup.json): the exporter rules the live adapter
+// mirrors, on the strings the runtime really writes
+const liveMarkup = JSON.parse(readFileSync(new URL("fixtures/live-markup.json", import.meta.url), "utf8"));
+test("live slot markup: fading packet, lamp glow (blend), strobe, tach needle", () => {
+  const [packetOpacity] = [...liveMarkup.fadingIntake.matchAll(/<g class="pk"[^>]*opacity="([\d.]+)"/g)].map((m) => Number(m[1]));
+  const { slots } = liveMarkup;
+  const { sink, palette } = sinkFor(liveMarkup.fadingIntake + slots["centrifuge:lamp"] + slots["centrifuge:hubtop"] + slots["centrifuge:tach"]);
   assert.ok(sink.prims.some((p) => p.flags & PRIM_FLAG.blend), "glow flagged blend");
-  assert.ok(sink.segments.some((s) => near(s.alpha, 0.6)) && sink.fillVertices.some((v) => near(v.alpha, 0.6)), "packet opacity folded");
+  assert.ok(sink.segments.some((s) => near(s.alpha, packetOpacity)) && sink.fillVertices.some((v) => near(v.alpha, packetOpacity)), `packet opacity ${packetOpacity} folded`);
   assert.ok(palette.entries.some((e) => e.ancestors.some((a) => a.attrs["data-kind"] === "graph")), "packet kind in the palette key");
+  assert.ok(palette.entries.some((e) => e.el.attrs.class === "cf-strobe"), "strobe paint");
   assert.ok(sink.segments.some((s) => s.width === 1 && s.flags & SEG_FLAG.widthOverride), "tach needle width 1");
 });
