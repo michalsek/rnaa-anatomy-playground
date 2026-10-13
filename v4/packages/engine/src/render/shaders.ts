@@ -37,6 +37,25 @@ const altitude = (p: d.v2f, a: d.v2f, b: d.v2f) => {
   return std.abs(e.x * q.y - e.y * q.x) / std.max(std.length(e), 1e-6);
 };
 
+/**
+ * The line through a and b as (n.x, n.y, c) with |n| = 1 and n·p + c > 0 on `inside`'s side:
+ * a pixel's distance into the face from that edge, in pixels.
+ */
+const edgeLine = (a: d.v2f, b: d.v2f, inside: d.v2f) => {
+  'use gpu';
+  const e = std.sub(b, a);
+  const len = std.length(e);
+  let n = d.vec2f(-e.y, e.x);
+  n = std.div(n, std.max(len, 1e-6));
+  let c = -std.dot(n, a);
+  if (std.dot(n, inside) + c < 0) {
+    n = std.neg(n);
+    c = -c;
+  }
+  // A collapsed edge is never near anything.
+  return std.select(d.vec3f(n, c), d.vec3f(0, 0, 1e6), len < 1e-6);
+};
+
 const facingOf = (model: d.m4x4f, normal: d.v3f, toward: d.v3f) => {
   'use gpu';
   return std.dot(std.mul(model, d.vec4f(normal, 0)).xyz, toward);
@@ -61,6 +80,9 @@ export const fillVertex = tgpu.vertexFn({
     modes: d.interpolate('flat', d.vec3u),
     part: d.interpolate('flat', d.u32),
     flags: d.interpolate('flat', d.u32),
+    extraA: d.interpolate('flat', d.vec3f),
+    extraB: d.interpolate('flat', d.vec3f),
+    extraModes: d.interpolate('flat', d.vec2u),
   },
 })((input) => {
   'use gpu';
@@ -87,6 +109,40 @@ export const fillVertex = tgpu.vertexFn({
     edgeMode(own, neighbourFacing(tri.adj.z, part.model, frame.toward), tri.flags, 2),
   );
 
+  // The quad partner's two outer edges (its third edge is the shared diagonal): their lines
+  // also run through this triangle near the shared corners, so it draws them too.
+  const hasPartner = tri.partner !== NO_NEIGHBOUR;
+  const pt = L.$.tris[std.select(tri.partner, d.u32(0), !hasPartner)];
+  const q0 = toPixels(
+    std.mul(frame.viewProjection, std.mul(part.model, d.vec4f(L.$.vertices[pt.idx.x].position, 1))),
+    frame.viewport,
+  );
+  const q1 = toPixels(
+    std.mul(frame.viewProjection, std.mul(part.model, d.vec4f(L.$.vertices[pt.idx.y].position, 1))),
+    frame.viewport,
+  );
+  const q2 = toPixels(
+    std.mul(frame.viewProjection, std.mul(part.model, d.vec4f(L.$.vertices[pt.idx.z].position, 1))),
+    frame.viewport,
+  );
+  const ptFacing = facingOf(part.model, pt.faceNormal, frame.toward);
+  const e0 = edgeLine(q1, q2, q0);
+  const e1 = edgeLine(q2, q0, q1);
+  const e2 = edgeLine(q0, q1, q2);
+  const n0 = edgeMode(ptFacing, neighbourFacing(pt.adj.x, part.model, frame.toward), pt.flags, 0);
+  const n1 = edgeMode(ptFacing, neighbourFacing(pt.adj.y, part.model, frame.toward), pt.flags, 1);
+  const n2 = edgeMode(ptFacing, neighbourFacing(pt.adj.z, part.model, frame.toward), pt.flags, 2);
+  // j = the partner's edge shared with this triangle.
+  const j1 = pt.adj.y === t;
+  const j2 = pt.adj.z === t;
+  const extraA = std.select(std.select(e1, e2, j1), e0, j2);
+  const extraB = std.select(std.select(e2, e0, j1), e1, j2);
+  const extraModes = std.select(
+    d.vec2u(0, 0),
+    std.select(std.select(d.vec2u(n1, n2), d.vec2u(n2, n0), j1), d.vec2u(n0, n1), j2),
+    hasPartner,
+  );
+
   const is1 = c === 1;
   const is2 = c === 2;
   const clip = std.select(std.select(c0, c1, is1), c2, is2);
@@ -111,6 +167,9 @@ export const fillVertex = tgpu.vertexFn({
     modes,
     part: tri.part,
     flags: tri.flags,
+    extraA,
+    extraB,
+    extraModes,
   };
 });
 
@@ -132,6 +191,7 @@ const GREEN = d.vec4f(0.1, 0.7, 0.2, 1);
 
 export const fillFragment = tgpu.fragmentFn({
   in: {
+    pixel: d.builtin.position,
     normal: d.vec3f,
     uv: d.vec2f,
     bary: d.interpolate('linear', d.vec3f),
@@ -139,6 +199,9 @@ export const fillFragment = tgpu.fragmentFn({
     modes: d.interpolate('flat', d.vec3u),
     part: d.interpolate('flat', d.u32),
     flags: d.interpolate('flat', d.u32),
+    extraA: d.interpolate('flat', d.vec3f),
+    extraB: d.interpolate('flat', d.vec3f),
+    extraModes: d.interpolate('flat', d.vec2u),
   },
   out: d.vec4f,
 })((input) => {
@@ -200,25 +263,41 @@ export const fillFragment = tgpu.fragmentFn({
     const d0 = input.bary.x * input.heights.x;
     const d1 = input.bary.y * input.heights.y;
     const d2 = input.bary.z * input.heights.z;
+    const dA = std.dot(input.extraA.xy, input.pixel.xy) + input.extraA.z;
+    const dB = std.dot(input.extraB.xy, input.pixel.xy) + input.extraB.z;
     const crease = std.max(
-      edgeTerm(input.modes.x, EDGE_CREASE, d0, half, line.y),
       std.max(
-        edgeTerm(input.modes.y, EDGE_CREASE, d1, half, line.y),
-        edgeTerm(input.modes.z, EDGE_CREASE, d2, half, line.y),
+        edgeTerm(input.modes.x, EDGE_CREASE, d0, half, line.y),
+        std.max(
+          edgeTerm(input.modes.y, EDGE_CREASE, d1, half, line.y),
+          edgeTerm(input.modes.z, EDGE_CREASE, d2, half, line.y),
+        ),
+      ),
+      std.max(
+        edgeTerm(input.extraModes.x, EDGE_CREASE, dA, half, line.y),
+        edgeTerm(input.extraModes.y, EDGE_CREASE, dB, half, line.y),
       ),
     );
     const outline = std.max(
-      edgeTerm(input.modes.x, EDGE_OUTLINE, d0, line.x, line.y),
       std.max(
-        edgeTerm(input.modes.y, EDGE_OUTLINE, d1, line.x, line.y),
-        edgeTerm(input.modes.z, EDGE_OUTLINE, d2, line.x, line.y),
+        edgeTerm(input.modes.x, EDGE_OUTLINE, d0, line.x, line.y),
+        std.max(
+          edgeTerm(input.modes.y, EDGE_OUTLINE, d1, line.x, line.y),
+          edgeTerm(input.modes.z, EDGE_OUTLINE, d2, line.x, line.y),
+        ),
+      ),
+      std.max(
+        edgeTerm(input.extraModes.x, EDGE_OUTLINE, dA, line.x, line.y),
+        edgeTerm(input.extraModes.y, EDGE_OUTLINE, dB, line.x, line.y),
       ),
     );
     // Smooth contour: on curved faces the limb is where n · toward reaches 0, which can fall
     // inside a facet (or on a sliver), so measure it per pixel from the interpolated normal.
+    // Near a limb the facing grows like √distance (the surface turns away quadratically), so
+    // the first-order estimate f / |∇f| is twice the true distance: halve it.
     let contour = d.f32(0);
     if (flagBit(input.flags, 6) === 1) {
-      contour = edgeCoverage(facing / std.max(facingGrad, 1e-6), line.x, line.y);
+      contour = edgeCoverage((0.5 * facing) / std.max(facingGrad, 1e-6), line.x, line.y);
     }
 
     color = std.mix(

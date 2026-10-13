@@ -16,6 +16,63 @@ export interface LatheSpec {
   lineSets?: readonly { segment: number; set: number }[];
   /** Knot indices whose ring is forced as a line even where the surface is smooth or flat. */
   marks?: readonly number[];
+  /**
+   * Pieces per profile segment that touches a smooth knot. The curve through smooth knots is
+   * real geometry (a Catmull-Rom spline), so the faceted silhouette follows the smooth-shaded
+   * contour instead of jumping between a few coarse rings.
+   */
+  subdivisions?: number;
+}
+
+type Knot = readonly [number, number, boolean];
+
+/**
+ * Subdivide the spans next to smooth knots along a Hermite spline (Catmull-Rom tangents at
+ * smooth knots, the chord at sharp ones). Returns the refined knots and index maps from the
+ * input's segments and knots to the refined ones.
+ */
+function refineProfile(profile: readonly ProfilePoint[], subdivisions: number) {
+  const P = profile.map(([r, z, smooth]) => [r, z, smooth === true] as Knot);
+  const tangent = (i: number, outgoing: boolean): [number, number] => {
+    const k = P[i]!;
+    const prev = P[i - 1];
+    const next = P[i + 1];
+    if (k[2] && prev && next) return [(next[0] - prev[0]) / 2, (next[1] - prev[1]) / 2];
+    const other = outgoing ? next : prev;
+    if (!other) return [0, 0];
+    return outgoing ? [other[0] - k[0], other[1] - k[1]] : [k[0] - other[0], k[1] - other[1]];
+  };
+  const knots: Knot[] = [P[0]!];
+  const knotIndex = [0];
+  const segments: number[][] = [];
+  for (let i = 0; i + 1 < P.length; i++) {
+    const a = P[i]!;
+    const b = P[i + 1]!;
+    const pieces = a[2] || b[2] ? subdivisions : 1;
+    const t0 = tangent(i, true);
+    const t1 = tangent(i + 1, false);
+    const refined: number[] = [];
+    for (let s = 1; s <= pieces; s++) {
+      const t = s / pieces;
+      if (s === pieces) {
+        knots.push(b);
+      } else {
+        const h00 = 2 * t ** 3 - 3 * t ** 2 + 1;
+        const h10 = t ** 3 - 2 * t ** 2 + t;
+        const h01 = -2 * t ** 3 + 3 * t ** 2;
+        const h11 = t ** 3 - t ** 2;
+        knots.push([
+          h00 * a[0] + h10 * t0[0] + h01 * b[0] + h11 * t1[0],
+          h00 * a[1] + h10 * t0[1] + h01 * b[1] + h11 * t1[1],
+          true,
+        ]);
+      }
+      refined.push(knots.length - 2);
+    }
+    segments.push(refined);
+    knotIndex.push(knots.length - 1);
+  }
+  return { knots, segments, knotIndex };
 }
 
 /**
@@ -23,7 +80,19 @@ export interface LatheSpec {
  * knot is marked smooth (sharp knots split the normal, so rims and corners stay crisp).
  * uv: u = k/steps around the axis, v = profile length from the first knot.
  */
-export function lathe({ profile, steps = 128, part, lineSets = [], marks = [] }: LatheSpec): Mesh {
+export function lathe({
+  profile: input,
+  steps = 128,
+  part,
+  lineSets: inputSets = [],
+  marks: inputMarks = [],
+  subdivisions = 8,
+}: LatheSpec): Mesh {
+  const { knots: profile, segments, knotIndex } = refineProfile(input, subdivisions);
+  const lineSets = inputSets.flatMap(({ segment, set }) =>
+    (segments[segment] ?? []).map((refined) => ({ segment: refined, set })),
+  );
+  const marks = inputMarks.map((knot) => knotIndex[knot]!);
   const b = new MeshBuilder(part);
   const segCount = profile.length - 1;
   // Swept volume ∫ r² dz along the profile: positive when the outside is on the right of the

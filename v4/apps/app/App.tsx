@@ -6,6 +6,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import type { TgpuRoot } from 'typegpu';
 import { type DebugMode, PAPER, TOKENS, type Theme, initGpu, m1Scene } from '@anatomy/engine';
 import { Stage } from './src/Stage.tsx';
+import { retireRoot } from './src/gpuRoot.ts';
 
 export default function App() {
   return (
@@ -52,7 +53,7 @@ function Main() {
     initGpu().then(
       (next) => {
         if (disposed) {
-          next.destroy();
+          retireRoot(next);
           return;
         }
         created = next;
@@ -62,9 +63,8 @@ function Main() {
     );
     return () => {
       disposed = true;
-      // Unmount the stage first; the device it used is destroyed with the root.
       setRoot(null);
-      created?.destroy();
+      if (created) retireRoot(created);
     };
   }, []);
 

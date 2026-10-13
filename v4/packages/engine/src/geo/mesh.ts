@@ -20,6 +20,11 @@ export interface Mesh {
   tags: Uint32Array;
   /** Vertex-index pairs of edges that must be drawn as lines (e.g. a ring on a smooth face). */
   marks: Uint32Array;
+  /**
+   * Per triangle: the other half of its quad (−1 = none). In-face lines are drawn across the
+   * whole quad, or a long thin quad's diagonal would cut notches into its edge lines.
+   */
+  partners: Int32Array;
 }
 
 export type Vec3 = readonly [number, number, number];
@@ -38,6 +43,7 @@ export class MeshBuilder {
   private indices: number[] = [];
   private tags: number[] = [];
   private marks: number[] = [];
+  private partners: number[] = [];
   private currentTag = 0;
 
   readonly part: number;
@@ -64,7 +70,8 @@ export class MeshBuilder {
     this.marks.push(a, b);
   }
 
-  triangle(a: number, b: number, c: number) {
+  /** Adds a triangle and returns its index, or −1 if it was too small to keep. */
+  triangle(a: number, b: number, c: number): number {
     const P = this.positions;
     const e1 = [P[b * 3]! - P[a * 3]!, P[b * 3 + 1]! - P[a * 3 + 1]!, P[b * 3 + 2]! - P[a * 3 + 2]!];
     const e2 = [P[c * 3]! - P[a * 3]!, P[c * 3 + 1]! - P[a * 3 + 1]!, P[c * 3 + 2]! - P[a * 3 + 2]!];
@@ -74,14 +81,20 @@ export class MeshBuilder {
         e1[2]! * e2[0]! - e1[0]! * e2[2]!,
         e1[0]! * e2[1]! - e1[1]! * e2[0]!,
       ) / 2;
-    if (area < MIN_AREA) return;
+    if (area < MIN_AREA) return -1;
     this.indices.push(a, b, c);
     this.tags.push(this.currentTag);
+    this.partners.push(-1);
+    return this.tags.length - 1;
   }
 
   quad(a: number, b: number, c: number, d: number) {
-    this.triangle(a, b, c);
-    this.triangle(a, c, d);
+    const first = this.triangle(a, b, c);
+    const second = this.triangle(a, c, d);
+    if (first >= 0 && second >= 0) {
+      this.partners[first] = second;
+      this.partners[second] = first;
+    }
   }
 
   build(): Mesh {
@@ -94,6 +107,7 @@ export class MeshBuilder {
       indices: new Uint32Array(this.indices),
       tags: new Uint32Array(this.tags),
       marks: new Uint32Array(this.marks),
+      partners: new Int32Array(this.partners),
     };
   }
 }
@@ -109,6 +123,7 @@ export function mergeMeshes(meshes: readonly Mesh[]): Mesh {
     indices: new Uint32Array(sum((m) => m.indices.length)),
     tags: new Uint32Array(sum((m) => m.tags.length)),
     marks: new Uint32Array(sum((m) => m.marks.length)),
+    partners: new Int32Array(sum((m) => m.partners.length)),
   };
   let v = 0;
   let i = 0;
@@ -122,6 +137,10 @@ export function mergeMeshes(meshes: readonly Mesh[]): Mesh {
     for (let j = 0; j < m.indices.length; j++) out.indices[i + j] = m.indices[j]! + v;
     out.tags.set(m.tags, t);
     for (let j = 0; j < m.marks.length; j++) out.marks[k + j] = m.marks[j]! + v;
+    for (let j = 0; j < m.partners.length; j++) {
+      const partner = m.partners[j]!;
+      out.partners[t + j] = partner < 0 ? -1 : partner + t;
+    }
     v += vertexCount(m);
     i += m.indices.length;
     t += m.tags.length;

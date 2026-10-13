@@ -24,8 +24,8 @@ const cross = (a: Vec3, b: Vec3): V => [
 ];
 const unit = (a: Vec3): V => scale(a, 1 / (Math.hypot(a[0], a[1], a[2]) || 1));
 
-/** Samples per 90° of fillet arc. */
-const ARC_SAMPLES = 8;
+/** Samples per 90° of fillet arc (8 left visible kinks in the bands and contour). */
+const ARC_SAMPLES = 16;
 
 /** The filleted centreline: points with unit tangents. */
 function centreline(path: readonly Vec3[], bend: number) {

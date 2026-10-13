@@ -25,7 +25,7 @@ cd apps/app
 CI=1 npx expo prebuild --platform ios --clean
 (cd ios && LANG=en_US.UTF-8 pod install)          # CocoaPods needs a UTF-8 locale
 nice -n 15 xcodebuild -workspace ios/Anatomyv4.xcworkspace -scheme Anatomyv4 \
-  -sdk iphonesimulator -configuration Debug -derivedDataPath ios/build -jobs 6 build
+  -sdk iphonesimulator -configuration Debug -derivedDataPath ios/build -jobs 4 build
 xcrun simctl install booted ios/build/Build/Products/Debug-iphonesimulator/Anatomyv4.app
 npx expo start --port 8090                         # same server serves web + native bundles
 # the debug build defaults to Metro on :8081; point it at :8090 instead:
@@ -39,15 +39,25 @@ Android: `pnpm android` (config only so far, not built).
 
 ```
 packages/engine/src
-  camera/    2:1 dimetric ortho camera (kit projection), fit-to-bounds, pixel snap
-  palette/   light/dark tokens (from the v2 kit) → GPU palette table
-  geo/       box (flat normals), lathe (smooth normals), mesh merge
-  shading/   'use gpu' facing → four-tone + top lookup
-  render/    MSAA 4× + depth, one encoder/submit per frame
-  scene/     M0 scene (box + lathe)
+  camera/    2:1 dimetric ortho camera (kit projection), fit-to-bounds, view presets, pixel snap
+  palette/   light/dark tokens (from the v2 kit) → GPU palette table (fill + line tones)
+  geo/       box, lathe (spline-refined smooth spans), tube; mesh merge; topology (adjacency,
+             crease/boundary/smooth flags)
+  shading/   'use gpu' tone bands (+ AA weights), line coverage, per-frame edge modes
+  render/    vertex pulling, in-face lines (outline/crease/contour/UV ticks), MSAA 4× + depth,
+             one encoder/submit per frame
+  scene/     M1 line-spike scene (box + tach, rotor with ribs and dial, tube) and its views
   platform/  #platform/* contract (+ Node stub for tests)
 apps/app
   src/platform/{web,native}/   hosts for #platform/*, picked by metro.config.js
   src/shell/                   rAF loop + context.present?.()
-  src/Stage.tsx                <Canvas> + onLayout → configure → shell
+  src/Stage.tsx                <Canvas> + layout → configure → shell (rebuilt on Fast Refresh)
 ```
+
+## Controls (M1)
+
+Top-right toolbar: view preset (cycles `fit`, yaw/elevation variants, `0.5× thin`, 4× zooms),
+pause, debug view (`dbg 1` = line classes: outline red, contour magenta, crease blue, ticks
+green; `dbg 2` = lines off), theme. In dev builds the same is scriptable from a debugger or the
+browser console: `__v4.setView('4× tach')`, `__v4.setDebug(1)`, `__v4.setPaused(true)`,
+`__v4.setTheme('dark')`; `__v4.views` lists the presets. Notes: [notes/M1.md](notes/M1.md).

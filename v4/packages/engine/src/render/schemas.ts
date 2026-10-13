@@ -4,7 +4,7 @@
  */
 import tgpu, { d } from 'typegpu';
 import type { Mesh } from '../geo/mesh.ts';
-import { type Topology, triangleCountOf } from '../geo/topology.ts';
+import { NO_NEIGHBOUR, type Topology, triangleCountOf } from '../geo/topology.ts';
 
 export const GpuVertex = d.struct({
   position: d.vec3f,
@@ -20,7 +20,8 @@ export const GpuTri = d.struct({
   /** Bits 0-2 crease[i], 3-5 boundary[i], 6 smooth, 8-15 line set (see FLAG). */
   flags: d.u32,
   adj: d.vec3u,
-  _pad: d.u32,
+  /** The other half of this triangle's quad, or NO_NEIGHBOUR. */
+  partner: d.u32,
 }); // 48 B
 
 export const Part = d.struct({
@@ -98,6 +99,8 @@ export function packTriangles(mesh: Mesh, topo: Topology): ArrayBuffer {
     f32.set(topo.faceNormals.subarray(t * 3, t * 3 + 3), o + 4);
     u32[o + 7] = topo.flags[t]!;
     u32.set(topo.adj.subarray(t * 3, t * 3 + 3), o + 8);
+    const partner = mesh.partners[t]!;
+    u32[o + 11] = partner < 0 ? NO_NEIGHBOUR : partner;
   }
   if (buffer.byteLength !== count * d.sizeOf(GpuTri)) throw new Error('GpuTri layout drift');
   return buffer;

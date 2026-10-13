@@ -11,6 +11,7 @@ import {
   type ShellSize,
   createShell,
 } from './shell/createShell.ts';
+import { isRetired } from './gpuRoot.ts';
 
 export function Stage({
   root,
@@ -47,7 +48,7 @@ export function Stage({
   useEffect(() => {
     const size = layoutRef.current;
     const canvas = canvasRef.current;
-    if (!hasLayout || !size || !canvas) return undefined;
+    if (!hasLayout || !size || !canvas || isRetired(root)) return undefined;
     setFatal(null);
     let shell: Shell;
     try {
