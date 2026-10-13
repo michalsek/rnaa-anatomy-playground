@@ -50,8 +50,9 @@ export function createPalette() {
 }
 
 // placeSlots(items, slots): the slot lookup of the slot loop in v2 kit.mjs page() (after → the latest of its targets,
-// before → the earliest; a target matches its name or the FIRST `name#n`, as kit's findIndex does), plus the document
-// position: insertAt = index of the first item drawn after the slot; seq = document order.
+// before → the earliest; each target resolves to the FIRST item in draw order named `target` or `target#n`, as kit's
+// findIndex does, even for `after`), plus the document position: insertAt = index of the first item drawn after the
+// slot; seq = document order.
 export function placeSlots(items, slots) {
   const placed = slots.map((slot) => {
     const targets = [].concat(slot.after ?? slot.before);

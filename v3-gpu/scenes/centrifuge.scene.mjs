@@ -1,7 +1,8 @@
 // v3 copy of v2-factory/parts/centrifuge/build.mjs: the original writes its page at import, so it is copied here and
 // wrapped in run({ out }). The only edits: the imports point at the read-only v2 modules (HERE dropped), STUB_LIVE is
 // hoisted above run(), the scene body is indented into run() and ends with `return ctx`, and page() writes to `out`.
-// tools/gate.mjs ("scene copy matches v2") diffs the two files modulo exactly these edits.
+// tools/gate.mjs ("scene copy matches v2") diffs the two files modulo exactly these edits
+// and indentation.
 // Standalone page for the centrifuge: a stub of belt B above feeds it packets, a stub of the audio belt below
 // catches the releases and gives the centrifuge its slat phase through syncTo().
 import { scene, page, k, G, A } from "../../v2-factory/shared/kit.mjs";

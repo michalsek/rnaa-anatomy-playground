@@ -10,7 +10,7 @@
 ### SVG feature census (centrifuge-light: 782 KB, SVG 650 KB)
 239 items; 1661 path / 529 g / 209 circle. 168 solids (fill+top+edge), 603 shade paths, 166 crease + 74 bevel + 52 other lines, 65 tube chunks (body/shine/shade/edge), 37 dot groups (209 circles r 0.36–0.42).
 Path commands: ONLY M/L/Z (2981 M, 44338 L). No C/Q/A (assembly too).
-Fills: 1136 paths (1956 subpaths, 31k verts); 379 multi-subpath, 11 mixed orientation, 41 self-intersecting; nonzero rule everywhere.
+Fills: 1136 paths (1956 subpaths, 31k verts); 379 multi-subpath, 11 mixed orientation, 41 self-intersecting (the M1 exporter counts 93 non-simple fills: touching edges included); nonzero rule everywhere.
 Strokes: 525 paths (1025 polylines, 15.1k segs); tones faint 270 / mid 231 / lo 50 / hi 11.
 NONE: clipPath, mask, filter attr, text, transform, dasharray.
 Must handle: 1 linearGradient (funnel void, 3 stops, colors from CSS classes, centrifuge.mjs:506–513); 3 `<g opacity>` (faded motor ribs); 1 halo (CSS filter blur(9px), 3px offset, opacity .32, iso-kit.mjs:611); per-tone dot opacity (iso-kit.mjs:629–633); packet lines .55 (factory.css:19); lamp glow mix-blend multiply(light)/screen(dark) (centrifuge.mjs:74–75); 17 "seamless" solids also stroke tone regions at 0.4px (iso-kit.mjs:602–609); non-scaling stroke 0.6 CSS px (iso-kit.mjs:576,591); tach sync mark stroke-width 1.3 (centrifuge.mjs:540).

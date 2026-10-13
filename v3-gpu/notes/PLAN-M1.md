@@ -5,8 +5,9 @@
    `../v2-factory` (read-only) and no top-level side effects: `export async function run({ out })` builds the ctx,
    calls the REAL `page(ctx, …)` (writes `out/svg/centrifuge.html` + `-light.html`) and returns ctx.
    After `page()` the items are settled and sorted (kit.mjs:136–137).
-2. `export/scene-capture.mjs` — `slotPlacements(items, slots)`: the 12-line slot lookup of kit.mjs:139–149, plus
-   document-order sequence numbers (before-slots, item, after-slots).
+2. `export/build-dl.mjs` `placeSlots(items, slots)` (planned as a separate `export/scene-capture.mjs`, merged into
+   build-dl): the slot lookup of the slot loop in kit `page()`, plus document-order sequence numbers (before-slots,
+   item, after-slots).
 3. `export/svgsub.mjs` (isomorphic, no Node APIs) — tokenises the SVG subset (g, path, circle, defs, linearGradient,
    stop), keeps the element's class/data-* context chain, multiplies `opacity` down the tree, reads
    `fill-opacity`/`stroke-opacity`/inline `style` stroke-width, resolves `url(#id)`, parses path data (M/L/H/V/Z
