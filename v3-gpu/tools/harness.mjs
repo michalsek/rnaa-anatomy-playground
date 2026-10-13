@@ -68,7 +68,7 @@ export async function withBrowser(run) {
   try {
     return await run(browser);
   } finally {
-    browser.close();
+    await browser.close();
   }
 }
 

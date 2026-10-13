@@ -277,12 +277,12 @@ async function main() {
     if (result.frames.pageFrameRatio < 0.95) console.log(`  warning: page rAF ran in only ${(100 * result.frames.pageFrameRatio).toFixed(0)}% of frames (IO gate / stage off screen?)`);
     if (problems.length) console.log(`  ${problems.length} console problems, first: ${problems[0]}`);
     cdp.close();
-    browser.close();
+    await browser.close();
     process.exit(0);
   } catch (error) {
     console.error(error);
     cdp?.close();
-    browser.close();
+    await browser.close();
     process.exit(1);
   }
 }

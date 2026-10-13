@@ -8,7 +8,6 @@
 // Both pixel pages are the generated v2 page with its script removed (live slots empty, nothing animates); the "dl"
 // page empties the figure svg and redraws it from the DL with paint resolved by in-page probes.
 // --mutate damages the DL after the structural checks; the Chrome / pixel gate must then FAIL (gate self-test).
-import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { buildSync } from "esbuild";
@@ -20,6 +19,7 @@ import { itemMarkup, BACK_ITEM_NAME } from "../export/build-dl.mjs";
 import { parseSvg } from "../export/svgsub.mjs";
 import { sectionsOf, recordAt, FIELD_WORD, STRIDE_WORDS, PRIM_KIND, SEG_FLAG } from "../export/dl-format.mjs";
 import { largestCluster } from "./diff.mjs";
+import { spawnGuarded } from "./chrome.mjs";
 
 const CAPTURE = `${process.env.HOME}/.claude/skills/anatomy/scripts/capture.mjs`;
 const PIXEL_DELTA = 8; // a pixel differs when any channel moves by more than this (of 255)
@@ -264,7 +264,7 @@ function dlPage(staticHtml, json, buffer) {
 
 function capture(page, png) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [CAPTURE, page, "--out", png, "--scale", "2", "--wait", "2000"]);
+    const { child } = spawnGuarded(process.execPath, [CAPTURE, page, "--out", png, "--scale", "2", "--wait", "2000"]);
     let text = "";
     child.stdout.on("data", (d) => (text += d));
     child.stderr.on("data", (d) => (text += d));

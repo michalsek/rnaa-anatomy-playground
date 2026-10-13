@@ -1,13 +1,8 @@
-// Shared pieces of the perf harness: Chrome launch (the anatomy skill's chromePort, read-only import), a tiny CDP
-// client, the in-page recorder, statistics and the trace summary.
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+// Shared pieces of the perf harness: Chrome launch (tools/chrome.mjs, guarded so no browser outlives the run), a tiny
+// CDP client, the in-page recorder, statistics and the trace summary.
+import { execFileSync } from "node:child_process";
 
-const SKILL_SCRIPTS = process.env.ANATOMY_SCRIPTS ?? join(homedir(), ".claude/skills/anatomy/scripts");
-const { chromePort } = await import(pathToFileURL(join(SKILL_SCRIPTS, "chrome-port.mjs")).href);
+export { chromePath, launchChrome } from "./chrome.mjs";
 
 // Machine idle % over ~1 s (macOS top; null elsewhere). The perf machine is shared, so every run records it.
 export function cpuIdle() {
@@ -18,56 +13,6 @@ export function cpuIdle() {
   } catch {
     return null;
   }
-}
-
-export function chromePath() {
-  const candidates = [
-    process.env.CHROME_PATH,
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium",
-  ].filter(Boolean);
-  const playwright = join(homedir(), "Library/Caches/ms-playwright");
-  if (existsSync(playwright)) {
-    for (const dir of readdirSync(playwright).sort().reverse()) {
-      candidates.push(join(playwright, dir, "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"));
-    }
-  }
-  return candidates.find((path) => existsSync(path));
-}
-
-// Fresh profile per run. Same base flags as drive.mjs / capture.mjs, plus the anti-backgrounding flags a headed perf
-// run needs (an occluded or unfocused window must keep producing frames).
-export async function launchChrome({ headed = false, windowSize = [1300, 1000], flags = [] } = {}) {
-  const binary = chromePath();
-  if (!binary) throw new Error("No Chrome found. Set CHROME_PATH.");
-  const profile = mkdtempSync(join(tmpdir(), "v3-perf-"));
-  const args = [
-    ...(headed ? [`--window-size=${windowSize[0]},${windowSize[1]}`, "--window-position=40,40"] : ["--headless=new", "--hide-scrollbars"]),
-    "--remote-debugging-port=0",
-    `--user-data-dir=${profile}`,
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--allow-file-access-from-files",
-    "--enable-unsafe-swiftshader",
-    "--ignore-gpu-blocklist",
-    "--disable-background-timer-throttling",
-    "--disable-backgrounding-occluded-windows",
-    "--disable-renderer-backgrounding",
-    "--disable-extensions",
-    ...flags,
-    "about:blank",
-  ];
-  const chrome = spawn(binary, args);
-  const port = await chromePort(chrome, profile);
-  const close = () => {
-    chrome.kill("SIGKILL");
-    try {
-      rmSync(profile, { recursive: true, force: true });
-    } catch {}
-  };
-  return { binary, args, chrome, port, close };
 }
 
 export class Cdp {
