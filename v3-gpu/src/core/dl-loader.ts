@@ -13,19 +13,27 @@ const SUPPORTED_VERSION = 1;
 /** The back item has no key: it sorts before every scene item. */
 const BACK_KEY = -Infinity;
 
-export function sceneFromDl(json: DlJson, bin: ArrayBuffer): GpuScene {
+/**
+ * The scene palette in id order — probe recipes, then one linear entry per gradient — from the JSON half alone, so a
+ * host can register the palette before the binary half is decoded (`sceneFromDl` returns the same entries).
+ */
+export function paletteOfDl(json: DlJson): ScenePaint[] {
   if (json.format !== 'rnaa-dl' || json.version !== SUPPORTED_VERSION) throw new Error(`dl-loader: unsupported ${json.format} v${json.version}`);
-  const { prims, fillVertices, fillIndices, segments, dots } = sectionsOf(bin);
-
   const palette: ScenePaint[] = json.palette.map((entry, id) => {
     if (entry.id !== id) throw new Error(`dl-loader: palette entry ${entry.id} at position ${id}`);
     return { key: paintKeyOf(entry.prop, entry.ancestors, entry.el), desc: { kind: 'probe', prop: entry.prop, ancestors: entry.ancestors, el: entry.el } };
   });
-  const gradientBase = palette.length;
   for (const g of json.gradients) {
     if (g.units !== 'userSpaceOnUse') throw new Error(`dl-loader: gradient ${g.id} units ${g.units} not supported`);
     palette.push({ key: `dl-gradient:${g.id}`, desc: { kind: 'linear', x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2, paint: g.paint, stops: g.stops.map((s) => ({ offset: s.offset, alpha: s.alpha, paint: s.paint })) } });
   }
+  return palette;
+}
+
+export function sceneFromDl(json: DlJson, bin: ArrayBuffer): GpuScene {
+  const palette = paletteOfDl(json);
+  const { prims, fillVertices, fillIndices, segments, dots } = sectionsOf(bin);
+  const gradientBase = json.palette.length;
   const paintOf = (id: number) => (isGradientPaint(id) ? gradientBase + gradientIndexOf(id) : id);
 
   const P = FIELD_WORD.prims, V = FIELD_WORD.fillVertices, G = FIELD_WORD.segments, D = FIELD_WORD.dots;

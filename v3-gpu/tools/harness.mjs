@@ -18,6 +18,8 @@ export const PAGES = {
   gpu: (theme) => themed("out/gpu/live", theme),
   gpuDev: () => "out/gpu/live-dev.html",
   gpuStatic: (theme) => themed("out/gpu/static", theme),
+  /** The M4 deliverables: byte copies of `gpu(theme)` (tools/build.mjs). */
+  deliverable: (theme) => themed("centrifuge-gpu", theme),
 };
 
 const LOCKSTEP_SOURCE = readFileSync(join(ROOT, "tools/lockstep.js"), "utf8");

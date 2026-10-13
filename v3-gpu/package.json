@@ -10,7 +10,8 @@
     "gates": "node tools/gates.mjs",
     "gates:full": "node tools/gates.mjs --full",
     "test": "node --test tools/test-export.mjs tools/test-live.mjs tools/test-native.mjs tools/test-core.mjs",
-    "build": "node tools/build.mjs"
+    "build": "node tools/build.mjs",
+    "package": "node export/export.mjs && node tools/build.mjs"
   },
   "dependencies": {
     "earcut": "3.2.4",

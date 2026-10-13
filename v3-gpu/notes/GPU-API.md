@@ -9,7 +9,7 @@ meaning; everything new is additive.
 | field | type | meaning |
 |---|---|---|
 | `ready` | boolean | the first GPU frame was presented and the canvas replaced the vector figure (`html[data-gpu=ready]`) |
-| `error` | string \| null | why the GPU path stopped or misbehaves: fallback reason (`html[data-gpu=fallback]`), or a dev-build markup error (`live slot <name>: …`, set at the offending write). **Fix C1** reasons: `no-webgpu` (no `navigator.gpu`), `no-adapter: …` (the first start got no device, 3 attempts), `init-failed: …` (a device, but the renderer or its pipelines failed, 3 attempts), `reinit-failed: <no-adapter: … \| init-failed: …>` (the re-init after a device loss failed 3 times), `device-lost: lost again after 16 re-inits`, `render-error: …` (3 frames in a row threw), `start-failed: …` (a bug: `start()` itself threw) |
+| `error` | string \| null | why the GPU path stopped or misbehaves: fallback reason (`html[data-gpu=fallback]`), or a dev-build markup error (`live slot <name>: …`, set at the offending write). **Fix C1** reasons: `no-webgpu` (no `navigator.gpu`), `no-adapter: …` (the first start got no device, 3 attempts), `init-failed: …` (a device, but the renderer or its pipelines failed, 3 attempts), `reinit-failed: <no-adapter: … \| init-failed: …>` (the re-init after a device loss failed 3 times), `device-lost: lost again after 16 re-inits`, `render-error: …` (3 frames in a row threw), `start-failed: …` (a bug: `start()` itself threw), **M4** `dl-decode-failed: …` (the page's display-list binary could not be decoded, e.g. no `DecompressionStream`) |
 | `errors` | string[] | the last ≤ 20 non-fatal errors, oldest first: WebGPU validation errors (`uncapturederror`; the first 5 are also logged with `console.error`), frames that threw, **fix C1**: device losses (`device lost (<reason>): …`) |
 | `adapter` | object \| null | `{ vendor, architecture, description, features }` of the current device |
 | `frames` | number | GPU frames drawn. A plain data property, assigned (`api.frames = n`) on every frame, so tools may redefine it with an accessor to observe increments. With a live runtime: exactly one per runtime tick that changed something (plus one per canvas resize) |
@@ -108,6 +108,13 @@ never grows. Production pages create no marks or measures and do not patch `requ
 - The v2 runtime binds to that SVG (`FACTORY.svg`, `api.el / els` work in every mode). `FACTORY.slots[name].innerHTML`
   returns the last markup written; on fallback the slot elements get real DOM again.
 - `html[data-gpu]`: `ready`, `fallback` or (**fix C1**) `disposed`.
+- **M4** `html[data-renderer]`: `svg` while the vector figure is on screen (booting, fallback, disposed), `webgpu` once
+  the canvas replaced it; one `console.info("figure renderer: …")` line when the renderer is decided (WebGPU · TypeGPU
+  with the adapter, or SVG fallback with the reason). No visible badge: the card stays identical to v2.
+- **M4** the DL binary is inlined as `<script id="gpu-dl-bin" data-encoding="rnaa-dl-columns-delta+gzip+base64">`
+  (`export/dl-wire.mjs`, decoded with `DecompressionStream`), so the GPU view is created asynchronously after parsing;
+  slot interception, the native host and the `FACTORY` hooks are still installed synchronously before v2's module
+  script runs. The deliverables `centrifuge-gpu(-light).html` are byte copies of `out/gpu/live(-light).html`.
 
 ## Native slot painters (M5, fix C2)
 

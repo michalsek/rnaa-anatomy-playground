@@ -2,11 +2,13 @@
 // Chrome). Exit code 1 on any failure.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { parsePathData, parseSvg, drawables } from "../export/svgsub.mjs";
 import { triangulate, triangleArea, nonzeroArea } from "../export/tess.mjs";
 import { primitivesOf, createPalette, createSink, placeSlots, polylinesOf } from "../export/build-dl.mjs";
 import { pack, sectionsOf, recordAt, PRIM_KIND, PRIM_FLAG, SEG_FLAG, PAINT_GRADIENT, gradientPaint, isGradientPaint, gradientIndexOf } from "../export/dl-format.mjs";
+import { DL_WIRE_ENCODING, decodeDlWire, packDlBinary } from "../export/dl-wire.mjs";
 import { renderDlSvg } from "./dl2svg.mjs";
 
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
@@ -203,6 +205,18 @@ test("binary round trip", () => {
   const seg = recordAt(S.segments, 0);
   assert.ok(seg.x1 === 1 && near(seg.width, 0.6) && seg.flags === sink.segments[0].flags, JSON.stringify(seg));
   assert.ok(recordAt(S.dots, 0).cy === 2 && recordAt(S.prims, 2).kind === PRIM_KIND.dot, "dots");
+});
+test("page transport (dl-wire): bit-exact round trip through the browser decoder (DecompressionStream), ≥ 5× smaller", async () => {
+  const exported = new URL("../out/dl/centrifuge.dl.bin", import.meta.url);
+  const binaries = [new Uint8Array(pack({ prims: [], fillVertices: [], fillIndices: [], segments: [], dots: [] }).buffer)];
+  if (existsSync(exported)) binaries.push(new Uint8Array(readFileSync(exported)));
+  for (const binary of binaries) {
+    const wire = gzipSync(packDlBinary(binary), { level: 9 }).toString("base64");
+    const decoded = new Uint8Array(await decodeDlWire(wire));
+    assert.deepEqual(decoded, binary);
+    if (binary.byteLength > 1e6) assert.ok(wire.length * 5 <= Math.ceil(binary.byteLength / 3) * 4, `${wire.length} B transport vs ${binary.byteLength} B binary`);
+  }
+  assert.match(DL_WIRE_ENCODING, /gzip/);
 });
 test("pack rejects missing, misspelled, negative, fractional and non-finite fields", () => {
   const { sink } = sinkFor(`<path class="iso-line" d="M0 0L1 1"/>`);

@@ -37,6 +37,8 @@ const ROWS = [
   ...NATIVE_ROWS.map(({ args, ...row }) => ({ ...row, command: node(...args) })),
   { name: "identity", modes: ["quick"], command: node("tools/live-gate.mjs", "identity", "--quick") },
   { name: "identity", modes: ["full"], command: node("tools/live-gate.mjs", "identity") },
+  { name: "package", modes: ["quick"], command: node("tools/package-gate.mjs", "--quick") },
+  { name: "package", modes: ["full"], command: node("tools/package-gate.mjs") },
   { name: "selftest:dl", modes: ["full"], expect: "fail", command: node("tools/gate.mjs", "--mutate", "drop-fill", "--themes", "dark") },
   { name: "selftest:static", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "static", "--quick", "--mutate", "patch") },
   { name: "live:markup", modes: ["full"], command: node("tools/live-gate.mjs", "live", "--quick", "--native", "0") },
@@ -49,7 +51,7 @@ const ROWS = [
   { name: "selftest:determinism", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "determinism", "--ticks", "300", "--real-ticks", "30", "--mutate", "no-rebase") },
   { name: "perf", modes: ["full"], gating: false, command: node("tools/live-gate.mjs", "perf") },
 ];
-const REQUIRED_PAGES = ["out/dl/centrifuge.dl.json", "out/svg/centrifuge.html", "out/gpu/live.html", "out/gpu/live-light.html", "out/gpu/live-dev.html", "out/gpu/static.html", "out/gpu/calib/calib-gpu.html", "out/gpu/fixture/fixture-gpu.html"];
+const REQUIRED_PAGES = ["out/dl/centrifuge.dl.json", "out/svg/centrifuge.html", "out/gpu/live.html", "out/gpu/live-light.html", "out/gpu/live-dev.html", "out/gpu/static.html", "out/gpu/calib/calib-gpu.html", "out/gpu/fixture/fixture-gpu.html", "centrifuge-gpu.html", "centrifuge-gpu-light.html"];
 
 function run(row) {
   return new Promise((done) => {

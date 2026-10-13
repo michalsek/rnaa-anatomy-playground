@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Centrifuge on WebGPU</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --page: #f2f2ef;
+  --card: #fbfbfa;
+  --text: #57575a;
+  --strong: #18181a;
+  --muted: #8c8c90;
+  --rule: #e2e2de;
+  --accent: #2f6fde;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0b0b0b;
+    --card: #131313;
+    --text: #a3a3a3;
+    --strong: #e6e6e6;
+    --muted: #6e6e6e;
+    --rule: #262626;
+    --accent: #7aa7ff;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 1040px; margin: 0 auto; padding: 48px 16px 80px; }
+h1 { color: var(--strong); font-size: 28px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 8px; }
+h2 { color: var(--strong); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; margin: 44px 0 14px; }
+p { margin: 0 0 12px; max-width: 70ch; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: var(--mono); font-size: 13px; }
+.lede { font-size: 16px; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.card {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.card h3 { color: var(--strong); font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+.card p { font-size: 13.5px; margin: 0 0 8px; }
+.links { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13.5px; }
+.shots { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+figure { margin: 0; background: var(--card); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+figure img { display: block; width: 100%; height: 190px; object-fit: contain; background: var(--page); }
+figure.wide img { height: auto; }
+figcaption { font-size: 13px; padding: 8px 12px 10px; }
+figcaption b { color: var(--strong); font-weight: 600; }
+ul.plain { list-style: none; padding: 0; margin: 0; columns: 2 260px; column-gap: 24px; font-size: 14px; }
+ul.plain li { margin: 0 0 6px; break-inside: avoid; }
+.muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Centrifuge on WebGPU</h1>
+  <p class="lede">The v2 factory centrifuge drawn by a TypeGPU / WebGPU renderer from an exported display list, with v2's own
+  runtime driving it and the rotor drawn natively. One self-contained page per theme; without WebGPU it shows the
+  original SVG figure.</p>
+
+  <h2>Deliverables</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Light (ships)</h3>
+      <p>WebGPU, native rotor, static cache.</p>
+      <div class="links"><a href="centrifuge-gpu-light.html">open</a><a href="centrifuge-gpu-light.html?native=0">?native=0</a><a href="centrifuge-gpu-light.html?cache=0">?cache=0</a></div>
+    </div>
+    <div class="card">
+      <h3>Dark</h3>
+      <p>The same page, dark tokens.</p>
+      <div class="links"><a href="centrifuge-gpu.html">open</a><a href="centrifuge-gpu.html?native=0">?native=0</a><a href="centrifuge-gpu.html?cache=0">?cache=0</a></div>
+    </div>
+    <div class="card">
+      <h3>v2 originals</h3>
+      <p>The SVG pages as committed, for comparison.</p>
+      <div class="links"><a href="../v2-factory/parts/centrifuge/centrifuge-light.html">light</a><a href="../v2-factory/parts/centrifuge/centrifuge.html">dark</a></div>
+    </div>
+    <div class="card">
+      <h3>Report</h3>
+      <p>Parity, performance, port estimate.</p>
+      <div class="links"><a href="REPORT.md">REPORT.md</a><a href="report/README.md">comparison shots</a></div>
+    </div>
+  </div>
+
+  <h2>Comparison shots</h2>
+  <p>v2 SVG and the deliverable at the same runtime tick (lockstep), with diff heatmaps; numbers in
+  <a href="report/README.md">report/README.md</a>. Crops are rendered at device scale 4.</p>
+  <div class="shots">
+    <figure><a href="report/hero-light.png"><img src="report/hero-light.png" alt="The light deliverable as captured in real time" loading="lazy"></a><figcaption><b>Light deliverable</b> · real time</figcaption></figure>
+    <figure><a href="report/hero-dark.png"><img src="report/hero-dark.png" alt="The dark deliverable as captured in real time" loading="lazy"></a><figcaption><b>Dark deliverable</b> · real time</figcaption></figure>
+    <figure><a href="report/light-card-heat.png"><img src="report/light-card-heat.png" alt="Heatmap of the full light card, v2 vs GPU" loading="lazy"></a><figcaption><b>Full card heatmap</b> · light · <a href="report/light-card-v2.png">v2</a> · <a href="report/light-card-gpu.png">GPU</a></figcaption></figure>
+    <figure><a href="report/dark-card-heat.png"><img src="report/dark-card-heat.png" alt="Heatmap of the full dark card, v2 vs GPU" loading="lazy"></a><figcaption><b>Full card heatmap</b> · dark · <a href="report/dark-card-v2.png">v2</a> · <a href="report/dark-card-gpu.png">GPU</a></figcaption></figure>
+  </div>
+  <div class="shots" style="margin-top:14px">
+    <figure><a href="report/light-crop-rotor-side.png"><img src="report/light-crop-rotor-side.png" alt="Rotor and packets: v2, GPU, heatmap" loading="lazy"></a><figcaption><b>Rotor + packets</b> · <a href="report/dark-crop-rotor-side.png">dark</a></figcaption></figure>
+    <figure><a href="report/light-crop-tach-side.png"><img src="report/light-crop-tach-side.png" alt="Tach dial hairlines: v2, GPU, heatmap" loading="lazy"></a><figcaption><b>Tach dial hairlines</b> · <a href="report/dark-crop-tach-side.png">dark</a></figcaption></figure>
+    <figure><a href="report/light-crop-belt-stub-side.png"><img src="report/light-crop-belt-stub-side.png" alt="Belt stub edges: v2, GPU, heatmap" loading="lazy"></a><figcaption><b>Belt stub edges</b> · <a href="report/dark-crop-belt-stub-side.png">dark</a></figcaption></figure>
+    <figure><a href="report/light-crop-funnel-side.png"><img src="report/light-crop-funnel-side.png" alt="Funnel gradient: v2, GPU, heatmap" loading="lazy"></a><figcaption><b>Funnel gradient</b> · <a href="report/dark-crop-funnel-side.png">dark</a></figcaption></figure>
+    <figure><a href="report/light-crop-halo-side.png"><img src="report/light-crop-halo-side.png" alt="Floor halo edge: v2, GPU, heatmap" loading="lazy"></a><figcaption><b>Halo edge</b> · <a href="report/dark-crop-halo-side.png">dark</a></figcaption></figure>
+    <figure><a href="report/light-crop-motor-ribs-side.png"><img src="report/light-crop-motor-ribs-side.png" alt="Motor ribs: v2, GPU, heatmap" loading="lazy"></a><figcaption><b>Motor ribs</b> · <a href="report/dark-crop-motor-ribs-side.png">dark</a></figcaption></figure>
+    <figure><a href="report/light-crop-lamp-side.png"><img src="report/light-crop-lamp-side.png" alt="Lamp glow: v2, GPU, heatmap" loading="lazy"></a><figcaption><b>Lamp glow</b> · <a href="report/dark-crop-lamp-side.png">dark</a></figcaption></figure>
+  </div>
+  <div class="shots" style="margin-top:14px;grid-template-columns:1fr">
+    <figure class="wide"><a href="report/light-strip.png"><img src="report/light-strip.png" alt="Motion strip: twelve frames of the rotor over one turn, rows v2, GPU, heatmap" loading="lazy"></a><figcaption><b>Motion strip</b> · 12 frames over one rotor turn; rows v2 / GPU / heatmap · <a href="report/dark-strip.png">dark</a></figcaption></figure>
+  </div>
+
+  <h2>Performance</h2>
+  <ul class="plain">
+    <li><a href="out/perf/final/rows.md">Final rows (M4)</a> <span class="muted">deliverable vs v2, single + stress10, load</span></li>
+    <li><a href="out/perf/m5/rows.md">M5 rows</a> <span class="muted">native rotor vs markup path vs SVG</span></li>
+    <li><a href="out/perf/fixc2/rows.md">Fix C2 rows</a> <span class="muted">?native=cpu evaluation</span></li>
+    <li><a href="out/perf/gpu-rows.md">Fix A GPU rows</a></li>
+    <li><a href="out/perf/baselines.md">SVG baselines (M6a)</a> <span class="muted">dirty-check, layering, frozen slots</span></li>
+  </ul>
+
+  <h2>Stress pages</h2>
+  <ul class="plain">
+    <li><a href="bench/stress10-iframe-gpu-final-light.html">10 × GPU deliverable</a> <span class="muted">iframes</span></li>
+    <li><a href="bench/stress10-iframe-light.html">10 × v2 SVG</a> <span class="muted">iframes</span></li>
+    <li><a href="bench/stress10-light.html">10 × v2 SVG, one document</a></li>
+    <li><a href="bench/stress10-iframe-gpu-m5-markup-light.html">10 × GPU, markup path</a> <span class="muted">M5, ?native=0</span></li>
+  </ul>
+
+  <h2>Notes</h2>
+  <ul class="plain">
+    <li><a href="notes/ROADMAP.md">Roadmap</a></li>
+    <li><a href="notes/PORT-PLAN.md">Factory port plan</a></li>
+    <li><a href="notes/GATES.md">Gates</a> <span class="muted">thresholds and why</span></li>
+    <li><a href="notes/GPU-API.md">window.__gpu</a> <span class="muted">tool surface, URL parameters</span></li>
+    <li><a href="notes/DL-FORMAT.md">Display list format</a></li>
+    <li><a href="notes/SPIKE.md">Spike</a></li>
+    <li><a href="notes/FINDINGS-M1.md">Findings M1</a> · <a href="notes/FINDINGS-M2.md">M2</a> · <a href="notes/FINDINGS-M3.md">M3</a> · <a href="notes/FINDINGS-M5.md">M5</a> · <a href="notes/FINDINGS-M6a.md">M6a</a></li>
+    <li><a href="notes/FINDINGS-FIXA.md">Fix loop A</a> · <a href="notes/FINDINGS-FIXB.md">B</a> · <a href="notes/FINDINGS-FIXC1.md">C1</a> · <a href="notes/FINDINGS-FIXC2.md">C2</a></li>
+    <li><a href="notes/FINDINGS-M4.md">Findings M4</a> <span class="muted">packaging</span></li>
+  </ul>
+</main>
+</body>
+</html>
