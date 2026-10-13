@@ -1,6 +1,6 @@
 # Gates
 
-`npm run gates` (= `node tools/gates.mjs --quick`, ≈ 1.5 min) or `npm run gates:full` (`--full`, ≈ 12 min (736 s at fix loop C1): every gate
+`npm run gates` (= `node tools/gates.mjs --quick`, ≈ 3.5 min (205 s at final QA)) or `npm run gates:full` (`--full`, ≈ 12 min (736 s at fix loop C1): every gate
 in full, the self-tests and the perf smoke). `--only a,b` / `--skip a,b` pick rows. The runner prints a table and exits
 1 when any gating row fails. Logs: `out/tmp/gates/logs/<row>.log`; reports: `out/tmp/gates/<gate>.json`; shots and diff
 images: `out/tmp/gates/<gate>/`. Pages must be built first: `node export/export.mjs && node tools/build.mjs`.

@@ -3,3 +3,4 @@ out/tmp/
 out/gate/*.html
 out/gpu/live-crops/
 out/gpu/live-dev.html
+out/gate/*.png

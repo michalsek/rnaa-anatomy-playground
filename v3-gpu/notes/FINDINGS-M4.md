@@ -4,7 +4,7 @@ Status: `npm run gates:full` green (793 s); new `package` row (54 checks); 72 un
 
 ## Deliverables
 - `centrifuge-gpu.html` (dark) and `centrifuge-gpu-light.html` (light, ships): single self-contained files, work over file:// and http://. `npm run build` writes them (`npm run package` = export + build); byte copies of out/gpu/live(-light).html, hash-checked by the build and by the `package` gate row → every gate runs on the deliverable bytes.
-- Size: raw / gzip-9 — before (M5 live page) 3,844 / 773 KB; deliverable 1,537 / 498 KB; v2 SVG page 763 / 160 KB. Display-list binary in a compact lossless encoding (export/dl-wire.mjs, decoded with DecompressionStream): 2,637 KB → 251 KB inline, bit-exact round trip (no lossy quantization). Remaining breakdown: v2 page incl. SVG figure (fallback + boot preview) 763 KB, bundle 482 KB, display list 307 KB.
+- Size: raw / gzip-9 — before (M5 live page) 3,844 / 773 KB; deliverable 1,537 / 498 KB; v2 SVG page 763 / 160 KB. Display-list binary in a compact lossless encoding (export/dl-wire.mjs, decoded with DecompressionStream): 2,637 KB → 251 KB inline, bit-exact round trip (no lossy quantization). Remaining breakdown: v2 page incl. SVG figure (fallback + boot preview) 763 KB, bundle 483,881 B, display list ≈ 307 KB (sizes mix KiB and kB; see QA-FINAL).
 - Decode cost: 7 ms desktop, 35 ms phone 4× (gunzip 22 ms, unpack 10 ms).
 - Boot: two steps — everything v2's script needs immediately, GPU view once the binary is decoded; device requested at start in parallel with decoding (desktop time-to-first-GPU-frame 153 → 134 ms); palette read from the JSON half alone (`paletteOfDl`).
 - Renderer indicator: no visible badge (card identical to v2); `html[data-renderer]` = `svg` while the vector figure shows (booting, fallback, disposed) / `webgpu` once the canvas takes over; one `console.info` line (e.g. "figure renderer: WebGPU · TypeGPU (apple metal-3)" or "SVG fallback (no-webgpu)").
@@ -29,7 +29,7 @@ Cells: loose % / incl. AA % / largest channel Δ; solid blob 0 everywhere.
 | lamp glow 4× | 0 / 0.136 / 67 | 0 / 0.087 / 44 |
 | motion strip, 12 frames (worst) | 0.089 / 0.420 | 0.069 / 0.411 |
 
-Heatmaps: blue ≤ 8 levels, amber ≤ 32, red above. Differences are edge AA only (native rotor's lost 0.1 rounding, Chrome hairline weights). The Δ 99 on both full cards is a single hairline pixel column.
+Heatmaps: blue ≤ 8 levels, amber ≤ 32, red above. Differences are edge AA only (native rotor's lost 0.1 rounding, Chrome hairline weights). The Δ 99 on the full cards is a single pixel (980, 1420); the visible red line in the light heatmap is the central column's left outline (x = 750), drawn ≈ 45 % heavier by the GPU than by Chrome's SVG raster (QA-FINAL).
 
 ## Perf (out/perf/final/rows.md, medians of 3)
 | | v2 SVG | GPU deliverable |

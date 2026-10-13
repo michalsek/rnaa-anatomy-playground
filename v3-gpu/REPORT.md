@@ -74,6 +74,16 @@ Full cards: [light v2](report/light-card-v2.png) · [light GPU](report/light-car
 2. **The native rotor skips the kit's 0.1-unit coordinate rounding.** Edges move by at most 0.07 viewBox units. Native vs markup is ≤ 0.004 % of pixels.
 3. **MSAA vs Skia AA on fill seams.** The GPU shows *fewer* hairline seams between abutting fills than the SVG does.
 
+**Final QA (picky-designer pass):**
+- Side by side at normal 1× viewing, no difference was visible.
+- In a rapid A/B toggle a few individual hairlines change weight, which is effect 1 above:
+  - on retina, the central column's left outline is ≈ 45 % heavier on the GPU (the red line in the light card heatmap);
+  - at DPR 1, the drive belt and the top roller's lower outline are slightly lighter or heavier.
+- DPR 1 is the tightest margin: 0.12 % loose against a gate limit of 0.15 %.
+- Matching Chrome per path (segment-count-dependent weights) is possible but would mean copying a Skia quirk.
+
+Report: [notes/QA-FINAL.md](notes/QA-FINAL.md).
+
 **Gates.** `npm run gates:full` (≈ 13 min) runs these rows, and every row has a self-test with an injected defect it must catch:
 - unit (72 tests, including a renderer on a fake GPU device)
 - display-list exactness
@@ -233,7 +243,13 @@ node tools/perf.mjs centrifuge-gpu-light.html --width 390 --dpr 3 --throttle 4 -
 node tools/chrome-reap.mjs   # clean any orphaned headless Chrome
 ```
 
-Dependencies outside the repo: the exporter imports `../v2-factory` (read-only) and the Anatomy skill kit at `~/.claude/skills/anatomy` (through v2's `kit.mjs`). The deliverable pages themselves are self-contained.
+Dependencies outside the repo:
+- The exporter and build import `../v2-factory` (read-only).
+- v2's `shared/kit.mjs` **hard-codes the absolute path `/Users/michalsek/.claude/skills/anatomy`** to load the Anatomy kit. Several tools (`capture.mjs`, `drive.mjs`, `chrome-port.mjs`) also come from that skill.
+- So rebuilding or gating on another machine needs the skill at that path, or a patched path in v2.
+- The deliverable pages themselves are fully self-contained.
+
+A fresh `git archive` + `npm ci` rebuilt both pages byte-identically and passed the quick gates (final QA).
 
 ## 9. How this was made
 
