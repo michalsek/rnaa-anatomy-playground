@@ -65,6 +65,7 @@ function parse(argv) {
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const T0 = Date.now();
+// PERF_DEBUG=1 prints progress to stderr
 const step = (what) => process.env.PERF_DEBUG && console.error(`[${((Date.now() - T0) / 1000).toFixed(1)}s] ${what}`);
 
 async function main() {
@@ -85,18 +86,16 @@ async function main() {
   let cdp;
   try {
     const version = await (await fetch(`http://127.0.0.1:${browser.port}/json/version`)).json();
-    step('const root = await Cdp.connect');
+    step("browser: SystemInfo");
     const root = await Cdp.connect(version.webSocketDebuggerUrl);
     let gpu = null;
     try {
-      if (process.env.NO_SYSINFO) throw new Error("skipped");
       const info = await root.send("SystemInfo.getInfo");
       const dev = info.gpu.devices?.[0] ?? {};
       gpu = { featureStatus: info.gpu.featureStatus, device: `${dev.vendorString ?? ""} ${dev.deviceString ?? ""}`.trim(), driver: dev.driverVersion };
     } catch (error) {
       gpu = { error: String(error.message) };
     }
-    step('root.close();');
     root.close();
 
     const target = await (await fetch(`http://127.0.0.1:${browser.port}/json/new?about:blank`, { method: "PUT" })).json();
@@ -105,7 +104,7 @@ async function main() {
       if (p.type === "error" || p.type === "warning") problems.push(`console.${p.type}: ${p.args.map((a) => a.value ?? a.description ?? "").join(" ").slice(0, 300)}`);
     });
     cdp.on("Runtime.exceptionThrown", (p) => problems.push(`exception: ${(p.exceptionDetails.exception?.description ?? p.exceptionDetails.text).slice(0, 300)}`));
-    step('await cdp.send("Runtime.enable");');
+    step("page target");
     await cdp.send("Runtime.enable");
     await cdp.send("Page.enable");
     await cdp.send("Performance.enable", { timeDomain: "timeTicks" });
@@ -118,7 +117,7 @@ async function main() {
     await sleep(1000);
     const blank = await cdp.evaluate("__perf.stop().own");
     const blankIv = blank.slice(1).map((t, i) => t - blank[i]);
-    step('const vsync = vsyncOf');
+    step("vsync calibrated");
     const vsync = vsyncOf(blankIv);
 
     await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: [RECORDER, ...preloads].join("\n;\n") });
@@ -126,13 +125,13 @@ async function main() {
     const loaded = cdp.once("Page.loadEventFired", 120000);
     const nav = await cdp.send("Page.navigate", { url });
     if (nav.errorText) throw new Error(`navigation failed: ${nav.errorText}`);
-    step('await loaded;');
+    step("navigating");
     await loaded;
     if (o.select !== "none") await cdp.evaluate(`(() => { const el = document.querySelector(${JSON.stringify(o.select)}); if (el) el.scrollIntoView({ block: "center", inline: "center" }); return !!el; })()`);
     for (const js of o.evals) await cdp.evaluate(js);
     await sleep(o.warmup * 1000);
 
-    step('// ---------------- measurement window');
+    step("measuring");
     // ---------------- measurement window
     const metric = async () => Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((m) => [m.name, m.value]));
     const benchStats = () => cdp.evaluate(`(() => { const all = ${ALL_FRAMES}.map((w) => w.__benchStats).filter(Boolean); if (!all.length) return null; const sum = {}; for (const s of all) for (const [k, v] of Object.entries(s)) sum[k] = (sum[k] ?? 0) + v; return sum; })()`);
@@ -188,7 +187,7 @@ async function main() {
       metrics,
     };
 
-    step('// ---------------- trace window');
+    step("tracing");
     // ---------------- trace window
     if (o.trace) {
       await cdp.evaluate(`${ALL_FRAMES}.forEach((w) => w.__perf.start())`);
@@ -208,11 +207,12 @@ async function main() {
       const traceRec = await cdp.evaluate(`${ALL_FRAMES}[0].__perf.stop()`);
       await complete;
       offData();
+      // PERF_TRACE_OUT=file.json keeps the raw trace events (debugging the summary)
       if (process.env.PERF_TRACE_OUT) writeFileSync(process.env.PERF_TRACE_OUT, JSON.stringify(events));
       result.trace = { seconds: o.traceSeconds, events: events.length, ...summarizeTrace(events, Math.max(1, traceRec.own.length)) };
     }
 
-    step('// ---------------- page facts');
+    step("page facts");
     // ---------------- page facts
     try {
       await cdp.send("LayerTree.enable");

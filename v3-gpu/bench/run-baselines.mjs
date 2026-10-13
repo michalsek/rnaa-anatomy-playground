@@ -26,6 +26,29 @@ function waitQuiet() {
     if (idle === null || idle >= QUIET || Date.now() - t0 > 3 * 60000) return idle;
   }
 }
+const ONLY = value("--only", null);
+
+const CONFIGS = {
+  desktop: ["--width", "1280", "--dpr", "2", "--throttle", "1"],
+  phone: ["--width", "390", "--dpr", "3", "--throttle", "4"],
+};
+const OPEN_FACTORY = 'document.querySelector(".fx-slider").dispatchEvent(new PointerEvent("pointerdown")); FACTORY.machines.explode.jump(1)';
+const PAGES = {
+  centrifuge: { file: "bench/v2/centrifuge-light.html" },
+  stress10: { file: "bench/stress10-light.html", args: ["--select", "none"] },
+  // steady state: stop the tour (as a user grabbing the slider does) and jump the explode open
+  factory: { file: "bench/v2/factory-light.html", args: ["--eval", OPEN_FACTORY] },
+  // default page behaviour: the tour opens the phone at 1.4 s, so the window holds the end of the spring opening
+  factorytour: { file: "bench/v2/factory-light.html" },
+};
+const VARIANTS = {
+  svg: [],
+  dirty: ["--preload", "bench/preload/dirty-check.js"],
+  frozen: ["--preload", "bench/preload/slots-frozen.js"],
+  halooff: ["--preload", "bench/preload/halo-off.js"],
+  layered: ["--preload", "bench/preload/layered.js"],
+  headed: ["--headed"],
+};
 // [page, variant, config]
 export const MATRIX = [];
 for (const page of ["centrifuge", "stress10", "factory"])
@@ -34,7 +57,7 @@ for (const page of ["centrifuge", "stress10", "factory"])
 for (const config of ["desktop", "phone"]) {
   MATRIX.push(["centrifuge", "frozen", config], ["centrifuge", "halooff", config], ["stress10", "halooff", config]);
 }
-MATRIX.push(["factorytour", "svg", "desktop"], ["centrifuge", "layered", "desktop"], ["centrifuge", "headed", "desktop"], ["stress10", "headed", "desktop"]);
+MATRIX.push(["factorytour", "svg", "desktop"], ["centrifuge", "layered", "desktop"], ["centrifuge", "layered", "phone"], ["stress10", "layered", "desktop"], ["stress10", "layered", "phone"], ["factory", "layered", "desktop"], ["factory", "layered", "phone"], ["centrifuge", "headed", "desktop"], ["stress10", "headed", "desktop"]);
 
 const labelOf = (page, variant, config, r) => `${page}-${variant}-${config}-r${r}`;
 
@@ -141,7 +164,11 @@ ${rows.join("\n")}
 
 Pages: centrifuge = bench/v2/centrifuge-light.html (frozen copy of v2-factory/parts/centrifuge, sha1 ${first?.meta.sha1 ?? "?"});
 stress10 = bench/stress10-light.html (10 inline instances, bench/stress.mjs); factory = bench/v2/factory-light.html
-(frozen copy of v2-factory/assembly/factory-light.html, default tour: opens at 1.4 s, so the measured 2–10 s window is open).
+(frozen copy of v2-factory/assembly/factory-light.html, sha1 d926b8020d55) measured open and at rest: the tour is stopped and the
+explode jumped open by --eval, so every machine runs and nothing is re-sorted; factorytour = the same page untouched (the
+tour opens the phone at 1.4 s, so the window holds the end of the staggered spring opening and its re-sorts).
+Halo A/B (interleaved pairs, paired Δ): out/perf/ab-halo-centrifuge.json, out/perf/ab-halo-stress.json (bench/ab.mjs).
+Recorder overhead (empty page): 0.01 ms/frame script (0.02 at 4× throttle).
 `;
   writeFileSync("out/perf/baselines.md", md);
   writeFileSync("out/perf/baselines.json", JSON.stringify(raw, null, 1));

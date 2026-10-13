@@ -1,0 +1,146 @@
+{
+ "meta": {
+  "label": "blank",
+  "page": "out/tmp/blank.html",
+  "url": "file:///Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/tmp/blank.html",
+  "sha1": "8bbca304e088",
+  "date": "2026-10-12T22:34:10.239Z",
+  "viewport": {
+   "width": 1280,
+   "height": 900,
+   "dpr": 2,
+   "mobile": false
+  },
+  "throttle": 1,
+  "seconds": 4,
+  "warmup": 1,
+  "mode": "headless=new",
+  "chrome": "Chrome/154.0.8037.99",
+  "gpu": {
+   "featureStatus": {
+    "2d_canvas": "enabled",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "enabled_on",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "enabled",
+    "webgl": "enabled",
+    "webgpu": "enabled",
+    "webnn": "disabled_off"
+   },
+   "device": "Google Inc. (Apple) ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Version 27.2 (Build 26B5101f))",
+   "driver": "27.2"
+  },
+  "preload": [],
+  "eval": [],
+  "flags": [],
+  "vsyncMs": 16.667,
+  "blankIntervals": {
+   "n": 59,
+   "mean": 16.666,
+   "min": 16.6,
+   "p50": 16.7,
+   "p95": 16.8,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "loadavg": {
+   "before": [
+    7.575,
+    8.555,
+    20.449
+   ],
+   "after": [
+    6.951,
+    8.388,
+    20.25
+   ]
+  },
+  "cpuIdle": {
+   "before": 65.74,
+   "after": 78.36
+  }
+ },
+ "frames": {
+  "frames": 240,
+  "intervals": {
+   "n": 239,
+   "mean": 16.667,
+   "min": 16.5,
+   "p50": 16.7,
+   "p95": 16.8,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "droppedFrames": 0,
+  "droppedPct": 0,
+  "fps": 60.001,
+  "longIntervals50": 0,
+  "measuredSeconds": 4.003,
+  "pageFrames": 0,
+  "pageFrameRatio": 0
+ },
+ "script": {
+  "callbackMsPerFrame": 0,
+  "callbackMs": {
+   "n": 0
+  },
+  "callbacksPerFrame": 0
+ },
+ "loaf": {
+  "count": 0,
+  "perSecond": 0,
+  "duration": {
+   "n": 0
+  },
+  "blockingMsPerSecond": 0,
+  "split": null
+ },
+ "metrics": {
+  "deltas": {
+   "ScriptDuration": 0.002,
+   "LayoutDuration": 0,
+   "RecalcStyleDuration": 0,
+   "TaskDuration": 0.015,
+   "LayoutCount": 0,
+   "RecalcStyleCount": 0
+  },
+  "perFrame": {
+   "scriptMs": 0.01,
+   "layoutMs": 0,
+   "styleMs": 0,
+   "taskMs": 0.064,
+   "layouts": 0,
+   "styleRecalcs": 0
+  },
+  "end": {
+   "Nodes": 21,
+   "JSHeapUsedMB": 0.674,
+   "JSHeapTotalMB": 1.25,
+   "Documents": 4,
+   "Frames": 4
+  }
+ },
+ "layers": {
+  "count": 4,
+  "drawsContent": 2
+ },
+ "dom": {
+  "elements": 5,
+  "slots": 0,
+  "scrollY": 0,
+  "stageInView": {
+   "top": 16,
+   "bottom": 34,
+   "height": 18,
+   "width": 1264,
+   "innerHeight": 900
+  }
+ },
+ "problems": []
+}

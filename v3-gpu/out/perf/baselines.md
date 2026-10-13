@@ -30,7 +30,30 @@ frames in which the page's own rAF ran: proves the IntersectionObserver gate kep
 | stress10 | svg | phone | 3 | 100.0 | 133.3 | 83.3 | 51.91 | 53.33 | 16.54 | 100.83 | 26.57 | 3.40 | 16.41 | 19.05 | 10.0 | 26661 | 69206 <sub>47637–71042</sub> | 100% |
 | stress10 | dirty | desktop | 3 | 16.7 | 33.4 | 31.0 | 10.98 | 11.02 | 3.56 | 21.92 | 6.10 | 4.03 | 20.62 | 28.23 | 0.2 <sub>0.1–0.3</sub> | 27261 | 107077 <sub>68642–128882</sub> | 100% skip 43% writes / 27% KB |
 | stress10 | dirty | phone | 3 | 100.0 <sub>83.4–100.0</sub> | 116.7 | 82.8 | 50.07 | 51.10 | 15.08 | 98.52 | 30.33 <sub>25.90–31.83</sub> | 3.72 <sub>3.29–4.24</sub> | 18.19 | 22.02 <sub>19.11–23.24</sub> | 10.3 | 26661 | 118739 <sub>106104–126977</sub> | 100% skip 49% writes / 29% KB |
+| factory | svg | desktop | 3 | 16.7 | 33.3 | 10.6 <sub>7.7–13.8</sub> | 10.78 | 10.82 | 3.03 | 18.62 | 4.21 | 2.64 | 16.86 | 18.29 | 0.3 <sub>0.1–0.3</sub> | 17722 | 100305 <sub>69740–194269</sub> | 100% |
+| factory | svg | phone | 3 | 83.3 | 100.1 | 80.1 | 48.52 | 49.13 | 14.53 | 84.56 | 17.19 | 2.26 | 15.01 | 19.19 | 11.9 | 17577 | 56563 | 100% |
+| factory | dirty | desktop | 3 | 16.7 | 33.3 | 13.5 <sub>9.0–17.7</sub> | 10.58 | 10.70 | 2.96 | 18.57 | 4.09 | 2.58 <sub>2.52–2.95</sub> | 16.14 | 18.91 | 0.3 <sub>0.1–0.4</sub> | 17722 | 175839 <sub>173700–252187</sub> | 100% skip 44% writes / 6% KB |
+| factory | dirty | phone | 3 | 83.3 | 100.0 <sub>83.4–100.0</sub> | 79.4 | 46.88 | 47.88 | 13.88 | 81.47 | 16.52 | 2.21 | 14.51 | 18.26 | 12.4 | 17565 | 58535 <sub>56765–135659</sub> | 100% skip 46% writes / 6% KB |
+| centrifuge | frozen | desktop | 3 | 16.7 | 16.8 | 0.0 | 0.77 | 0.78 | 0.06 | 1.10 | 0.14 | 0.04 | 0.23 <sub>0.19–0.24</sub> | 0.34 <sub>0.29–0.37</sub> | 0.0 | 2620 | 3069 | 100% |
+| centrifuge | halooff | desktop | 3 | 16.7 | 16.8 | 0.0 | 1.25 | 1.27 | 0.58 | 2.85 | 0.67 | 0.45 | 2.18 | 2.61 | 0.0 | 2738 | 6750 <sub>3037–7368</sub> | 100% |
+| stress10 | halooff | desktop | 2 | 16.7 | 33.4 | 23.4 | 11.00 | 11.16 | 3.78 | 21.66 | 5.92 | 3.71 | 18.39 | 23.17 | 0.0 | 27264 | 102277 <sub>87786–116767</sub> | 100% |
+| centrifuge | frozen | phone | 3 | 16.7 | 16.7 | 0.0 | 2.94 | 2.96 | 0.23 | 4.14 | 0.57 <sub>0.49–0.67</sub> | 0.02 | 0.10 <sub>0.09–0.10</sub> | 0.22 <sub>0.18–0.23</sub> | 0.0 | 2620 | 3069 | 100% |
+| centrifuge | halooff | phone | 3 | 16.7 | 16.7 | 1.0 <sub>1.0–1.5</sub> | 5.07 | 5.10 | 2.48 <sub>2.31–2.69</sub> | 11.28 | 2.83 <sub>2.58–3.05</sub> | 0.46 | 2.02 | 2.67 | 0.3 <sub>0.1–0.3</sub> | 2738 | 36095 <sub>27035–38956</sub> | 100% |
+| stress10 | halooff | phone | 3 | 83.3 <sub>83.2–100.0</sub> | 100.0 <sub>83.4–116.8</sub> | 79.5 | 41.68 <sub>39.69–51.29</sub> | 43.07 <sub>40.45–52.64</sub> | 13.44 <sub>12.57–16.94</sub> | 82.00 <sub>77.30–101.34</sub> | 22.00 | 2.91 | 14.51 | 16.02 | 11.1 <sub>10.0–12.3</sub> | 26772 | 86059 <sub>66211–103787</sub> | 100% |
+| factorytour | svg | desktop | 3 | 16.7 <sub>16.7–33.3</sub> | 50.0 | 34.8 <sub>32.1–45.7</sub> | 11.78 <sub>11.16–13.58</sub> | 11.96 <sub>11.37–13.76</sub> | 7.04 <sub>6.66–9.01</sub> | 25.50 <sub>24.42–30.44</sub> | 4.68 | 3.62 <sub>3.01–4.15</sub> | 18.80 <sub>16.33–19.17</sub> | 20.52 <sub>17.84–21.53</sub> | 0.4 <sub>0.1–1.1</sub> | 17684 | 169752 <sub>120408–208178</sub> | 100% |
+| centrifuge | layered | desktop | 3 | 16.7 | 16.7 | 0.0 | 1.39 | 1.41 | 0.65 | 3.24 | 0.89 | 0.20 <sub>0.20–0.24</sub> | 1.30 | 2.12 | 0.0 | 2740 | 7057 <sub>4890–11406</sub> | 100% |
+| centrifuge | layered | phone | 3 | 16.7 | 16.8 | 0.8 <sub>0.6–1.5</sub> | 5.00 | 5.03 | 2.46 | 11.56 | 3.20 | 0.15 | 1.04 | 1.76 | 0.1 <sub>0.0–0.4</sub> | 2739 | 40244 <sub>29193–45849</sub> | 100% |
+| stress10 | layered | desktop | 2 | 16.7 | 33.4 | 25.5 | 10.62 | 10.70 | 3.64 | 22.38 | 7.19 | 1.97 | 12.20 | 20.18 | 0.0 | 27503 | 114453 <sub>86272–142634</sub> | 100% |
+| stress10 | layered | phone | 3 | 83.4 <sub>83.3–100.0</sub> | 100.1 <sub>100.0–116.7</sub> | 81.5 | 44.51 | 45.64 <sub>43.00–49.85</sub> | 14.68 <sub>13.61–16.52</sub> | 91.23 | 27.18 | 1.80 | 10.23 <sub>10.14–11.84</sub> | 15.26 <sub>14.64–17.57</sub> | 11.1 | 26662 | 93564 <sub>59045–104093</sub> | 100% |
+| factory | layered | desktop | 2 | 16.7 | 33.4 | 19.1 <sub>17.3–20.8</sub> | 11.27 | 11.39 | 3.18 | 20.63 | 5.49 | 1.65 | 9.20 | 13.11 | 0.2 <sub>0.1–0.3</sub> | 17642 | 191163 <sub>120776–261550</sub> | 100% |
+| factory | layered | phone | 3 | 83.3 <sub>83.3–100.1</sub> | 100.0 <sub>100.0–133.3</sub> | 80.4 | 47.03 <sub>46.39–58.88</sub> | 47.65 <sub>46.98–61.59</sub> | 13.63 <sub>13.55–19.30</sub> | 85.74 <sub>84.71–112.14</sub> | 21.15 <sub>20.23–26.12</sub> | 1.32 <sub>1.30–1.65</sub> | 7.21 <sub>7.13–8.40</sub> | 10.24 <sub>10.02–11.84</sub> | 11.8 <sub>9.1–11.9</sub> | 17594 | 61987 <sub>55928–121030</sub> | 100% |
+| centrifuge | headed | desktop | 3 | 6.9 | 8.3 | 0.3 <sub>0.3–0.5</sub> | 1.25 | 1.27 | 0.60 | 2.78 | 0.67 | 0.50 | 2.55 | 3.21 | 0.0 | 2751 | 27186 <sub>19141–45385</sub> | 100% |
+| stress10 | headed | desktop | 3 | 20.9 | 34.6 <sub>28.1–36.0</sub> | 69.2 | 10.41 | 10.46 | 3.67 | 20.75 | 5.75 | 3.69 <sub>3.46–4.14</sub> | 20.44 | 28.61 <sub>25.13–32.22</sub> | 0.0 | 27255 | 92251 <sub>89640–142409</sub> | 100% |
 
 Pages: centrifuge = bench/v2/centrifuge-light.html (frozen copy of v2-factory/parts/centrifuge, sha1 095104dedae6);
 stress10 = bench/stress10-light.html (10 inline instances, bench/stress.mjs); factory = bench/v2/factory-light.html
-(frozen copy of v2-factory/assembly/factory-light.html, default tour: opens at 1.4 s, so the measured 2–10 s window is open).
+(frozen copy of v2-factory/assembly/factory-light.html, sha1 d926b8020d55) measured open and at rest: the tour is stopped and the
+explode jumped open by --eval, so every machine runs and nothing is re-sorted; factorytour = the same page untouched (the
+tour opens the phone at 1.4 s, so the window holds the end of the staggered spring opening and its re-sorts).
+Halo A/B (interleaved pairs, paired Δ): out/perf/ab-halo-centrifuge.json, out/perf/ab-halo-stress.json (bench/ab.mjs).
+Recorder overhead (empty page): 0.01 ms/frame script (0.02 at 4× throttle).
