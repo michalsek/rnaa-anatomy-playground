@@ -1,0 +1,563 @@
+{
+ "meta": {
+  "label": "stress10-iframe-svg-desktop-r3",
+  "page": "bench/stress10-iframe-light.html",
+  "url": "file:///Users/michalsek/Documents/rnaa-anatomy/v3-gpu/bench/stress10-iframe-light.html",
+  "sha1": "42621455105d",
+  "date": "2026-10-13T11:33:32.648Z",
+  "viewport": {
+   "width": 1280,
+   "height": 900,
+   "dpr": 2,
+   "mobile": false
+  },
+  "throttle": 1,
+  "seconds": 8,
+  "warmup": 2,
+  "mode": "headless=new",
+  "chrome": "Chrome/155.0.8059.40",
+  "gpu": {
+   "featureStatus": {
+    "2d_canvas": "enabled",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "enabled_on",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "enabled",
+    "webgl": "enabled",
+    "webgpu": "enabled",
+    "webnn": "disabled_off"
+   },
+   "device": "Google Inc. (Apple) ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Version 27.2 (Build 26B5101f))",
+   "driver": "27.2"
+  },
+  "preload": [
+   "bench/preload/gpu-timing.js"
+  ],
+  "eval": [],
+  "flags": [],
+  "vsyncMs": 16.667,
+  "blankIntervals": {
+   "n": 59,
+   "mean": 16.666,
+   "min": 16.6,
+   "p50": 16.7,
+   "p95": 16.7,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "loadavg": {
+   "before": [
+    5.72,
+    6.133,
+    6.978
+   ],
+   "after": [
+    5.955,
+    6.157,
+    6.966
+   ]
+  },
+  "cpuIdle": {
+   "before": 61.94,
+   "after": 53.84
+  }
+ },
+ "frames": {
+  "frames": 349,
+  "intervals": {
+   "n": 348,
+   "mean": 22.988,
+   "min": 16.5,
+   "p50": 16.7,
+   "p95": 33.4,
+   "p99": 33.4,
+   "max": 116.7
+  },
+  "droppedFrames": 132,
+  "droppedPct": 27.5,
+  "fps": 43.502,
+  "longIntervals50": 2,
+  "measuredSeconds": 8.03,
+  "pageFrames": 349,
+  "pageFrameRatio": 1
+ },
+ "script": {
+  "callbackMsPerFrame": 10.905,
+  "callbackMs": {
+   "n": 349,
+   "mean": 10.905,
+   "min": 8.6,
+   "p50": 10.4,
+   "p95": 11.8,
+   "p99": 13.7,
+   "max": 115.2
+  },
+  "callbacksPerFrame": 10
+ },
+ "loaf": {
+  "count": 3,
+  "perSecond": 0.374,
+  "duration": {
+   "n": 3,
+   "mean": 88.233,
+   "min": 54.6,
+   "p50": 88.6,
+   "p95": 121.5,
+   "p99": 121.5,
+   "max": 121.5
+  },
+  "blockingMsPerSecond": 13.723,
+  "split": {
+   "preRenderMs": 1.433,
+   "rafMs": 81.3,
+   "styleLayoutPaintMs": 5.5,
+   "scriptAttributedMs": 67.267
+  }
+ },
+ "metrics": {
+  "deltas": {
+   "ScriptDuration": 3.832,
+   "LayoutDuration": 0.454,
+   "RecalcStyleDuration": 1.222,
+   "TaskDuration": 7.958,
+   "LayoutCount": 3500,
+   "RecalcStyleCount": 3500
+  },
+  "perFrame": {
+   "scriptMs": 10.979,
+   "layoutMs": 1.3,
+   "styleMs": 3.502,
+   "taskMs": 22.803,
+   "layouts": 10.029,
+   "styleRecalcs": 10.029
+  },
+  "end": {
+   "Nodes": 141323,
+   "JSHeapUsedMB": 15.142,
+   "JSHeapTotalMB": 27.25,
+   "Documents": 11,
+   "Frames": 11
+  }
+ },
+ "gpuUtil": {
+  "source": "ioreg IOAccelerator PerformanceStatistics 'Device Utilization %' (whole machine)",
+  "before": {
+   "n": 8,
+   "mean": 68.75,
+   "min": 67,
+   "p50": 68,
+   "p95": 71,
+   "p99": 71,
+   "max": 71
+  },
+  "window": {
+   "n": 32,
+   "mean": 73.156,
+   "min": 59,
+   "p50": 73,
+   "p95": 82,
+   "p99": 84,
+   "max": 84
+  }
+ },
+ "trace": {
+  "seconds": 3,
+  "events": 152980,
+  "frames": 116,
+  "windowMs": 3017.453,
+  "threads": {
+   "main": {
+    "threads": 1,
+    "busyMsPerFrame": 24.378,
+    "top": [
+     {
+      "name": "FunctionCall",
+      "msPerFrame": 8.251
+     },
+     {
+      "name": "UpdateLayoutTree",
+      "msPerFrame": 3.599
+     },
+     {
+      "name": "Paint",
+      "msPerFrame": 3.13
+     },
+     {
+      "name": "ParseHTML",
+      "msPerFrame": 2.588
+     },
+     {
+      "name": "Layerize",
+      "msPerFrame": 2.403
+     },
+     {
+      "name": "LocalFrameView::performLayout",
+      "msPerFrame": 1.436
+     },
+     {
+      "name": "ThreadControllerImpl::RunTask",
+      "msPerFrame": 0.877
+     },
+     {
+      "name": "LocalFrameView::RunPrePaintLifecyclePhase",
+      "msPerFrame": 0.457
+     },
+     {
+      "name": "V8.GC_MARK_COMPACTOR",
+      "msPerFrame": 0.399
+     },
+     {
+      "name": "V8.GC_MC_INCREMENTAL_EMBEDDER_TRACING",
+      "msPerFrame": 0.18
+     },
+     {
+      "name": "Layout",
+      "msPerFrame": 0.151
+     },
+     {
+      "name": "LocalFrameView::RunCompositingInputsLifecyclePhase",
+      "msPerFrame": 0.128
+     }
+    ],
+    "kindsMsPerFrame": {
+     "script": 8.405,
+     "style": 3.599,
+     "paint": 3.13,
+     "parse": 2.588,
+     "layerize": 2.409,
+     "layout": 1.586,
+     "other": 1.173,
+     "gc": 0.838,
+     "prepaint": 0.587,
+     "commit": 0.064
+    }
+   },
+   "compositor": {
+    "threads": 1,
+    "busyMsPerFrame": 1.025,
+    "top": [
+     {
+      "name": "TreeSynchronizer::PushLayerPropertiesTo.Active",
+      "msPerFrame": 0.442
+     },
+     {
+      "name": "RasterSource::PerformSolidColorAnalysis",
+      "msPerFrame": 0.15
+     },
+     {
+      "name": "GpuChannelHost::VerifyFlush",
+      "msPerFrame": 0.079
+     },
+     {
+      "name": "Graphics.Pipeline",
+      "msPerFrame": 0.066
+     },
+     {
+      "name": "SimpleWatcher::OnHandleReady",
+      "msPerFrame": 0.02
+     },
+     {
+      "name": "ThreadControllerImpl::RunTask",
+      "msPerFrame": 0.016
+     },
+     {
+      "name": "Scheduler::BeginImplFrame",
+      "msPerFrame": 0.016
+     },
+     {
+      "name": "RunTask",
+      "msPerFrame": 0.014
+     },
+     {
+      "name": "TileManager::ScheduleTasks",
+      "msPerFrame": 0.012
+     },
+     {
+      "name": "TileManager::AssignGpuMemoryToTiles",
+      "msPerFrame": 0.012
+     },
+     {
+      "name": "LayerTreeImpl::PullProperties",
+      "msPerFrame": 0.011
+     },
+     {
+      "name": "Receive mojo message",
+      "msPerFrame": 0.011
+     }
+    ]
+   },
+   "raster": {
+    "threads": 13,
+    "busyMsPerFrame": 9.865,
+    "top": [
+     {
+      "name": "ThreadPool_RunTask",
+      "msPerFrame": 5.93
+     },
+     {
+      "name": "RasterImplementation::RasterCHROMIUM",
+      "msPerFrame": 3.506
+     },
+     {
+      "name": "GpuRasterBuffer::Playback",
+      "msPerFrame": 0.203
+     },
+     {
+      "name": "V8.GC_SCAVENGER_BACKGROUND_SCAVENGE_PARALLEL",
+      "msPerFrame": 0.056
+     },
+     {
+      "name": "V8.GC_MC_BACKGROUND_EVACUATE_COPY",
+      "msPerFrame": 0.049
+     },
+     {
+      "name": "V8.GC_MC_BACKGROUND_MARKING",
+      "msPerFrame": 0.046
+     },
+     {
+      "name": "V8.GC_BACKGROUND_SAFEPOINT",
+      "msPerFrame": 0.02
+     },
+     {
+      "name": "V8.GC_MC_BACKGROUND_SWEEPING",
+      "msPerFrame": 0.013
+     },
+     {
+      "name": "RasterizerTaskImpl::RunOnWorkerThread",
+      "msPerFrame": 0.006
+     },
+     {
+      "name": "TaskGraphRunner::RunTask",
+      "msPerFrame": 0.006
+     },
+     {
+      "name": "TaskSetFinishedTaskImpl::RunOnWorkerThread",
+      "msPerFrame": 0.006
+     },
+     {
+      "name": "V8.GC_MC_BACKGROUND_EVACUATE_UPDATE_POINTERS",
+      "msPerFrame": 0.006
+     }
+    ]
+   },
+   "gpuMain": {
+    "threads": 1,
+    "busyMsPerFrame": 25.442,
+    "top": [
+     {
+      "name": "RasterDecoderImpl::DoRasterCHROMIUM::Deserializing",
+      "msPerFrame": 12.214
+     },
+     {
+      "name": "RasterDecoderImpl::DoEndRasterCHROMIUM::Flush",
+      "msPerFrame": 6.357
+     },
+     {
+      "name": "IOSurfaceImageBacking::WaitForCommandsToBeScheduled::Dawn",
+      "msPerFrame": 6.356
+     },
+     {
+      "name": "CommandBufferService:PutChanged",
+      "msPerFrame": 0.266
+     },
+     {
+      "name": "CommitPresentedFrameToCA",
+      "msPerFrame": 0.075
+     },
+     {
+      "name": "RasterDecoderImpl::DoBeginRasterCHROMIUM",
+      "msPerFrame": 0.029
+     },
+     {
+      "name": "RasterDecoderImpl::DoEndRasterCHROMIUM",
+      "msPerFrame": 0.028
+     },
+     {
+      "name": "CARendererLayerTree::CommitScheduledCALayers",
+      "msPerFrame": 0.026
+     },
+     {
+      "name": "SkiaOutputDevice->ScheduleOverlays()",
+      "msPerFrame": 0.026
+     },
+     {
+      "name": "ThreadControllerImpl::RunTask",
+      "msPerFrame": 0.013
+     },
+     {
+      "name": "Graphics.Pipeline",
+      "msPerFrame": 0.007
+     },
+     {
+      "name": "GPUTask",
+      "msPerFrame": 0.007
+     }
+    ]
+   },
+   "viz": {
+    "threads": 1,
+    "busyMsPerFrame": 0.207,
+    "top": [
+     {
+      "name": "Graphics.Pipeline",
+      "msPerFrame": 0.08
+     },
+     {
+      "name": "ThreadControllerImpl::RunTask",
+      "msPerFrame": 0.024
+     },
+     {
+      "name": "Receive mojo message",
+      "msPerFrame": 0.018
+     },
+     {
+      "name": "SimpleWatcher::OnHandleReady",
+      "msPerFrame": 0.016
+     },
+     {
+      "name": "ExternalBeginFrameSource::OnBeginFrame",
+      "msPerFrame": 0.01
+     },
+     {
+      "name": "RunTask",
+      "msPerFrame": 0.008
+     },
+     {
+      "name": "Surface::ActivateFrame",
+      "msPerFrame": 0.008
+     },
+     {
+      "name": "DisplayScheduler::BeginFrame",
+      "msPerFrame": 0.007
+     },
+     {
+      "name": "DirectRenderer::DrawFrame",
+      "msPerFrame": 0.006
+     },
+     {
+      "name": "SkiaRenderer::FinishDrawingFrame",
+      "msPerFrame": 0.005
+     },
+     {
+      "name": "DisplayScheduler::ScheduleBeginFrameDeadline",
+      "msPerFrame": 0.005
+     },
+     {
+      "name": "SkiaOutputSurfaceImpl::FlushGpuTasks",
+      "msPerFrame": 0.003
+     }
+    ]
+   },
+   "gpuOther": {
+    "threads": 2,
+    "busyMsPerFrame": 0.027,
+    "top": [
+     {
+      "name": "SimpleWatcher::OnHandleReady",
+      "msPerFrame": 0.012
+     },
+     {
+      "name": "Receive mojo message",
+      "msPerFrame": 0.01
+     },
+     {
+      "name": "GpuChannelMessageFilter::FlushDeferredRequests",
+      "msPerFrame": 0.003
+     },
+     {
+      "name": "Scheduler::ScheduleTask",
+      "msPerFrame": 0.001
+     },
+     {
+      "name": "ThreadControllerImpl::RunTask",
+      "msPerFrame": 0.001
+     },
+     {
+      "name": "RunTask",
+      "msPerFrame": 0
+     },
+     {
+      "name": "Receive mojo reply",
+      "msPerFrame": 0
+     }
+    ]
+   }
+  },
+  "perFrame": {
+   "scriptMs": 11.83,
+   "styleMs": 3.599,
+   "layoutMs": 1.586,
+   "paintMainMs": 6.19,
+   "rasterMs": 3.716,
+   "gpuRasterMs": 18.634,
+   "webgpuMs": 0,
+   "gpuWaitMs": 6.361,
+   "gpuMs": 25.649,
+   "compositorMs": 1.025,
+   "mainBusyMs": 24.378,
+   "gpuCpuMs": 19.289
+  },
+  "pipelineReporter": {
+   "STATE_PRESENTED_ALL": 114,
+   "STATE_PRESENTED_PARTIAL": 114,
+   "STATE_DROPPED": 68
+  }
+ },
+ "layers": {
+  "count": 4,
+  "drawsContent": 2
+ },
+ "dom": {
+  "elements": 27450,
+  "slots": 160,
+  "scrollY": 0,
+  "stageInView": {
+   "top": 0,
+   "bottom": 900,
+   "height": 900,
+   "width": 1280,
+   "innerHeight": 900
+  }
+ },
+ "pageStats": {
+  "gpuLiveJsMs": {
+   "window": 0,
+   "perFrame": 0
+  },
+  "gpuLiveJsN": {
+   "window": 0,
+   "perFrame": 0
+  },
+  "gpuParseMs": {
+   "window": 0,
+   "perFrame": 0
+  },
+  "gpuParseN": {
+   "window": 0,
+   "perFrame": 0
+  },
+  "gpuUploadMs": {
+   "window": 0,
+   "perFrame": 0
+  },
+  "gpuUploadN": {
+   "window": 0,
+   "perFrame": 0
+  },
+  "gpuEncodeMs": {
+   "window": 0,
+   "perFrame": 0
+  },
+  "gpuEncodeN": {
+   "window": 0,
+   "perFrame": 0
+  }
+ },
+ "problems": []
+}

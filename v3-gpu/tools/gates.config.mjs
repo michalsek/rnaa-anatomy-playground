@@ -90,5 +90,29 @@ export const CALIB = {
   minInk: 200,
 };
 
+/**
+ * M5 native rotor (tools/native-gate.mjs). The native path draws the rotor from unrounded coordinates where the kit
+ * writes 0.1-unit rounded path data, so it may move edges by ≤ 0.07 viewBox units against the markup path: AA-level
+ * differences only, never a solid blob.
+ */
+export const NATIVE = {
+  /**
+   * Native records vs the markup path's for the same state. The kit rounds every point to 0.1 (≤ 0.0707 away), so
+   * polylines may be 0.08 apart and a fill's area may differ by 0.08 × its boundary length (one face drawn in the
+   * wrong tone moves its whole area, far beyond that).
+   */
+  contract: { pointTolerance: 0.08, quickTicks: [148, 237, 711, 884, 913] },
+  identity: { ticks: [237, 711, 884, 913, 932, 971], quickTicks: [711, 884], loss: [690, 700] },
+  compare: {
+    ticks: [148, 237, 593, 711, 762, 837, 884, 913, 932, 971, 1550],
+    quickTicks: [237, 884],
+    dprs: [1, 2, 4],
+    cropTicks: [237, 711, 884, 913],
+    /** vs SVG: the live (= static) limits per DPR; vs the markup path: no solid blob, loose ≤ half the DPR's live limit. */
+    limits: Object.fromEntries(STATIC.dprs.map((dpr) => [dpr, { vsSvg: STATIC.limits[dpr], vsMarkup: { loosePct: STATIC.limits[dpr].loosePct / 2, solidCluster: 4 } }])),
+  },
+  sheet: { theme: "light", from: 700, count: 60 },
+};
+
 /** Optional perf smoke: numbers only, never fails the run. */
 export const PERF = { width: 1280, dpr: 2, throttles: [1, 4], frames: 300, warmupSeconds: 3 };

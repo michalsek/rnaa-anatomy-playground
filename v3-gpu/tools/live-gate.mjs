@@ -4,7 +4,8 @@
 // ready first) and frozen after exactly N runtime ticks, so both pages show the same simulation state.
 //
 //   static [--quick] [--mutate blur|patch]   M2 static frame (out/gpu/static*.html, fixture) vs the v2 static SVG frame
-//   live [--quick] [--mutate drop-slot]       M3 live page vs the SVG page at LIVE.ticks, fades, reduced motion, DPR 4
+//   live [--quick] [--native 0] [--mutate drop-native|drop-slot]   live page (native rotor; --native 0: markup path)
+//                                             vs the SVG page at LIVE.ticks, fades, reduced motion, DPR 4
 //   motion [--quick] [--mutate pop]           consecutive frames: GPU-only flicker and frame-to-frame change vs SVG
 //   determinism [--ticks 3000] [--mutate no-rebase]   runtime state per tick: SVG vs GPU page, two runs of each, identical
 //   calib [--quick] [--mutate contrast]       hairline ink per calibration cell, GPU / SVG (src/fixture/make-calib.mjs)
@@ -18,14 +19,16 @@ import { PNG } from "pngjs";
 import { CALIB, LIVE, MOTION, PERF, STATIC } from "./gates.config.mjs";
 import { compareImages, crop, erode, largestCluster, readPng, STRICT_DELTA } from "./diff.mjs";
 import {
-  GATES_OUT, PAGES, ROOT, RUNTIME_STATE, TICK_GATE, advanceTo, createChecks, lockstepPreload, openPage, openRuntimePage,
+  GATES_OUT, PAGES, ROOT, RUNTIME_STATE, TICK_GATE, advanceTo, createChecks, fileUrl, lockstepPreload, openPage, openRuntimePage,
   parseArgs, settle, shot, stageBox, waitFor, withBrowser,
 } from "./harness.mjs";
 
 const INJECT_FADE = `FACTORY.machines.centrifuge.accept("in", FACTORY.item("graph"))`;
 /** Self-test mutations of the GPU page; the gate must FAIL with any of them. */
 const MUTATIONS = {
-  // the GPU page loses one live slot: the runtime's writes to it go to a detached element
+  // the native rotor draws no pocketed packets (v2's state and its on-demand strings stay intact: pixels must catch it)
+  "drop-native": `window.__factoryHooks.push((f) => { const define = f.define; f.define = (id, make) => define.call(f, id, (api) => { let gpu; Object.defineProperty(api, "gpu", { configurable: true, get: () => gpu, set(next) { gpu = { rotor: (angle, pockets, ...rest) => next.rotor(angle, pockets.map(() => null), ...rest) }; } }); return make(api); }); });`,
+  // the GPU page loses one live slot: the runtime's writes to it go to a detached element (markup path: --native 0)
   "drop-slot": `window.__factoryHooks.push((f) => { f.slots["centrifuge:rotorFront"] = document.createElementNS("http://www.w3.org/2000/svg", "g"); });`,
   // the figure renders soft (as a resampled canvas would)
   blur: `addEventListener("DOMContentLoaded", () => { const s = document.createElement("style"); s.textContent = "canvas.iso-svg{filter:blur(0.5px)}"; document.head.append(s); });`,
@@ -66,12 +69,15 @@ async function runPage(browser, { path, ticks, dpr, width, reduced = false, inje
   }
 }
 
+/** The GPU live page: native rotor (default), or `--native 0` for the markup path (`?native=0`). */
+const gpuPageOf = (theme, native) => (String(native) === "0" ? `${fileUrl(PAGES.gpu(theme))}?native=0` : PAGES.gpu(theme));
+
 /** SVG and GPU page through the same ticks; every shot pair must be within `limit` and the runtime states equal. */
-async function compareRun(browser, checks, { name, theme, ticks, dpr, reduced = false, inject = [], mutate }) {
+async function compareRun(browser, checks, { name, theme, ticks, dpr, reduced = false, inject = [], mutate, native }) {
   const dir = join(GATES_OUT, "live", name);
   const common = { ticks, dpr, reduced, inject, dir };
   const svg = await runPage(browser, { ...common, path: PAGES.svg(theme), prefix: `${theme}-svg` });
-  const gpu = await runPage(browser, { ...common, path: PAGES.gpu(theme), prefix: `${theme}-gpu`, preloads: mutate ? [MUTATIONS[mutate]] : [] });
+  const gpu = await runPage(browser, { ...common, path: gpuPageOf(theme, native), prefix: `${theme}-gpu`, preloads: mutate ? [MUTATIONS[mutate]] : [] });
   const limit = LIVE.limits[dpr];
   const rows = [];
   for (const tick of ticks) {
@@ -89,17 +95,18 @@ async function compareRun(browser, checks, { name, theme, ticks, dpr, reduced = 
 }
 
 async function liveGate(options) {
-  const checks = createChecks(options.mutate ? `live-mutate-${options.mutate}` : "live");
+  const native = options.native ?? "1";
+  const checks = createChecks(`live${native === "0" ? "-markup" : ""}${options.mutate ? `-mutate-${options.mutate}` : ""}`);
   const quick = Boolean(options.quick);
   const report = {};
   await withBrowser(async (browser) => {
     for (const theme of LIVE.themes) {
-      report[`ticks-${theme}`] = await compareRun(browser, checks, { name: "ticks", theme, ticks: quick ? LIVE.quickTicks : LIVE.ticks, dpr: LIVE.dpr, mutate: options.mutate });
+      report[`ticks-${theme}`] = await compareRun(browser, checks, { name: "ticks", theme, ticks: quick ? LIVE.quickTicks : LIVE.ticks, dpr: LIVE.dpr, mutate: options.mutate, native });
       if (options.mutate) continue;
       const inject = LIVE.fade.injectAt.map((tick) => ({ tick, js: INJECT_FADE }));
-      report[`fade-${theme}`] = await compareRun(browser, checks, { name: "fade", theme, ticks: quick ? LIVE.fade.ticks.slice(0, 2) : LIVE.fade.ticks, dpr: LIVE.dpr, inject });
-      report[`reduced-${theme}`] = await compareRun(browser, checks, { name: "reduced", theme, ticks: quick ? LIVE.reduced.ticks.slice(0, 1) : LIVE.reduced.ticks, dpr: LIVE.dpr, reduced: true });
-      if (!quick) report[`dpr${LIVE.highDpr.dpr}-${theme}`] = await compareRun(browser, checks, { name: `dpr${LIVE.highDpr.dpr}`, theme, ticks: LIVE.highDpr.ticks, dpr: LIVE.highDpr.dpr });
+      report[`fade-${theme}`] = await compareRun(browser, checks, { name: "fade", theme, ticks: quick ? LIVE.fade.ticks.slice(0, 2) : LIVE.fade.ticks, dpr: LIVE.dpr, inject, native });
+      report[`reduced-${theme}`] = await compareRun(browser, checks, { name: "reduced", theme, ticks: quick ? LIVE.reduced.ticks.slice(0, 1) : LIVE.reduced.ticks, dpr: LIVE.dpr, reduced: true, native });
+      if (!quick) report[`dpr${LIVE.highDpr.dpr}-${theme}`] = await compareRun(browser, checks, { name: `dpr${LIVE.highDpr.dpr}`, theme, ticks: LIVE.highDpr.ticks, dpr: LIVE.highDpr.dpr, native });
     }
   });
   checks.finish(report);
@@ -356,7 +363,7 @@ async function perf(options) {
   const results = [];
   await withBrowser(async (browser) => {
     for (const throttle of PERF.throttles) {
-      const { cdp, problems, close } = await openPage(browser, { path: PAGES.gpu(options.theme ?? "dark"), width: PERF.width, dpr: PERF.dpr, throttle });
+      const { cdp, problems, close } = await openPage(browser, { path: `${fileUrl(PAGES.gpu(options.theme ?? "dark"))}?gpuTime`, width: PERF.width, dpr: PERF.dpr, throttle });
       try {
         await waitFor(cdp, "window.__gpu && (__gpu.ready || !!__gpu.error)", 60000);
         await cdp.evaluate(`document.querySelector(".fx-stage").scrollIntoView({ block: "center" }), 1`);

@@ -70,6 +70,11 @@ export class LiveAdapter {
     const { source, builder, paints, resolver, clock, profiler } = this.options;
     if (!painter || !source.hasDirty) return 0;
     const changed = source.takeDirty(this.changed);
+    // slots another painter draws (native) are neither parsed nor uploaded
+    let kept = 0;
+    for (const slot of changed) if (painter.owns(slot)) changed[kept++] = slot;
+    changed.length = kept;
+    if (!kept) return 0;
     const t0 = clock.now();
     profiler.begin(TIMING.parse);
     for (const slot of changed) if (this.collectedMarkup[slot] !== source.markupOf(slot)) this.collect(slot);

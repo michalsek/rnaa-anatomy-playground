@@ -73,6 +73,8 @@ export class LiveSlots implements SlotPainter {
   version = 0;
   private readonly states: SlotState[];
   private readonly index = new Map<number, number>();
+  /** Per state: the renderer gave the slot to another painter (native); nothing is uploaded or drawn for it. */
+  private readonly released: Uint8Array;
   private atlas: Atlas | null = null;
   private idleFrames = 0;
   private active: ActiveGroup[] = [];
@@ -90,13 +92,32 @@ export class LiveSlots implements SlotPainter {
   ) {
     slots.forEach((slot, i) => this.index.set(slot, i));
     this.states = slots.map(() => ({ geometry: null, buffer: null, capacity: 0, group: null, groupVersion: -1 }));
+    this.released = new Uint8Array(slots.length);
     this.activeOf = slots.map(() => []);
     this.params = root.createBuffer(d.arrayOf(GroupParams, 4)).$usage('storage');
     this.paramsHost = this.params.arrayBuffer;
   }
 
-  /** Uploads a slot's new geometry (one buffer write); returns the bytes written. */
+  /** Whether this painter still draws `slot` (the renderer may have given it to another painter). */
+  owns(slot: number) {
+    const i = this.index.get(slot);
+    return i !== undefined && !this.released[i];
+  }
+
+  release(slots: readonly number[]) {
+    for (const slot of slots) {
+      const i = this.index.get(slot);
+      if (i === undefined) continue;
+      this.released[i] = 1;
+      this.states[i].geometry = null;
+      this.activeOf[i].length = 0;
+    }
+    this.version++;
+  }
+
+  /** Uploads a slot's new geometry (one buffer write); returns the bytes written (0 for a released slot). */
   update(slot: number, geometry: SlotGeometry): number {
+    if (!this.owns(slot)) return 0;
     const state = this.stateOf(slot);
     if (geometry.byteLength > state.capacity) {
       state.buffer?.destroy();

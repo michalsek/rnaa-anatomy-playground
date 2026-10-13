@@ -46,7 +46,8 @@ export interface FrameContext {
 }
 
 /**
- * Draws the content of one or more live slots. The renderer calls, per frame: `prepare` (offscreen passes, before the
+ * Draws the content of one or more live slots. Slot ownership lives in the renderer (`setSlotPainter`); a painter only
+ * ever draws the slots it still owns. The renderer calls, per frame: `prepare` (offscreen passes, before the
  * main pass), `drawOpaque` (depth-writing content, in the opaque phase), then `drawSlot` at each slot's painter
  * position. Content must stay inside the depth slots [depthBase, depthBase + capacity) the renderer reserved
  * (`layersOf` reports the need; growing it re-lays the depth range) and inside `extentOf` (the static cache treats
@@ -58,6 +59,11 @@ export interface SlotPainter {
   readonly version: number;
   layersOf(slot: number): number;
   extentOf(slot: number): SlotExtent | null;
+  /**
+   * The renderer gave `slots` to another painter: stop drawing them (prepare / drawOpaque included) and drop what they
+   * hold. A painter that owns no slot any more is no longer called at all.
+   */
+  release(slots: readonly number[]): void;
   prepare(frame: FrameContext, encoder: TgpuCommandEncoder): void;
   drawOpaque(frame: FrameContext, pass: TgpuRenderPass): void;
   drawSlot(frame: FrameContext, pass: TgpuRenderPass, slot: number): void;

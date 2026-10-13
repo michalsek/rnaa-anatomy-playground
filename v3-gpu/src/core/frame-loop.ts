@@ -73,12 +73,27 @@ export interface LiveParts {
   slotWrittenOutsideFrame(slot: number): void;
 }
 
+/**
+ * Something that contributes slot painters to every renderer the view creates (first start and each re-init after
+ * device loss), e.g. a native painter. `attach` runs before the renderer compiles its pipelines, after the live
+ * painter was attached (a painter attached here may take slots from it with `renderer.setSlotPainter`).
+ */
+export interface PainterHost {
+  attach(root: TgpuRoot, renderer: Renderer): void;
+  /** The renderer is gone (device loss, fallback, dispose); it disposed the painters itself. */
+  detach(): void;
+}
+
 export interface GpuViewOptions {
   scene: GpuScene;
   slots: SlotPlacement[];
   paints: PaintTable;
   cache: CacheMode;
   live: LiveParts | null;
+  /** Painter hosts attached to every renderer after the live path (native slot painters). */
+  painters?: PainterHost[];
+  /** GPU timestamp queries (RendererOptions.timestamps). */
+  timestamps?: boolean;
   /** Renderer measurement aid (RendererOptions.measureRepeat). */
   measureRepeat?: number;
 }
@@ -213,7 +228,7 @@ export class GpuView {
 
   dispose() {
     this.disposed = true;
-    this.options.live?.detach();
+    this.detachPainters();
     this.renderer?.dispose();
     this.renderer = null;
     this.painter = null;
@@ -238,7 +253,7 @@ export class GpuView {
       this.recordError(message, false);
     });
     root.device.lost.then((lost) => this.onDeviceLost(root, lost));
-    const { scene, slots, paints, cache, live } = this.options;
+    const { scene, slots, paints, cache, live, painters = [] } = this.options;
     paints.resolveAll(this.host.resolver);
     const renderer = new Renderer(root, {
       surface: this.host.createSurface(root),
@@ -249,17 +264,22 @@ export class GpuView {
       clock: this.host.clock,
       profiler: this.host.profiler,
       measureRepeat: this.options.measureRepeat,
+      timestamps: this.options.timestamps,
       onGpuTime: (ms, rebuilt) => (rebuilt ? this.timings.gpuCacheRebuild : this.timings.gpu).push(ms),
     });
+    // every painter is attached before compile(), so its pipelines are compiled ahead of the first frame too
+    const painter = live ? live.attach(root, renderer) : null;
+    for (const host of painters) host.attach(root, renderer);
     await renderer.compile();
     if (this.disposed || this.fellBack) {
+      this.detachPainters();
       renderer.dispose();
       root.destroy();
       return;
     }
     this.root = root;
     this.renderer = renderer;
-    this.painter = live ? live.attach(root, renderer) : null;
+    this.painter = painter;
     renderer.setBackground(this.host.background());
     if (this.size.width) renderer.resize(this.size.width, this.size.height, this.size.dpr);
     this.draw();
@@ -271,7 +291,7 @@ export class GpuView {
     this.renderer = null;
     this.painter = null;
     this.root = null;
-    this.options.live?.detach();
+    this.detachPainters();
     if (lost.reason === 'destroyed' && !this.intentionalLoss) return;
     this.intentionalLoss = false;
     if (++this.reinits > MAX_REINITS) {
@@ -287,10 +307,15 @@ export class GpuView {
     this.error = reason;
     this.renderer?.dispose();
     this.renderer = null;
-    this.options.live?.detach();
+    this.detachPainters();
     this.root?.destroy();
     this.root = null;
     this.host.onFallback(reason);
+  }
+
+  private detachPainters() {
+    this.options.live?.detach();
+    for (const host of this.options.painters ?? []) host.detach();
   }
 
   private endRuntimeFrame() {

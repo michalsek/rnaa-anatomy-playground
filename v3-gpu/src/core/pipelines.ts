@@ -70,10 +70,10 @@ export const strokePipelineOf = (pipelines: Pipelines, blend: BlendMode) =>
  * functions that read their struct input (`in.pos`) make TypeGPU's external replacer warn `external-omitted` while it
  * resolves them; the emitted code is correct, so that warning kind is muted only while these pipelines resolve.
  */
-export async function compilePipelines(pipelines: Pipelines) {
+export async function compilePipelines(pipelines: Pipelines | readonly { initAsync(): Promise<void> }[]) {
   warn.disable('external-omitted');
   try {
-    await Promise.all(Object.values(pipelines).map((pipeline) => pipeline.initAsync()));
+    await Promise.all(Object.values(pipelines).map((pipeline: { initAsync(): Promise<void> }) => pipeline.initAsync()));
   } finally {
     warn.reset();
   }

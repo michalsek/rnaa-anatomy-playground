@@ -22,12 +22,17 @@ export class DomSlotSource implements SlotSource {
   private readonly dirty: Uint8Array;
   private dirtyCount = 0;
   private released = false;
+  /** Per slot: drawn by a native painter (its writes are kept for readers, never parsed or scheduled). */
+  private readonly native: Uint8Array;
+  /** Brings the native slots' markup up to date with what the native painter draws (v2's strings, on demand). */
+  private refreshNative: (() => void) | null = null;
 
   constructor(elements: Map<string, Element>) {
     this.names = [...elements.keys()];
     this.elements = [...elements.values()];
     this.markup = this.elements.map((element) => String(NATIVE_INNER_HTML.get!.call(element)));
     this.dirty = new Uint8Array(this.names.length);
+    this.native = new Uint8Array(this.names.length);
     this.elements.forEach((element, slot) => this.intercept(element, slot));
   }
 
@@ -54,9 +59,19 @@ export class DomSlotSource implements SlotSource {
     this.onChange(-1);
   }
 
+  /**
+   * Hands `slots` to a native painter for good: writes to them no longer mark them dirty or request frames; reading
+   * their `innerHTML` (and `release`) first calls `refresh`, which writes the current markup through the setter.
+   */
+  ownNatively(slots: readonly number[], refresh: () => void) {
+    for (const slot of slots) this.native[slot] = 1;
+    this.refreshNative = refresh;
+  }
+
   /** Removes the interceptors; every slot element gets the last markup written to it (the vector fallback). */
   release() {
     if (this.released) return;
+    this.refreshNative?.();
     this.released = true;
     this.elements.forEach((element, slot) => {
       delete (element as { innerHTML?: string }).innerHTML;
@@ -67,10 +82,17 @@ export class DomSlotSource implements SlotSource {
   private intercept(element: Element, slot: number) {
     Object.defineProperty(element, 'innerHTML', {
       configurable: true,
-      get: () => this.markup[slot],
+      get: () => {
+        if (this.native[slot]) this.refreshNative?.();
+        return this.markup[slot];
+      },
       set: (value: unknown) => {
         const markup = String(value);
         if (this.writeThrough) NATIVE_INNER_HTML.set!.call(element, markup);
+        if (this.native[slot]) {
+          this.markup[slot] = markup;
+          return;
+        }
         if (markup === this.markup[slot]) return;
         this.validate?.(markup);
         this.markup[slot] = markup;

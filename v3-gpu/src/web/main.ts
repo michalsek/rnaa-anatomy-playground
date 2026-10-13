@@ -13,8 +13,10 @@ import type { CacheMode } from '../core/renderer.ts';
 import { decodeBase64, sceneFromWire, type GpuScene } from '../core/scene.ts';
 import type { SlotPlacement } from '../core/slots.ts';
 import { LiveAdapter } from '../live/adapter.ts';
-import { SlotGeometryBuilder } from '../live/geometry.ts';
+import { CollectedSlot, SlotGeometryBuilder } from '../live/geometry.ts';
 import { LiveSlotPath } from '../live/live-path.ts';
+import { NativeRotor, type MachineApi } from '../native/native-rotor.ts';
+import type { MachineGpu } from '../native/rotor-contract.ts';
 import { createApi, type GpuApi } from './api.ts';
 import { DomSlotSource } from './dom-slots.ts';
 import { DomPaintResolver } from './palette-dom.ts';
@@ -25,9 +27,13 @@ declare const __GPU_DEV__: boolean;
 /** Probe ancestors of slot content in the v2 page: `<g class="fx-parts">` › `<g data-slot>` (data-slot is no key). */
 const SLOT_CHAIN: ChainNode[] = [{ tag: 'g', attrs: { class: 'fx-parts' } }, { tag: 'g', attrs: {} }];
 
-/** The v2 runtime (FACTORY, runtime.js): the hook every tick calls first. */
+/** A machine's api as FACTORY.define hands it to the machine (runtime.js). */
+type MachineApiOf = MachineApi & { gpu?: MachineGpu };
+
+/** The v2 runtime (FACTORY, runtime.js): the hook every tick calls first, and how machines are created. */
 interface FactoryHandle {
   onFrame(hook: (dt: number) => void): void;
+  define(id: string, make: (api: MachineApiOf) => unknown): unknown;
 }
 
 declare global {
@@ -110,6 +116,7 @@ function boot(api: GpuApi) {
 
   let source: DomSlotSource | null = null;
   let path: LiveSlotPath | null = null;
+  let native: NativeRotor | null = null;
   let view: GpuView | null = null;
   const sync = () => {
     if (!view) return;
@@ -136,6 +143,28 @@ function boot(api: GpuApi) {
       onWarning: (message) => console.warn(message),
     });
     path = new LiveSlotPath(source, adapter);
+    // ?native=0: the rotor slots stay on the markup path (v2 builds their strings every frame)
+    if (params.get('native') !== '0') {
+      const nativeRotor = new NativeRotor({
+        paints, resolver, slotChain: SLOT_CHAIN, slotNames: slots.map(({ name }) => name), itemBase: scene.items.length, owner: source, clock: eventClock,
+        onChange: () => view?.request(),
+      });
+      native = nativeRotor;
+      if (__GPU_DEV__) {
+        api.nativeCheck = async () => {
+          const gpu = await nativeRotor.readback();
+          if (!gpu) return null;
+          const reference = gpu.slots.map(({ slot }) => {
+            const collected = new CollectedSlot();
+            builder.collect(elements.get(slots[slot].name)!.innerHTML, collected);
+            paints.resolvePending(resolver);
+            const geometry = builder.pack(collected, scene.items.length + slot);
+            return { slot, segCount: geometry.segCount, vertexCount: geometry.vertexCount, words: [...new Uint32Array(geometry.bytes, 0, geometry.byteLength / 4)] };
+          });
+          return { gpu: { ...gpu, segs: [...gpu.segs], fills: [...gpu.fills] }, reference };
+        };
+      }
+    }
     if (__GPU_DEV__) {
       source.validate = (markup) => {
         try {
@@ -165,21 +194,39 @@ function boot(api: GpuApi) {
       figure.setAttribute('aria-hidden', 'true');
       canvas.style.visibility = '';
       if (source) source.writeThrough = false;
+      native?.activate();
       api.ready = true;
       document.documentElement.dataset.gpu = 'ready';
     },
     onFallback: (reason) => {
+      native?.deactivate();
       source?.release();
       showFigure(reason);
     },
   };
-  view = new GpuView(host, { scene, slots, paints, cache: cacheModeOf(params.get('cache')), live: path, measureRepeat: Number(params.get('gpuRepeat') ?? 1) });
+  // GPU timestamps cost an extra pass and two submits per measured frame: only when asked for (not by __gpuProfile, so
+  // CPU breakdowns measured through User Timing stay free of them)
+  const timestamps = params.has('profile') || params.has('gpuTime') || window.__gpuTimestamps === true;
+  view = new GpuView(host, { scene, slots, paints, cache: cacheModeOf(params.get('cache')), live: path, painters: native ? [native] : [], timestamps, measureRepeat: Number(params.get('gpuRepeat') ?? 1) });
   const gpuView = view;
   gpuView.onFrame = () => {
     api.frames = gpuView.frames;
   };
   if (source) source.onChange = (slot) => (slot < 0 ? gpuView.request() : gpuView.slotChanged(slot));
-  if (live) whenFactory((factory) => factory.onFrame(() => gpuView.beginRuntimeFrame()));
+  if (live) {
+    whenFactory((factory) => {
+      factory.onFrame(() => gpuView.beginRuntimeFrame());
+      const nativeRotor = native;
+      if (!nativeRotor) return;
+      // every machine gets `api.gpu` (the centrifuge's drawRotor calls api.gpu.rotor, src/native/rotor-contract.ts)
+      const define = factory.define;
+      factory.define = (id, make) => define.call(factory, id, (machineApi) => {
+        const gpu = nativeRotor.machineGpu(id, machineApi);
+        if (gpu) machineApi.gpu = gpu;
+        return make(machineApi);
+      });
+    });
+  }
 
   // Device pixels: the backing store must have exactly the device rows / columns Chrome shows the canvas in (a
   // fractional CSS box such as 774.25 px is snapped). devicePixelContentBoxSize gives them on real displays; under CDP
@@ -236,6 +283,7 @@ function boot(api: GpuApi) {
       errors: gpuView.errors.length,
       paints: paints.size,
       envelopes: gpuView.envelopes,
+      native: native ? native.stats : null,
       ...(adapter
         ? {
             live: {

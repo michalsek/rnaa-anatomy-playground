@@ -16,6 +16,11 @@ export interface GpuApi {
   setTheme(theme: 'light' | 'dark'): void;
   redraw(): void;
   simulateDeviceLoss(): void;
+  /**
+   * Dev pages with the native rotor only (tools/native-gate.mjs): the native painter's GPU-expanded records of the
+   * current frame, and the records the markup path builds from v2's strings for the same state.
+   */
+  nativeCheck?: () => Promise<unknown>;
 }
 
 declare global {
@@ -23,6 +28,8 @@ declare global {
     __gpu?: GpuApi;
     /** Set (e.g. by a bench preload) before the page loads: mirror the renderer's timing spans into User Timing. */
     __gpuProfile?: boolean;
+    /** Set before the page loads: GPU timestamp queries every frame (as `?gpuTime`). */
+    __gpuTimestamps?: boolean;
   }
 }
 

@@ -13,7 +13,7 @@ import { GATES_OUT, ROOT, parseArgs } from "./harness.mjs";
 const node = (...args) => [process.execPath, ...args];
 /** One row per command: `expect: "fail"` marks a self-test (the gate must reject a deliberate defect). */
 const ROWS = [
-  { name: "unit", modes: ["quick", "full"], command: node("--test", "tools/test-export.mjs", "tools/test-live.mjs") },
+  { name: "unit", modes: ["quick", "full"], command: node("--test", "tools/test-export.mjs", "tools/test-live.mjs", "tools/test-native.mjs") },
   { name: "dl", modes: ["quick", "full"], command: node("tools/gate.mjs") },
   { name: "static", modes: ["quick"], command: node("tools/live-gate.mjs", "static", "--quick") },
   { name: "static", modes: ["full"], command: node("tools/live-gate.mjs", "static") },
@@ -27,9 +27,17 @@ const ROWS = [
   { name: "calib", modes: ["full"], command: node("tools/live-gate.mjs", "calib") },
   { name: "determinism", modes: ["quick"], command: node("tools/live-gate.mjs", "determinism", "--ticks", "600", "--real-ticks", "60") },
   { name: "determinism", modes: ["full"], command: node("tools/live-gate.mjs", "determinism", "--ticks", "3000") },
+  { name: "native:contract", modes: ["quick"], command: node("tools/native-gate.mjs", "contract", "--quick") },
+  { name: "native:contract", modes: ["full"], command: node("tools/native-gate.mjs", "contract") },
+  { name: "native:identity", modes: ["quick"], command: node("tools/native-gate.mjs", "identity", "--quick") },
+  { name: "native:identity", modes: ["full"], command: node("tools/native-gate.mjs", "identity") },
+  { name: "native:compare", modes: ["full"], command: node("tools/native-gate.mjs", "compare") },
+  { name: "native:sheet", modes: ["full"], command: node("tools/native-gate.mjs", "sheet") },
   { name: "selftest:dl", modes: ["full"], expect: "fail", command: node("tools/gate.mjs", "--mutate", "drop-fill", "--themes", "dark") },
   { name: "selftest:static", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "static", "--quick", "--mutate", "patch") },
-  { name: "selftest:live", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "live", "--quick", "--mutate", "drop-slot") },
+  { name: "live:markup", modes: ["full"], command: node("tools/live-gate.mjs", "live", "--quick", "--native", "0") },
+  { name: "selftest:live", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "live", "--quick", "--mutate", "drop-native") },
+  { name: "selftest:live:markup", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "live", "--quick", "--native", "0", "--mutate", "drop-slot") },
   { name: "selftest:motion", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "motion", "--quick", "--mutate", "pop") },
   { name: "selftest:calib", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "calib", "--quick", "--mutate", "contrast") },
   { name: "selftest:determinism", modes: ["full"], expect: "fail", command: node("tools/live-gate.mjs", "determinism", "--ticks", "300", "--real-ticks", "30", "--mutate", "no-rebase") },
@@ -65,7 +73,7 @@ const results = [];
 for (const row of rows) {
   process.stdout.write(`${row.name.padEnd(22)} … `);
   const { code, output, seconds } = await run(row);
-  const logFile = join(GATES_OUT, "logs", `${row.name.replace(":", "-")}.log`);
+  const logFile = join(GATES_OUT, "logs", `${row.name.replace(/:/g, "-")}.log`);
   writeFileSync(logFile, output);
   const lines = output.split("\n");
   const failedChecks = lines.filter((line) => line.startsWith("FAIL"));

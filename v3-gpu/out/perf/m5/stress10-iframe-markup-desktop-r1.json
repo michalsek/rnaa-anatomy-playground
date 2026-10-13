@@ -1,0 +1,1147 @@
+{
+ "meta": {
+  "label": "stress10-iframe-markup-desktop-r1",
+  "page": "bench/stress10-iframe-gpu-m5-markup-light.html",
+  "url": "file:///Users/michalsek/Documents/rnaa-anatomy/v3-gpu/bench/stress10-iframe-gpu-m5-markup-light.html",
+  "sha1": "ca7ee948b116",
+  "date": "2026-10-13T11:16:34.039Z",
+  "viewport": {
+   "width": 1280,
+   "height": 900,
+   "dpr": 2,
+   "mobile": false
+  },
+  "throttle": 1,
+  "seconds": 8,
+  "warmup": 2,
+  "mode": "headless=new",
+  "chrome": "Chrome/155.0.8059.40",
+  "gpu": {
+   "featureStatus": {
+    "2d_canvas": "enabled",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "enabled_on",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "enabled",
+    "webgl": "enabled",
+    "webgpu": "enabled",
+    "webnn": "disabled_off"
+   },
+   "device": "Google Inc. (Apple) ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Version 27.2 (Build 26B5101f))",
+   "driver": "27.2"
+  },
+  "preload": [
+   "bench/preload/gpu-timing.js"
+  ],
+  "eval": [],
+  "flags": [],
+  "vsyncMs": 16.667,
+  "blankIntervals": {
+   "n": 60,
+   "mean": 16.667,
+   "min": 16.5,
+   "p50": 16.7,
+   "p95": 16.7,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "loadavg": {
+   "before": [
+    7.803,
+    6.528,
+    5.82
+   ],
+   "after": [
+    7.545,
+    6.543,
+    5.842
+   ]
+  },
+  "cpuIdle": {
+   "before": 66.4,
+   "after": 41.66
+  }
+ },
+ "frames": {
+  "frames": 452,
+  "intervals": {
+   "n": 451,
+   "mean": 17.775,
+   "min": 16.5,
+   "p50": 16.7,
+   "p95": 33.3,
+   "p99": 33.4,
+   "max": 33.4
+  },
+  "droppedFrames": 30,
+  "droppedPct": 6.237,
+  "fps": 56.26,
+  "longIntervals50": 0,
+  "measuredSeconds": 8.044,
+  "pageFrames": 452,
+  "pageFrameRatio": 1
+ },
+ "script": {
+  "callbackMsPerFrame": 7.653,
+  "callbackMs": {
+   "n": 452,
+   "mean": 7.653,
+   "min": 5.9,
+   "p50": 7.6,
+   "p95": 9.1,
+   "p99": 9.7,
+   "max": 16.4
+  },
+  "callbacksPerFrame": 10
+ },
+ "loaf": {
+  "count": 0,
+  "perSecond": 0,
+  "duration": {
+   "n": 0
+  },
+  "blockingMsPerSecond": 0,
+  "split": null
+ },
+ "metrics": {
+  "deltas": {
+   "ScriptDuration": 7.61,
+   "LayoutDuration": 0.064,
+   "RecalcStyleDuration": 0.018,
+   "TaskDuration": 7.991,
+   "LayoutCount": 3917,
+   "RecalcStyleCount": 3917
+  },
+  "perFrame": {
+   "scriptMs": 16.835,
+   "layoutMs": 0.14,
+   "styleMs": 0.041,
+   "taskMs": 17.679,
+   "layouts": 8.666,
+   "styleRecalcs": 8.666
+  },
+  "end": {
+   "Nodes": 26862,
+   "JSHeapUsedMB": 77.36,
+   "JSHeapTotalMB": 233.75,
+   "Documents": 11,
+   "Frames": 11
+  }
+ },
+ "gpuUtil": {
+  "source": "ioreg IOAccelerator PerformanceStatistics 'Device Utilization %' (whole machine)",
+  "before": {
+   "n": 8,
+   "mean": 9,
+   "min": 0,
+   "p50": 0,
+   "p95": 25,
+   "p99": 25,
+   "max": 25
+  },
+  "window": {
+   "n": 32,
+   "mean": 77.188,
+   "min": 60,
+   "p50": 79,
+   "p95": 85,
+   "p99": 89,
+   "max": 89
+  }
+ },
+ "gpuPage": {
+  "instances": 10,
+  "ready": 10,
+  "errors": [],
+  "readyAfterLoadMs": 543,
+  "adapters": [
+   {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "description": "",
+    "features": [
+     "core-features-and-limits",
+     "timestamp-query"
+    ]
+   }
+  ],
+  "reinits": 0,
+  "gpuFramesPerFrame": 10.066,
+  "medianSumMs": {
+   "liveJs": 7.1,
+   "parse": 7.1,
+   "upload": 0,
+   "encode": 1,
+   "gpuPass": 0
+  },
+  "perInstance": [
+   {
+    "ready": true,
+    "error": null,
+    "frames": 582,
+    "width": 484,
+    "height": 574,
+    "dpr": 2,
+    "draws": 34,
+    "segments": 21060,
+    "opaqueVertices": 72864,
+    "blendedVertices": 0,
+    "liveGpu": {
+     "uploads": 4686,
+     "bytesUploaded": 35137992,
+     "groups": 0,
+     "layerPixels": 0,
+     "atlasAllocations": 0
+    },
+    "ms": {
+     "liveJs": {
+      "median": 0.8,
+      "p95": 1,
+      "n": 585
+     },
+     "encode": {
+      "median": 0.1,
+      "p95": 0.2,
+      "n": 582
+     },
+     "encodeWithGroups": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpu": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpuCacheRebuild": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "parse": {
+      "median": 0.8,
+      "p95": 1.1,
+      "n": 582
+     },
+     "upload": {
+      "median": 0,
+      "p95": 0.1,
+      "n": 582
+     }
+    }
+   },
+   {
+    "ready": true,
+    "error": null,
+    "frames": 581,
+    "width": 484,
+    "height": 574,
+    "dpr": 2,
+    "draws": 34,
+    "segments": 21060,
+    "opaqueVertices": 72864,
+    "blendedVertices": 0,
+    "liveGpu": {
+     "uploads": 4673,
+     "bytesUploaded": 35010144,
+     "groups": 0,
+     "layerPixels": 0,
+     "atlasAllocations": 0
+    },
+    "ms": {
+     "liveJs": {
+      "median": 0.7,
+      "p95": 1,
+      "n": 584
+     },
+     "encode": {
+      "median": 0.1,
+      "p95": 0.2,
+      "n": 581
+     },
+     "encodeWithGroups": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpu": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpuCacheRebuild": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "parse": {
+      "median": 0.7,
+      "p95": 1,
+      "n": 581
+     },
+     "upload": {
+      "median": 0,
+      "p95": 0.1,
+      "n": 581
+     }
+    }
+   },
+   {
+    "ready": true,
+    "error": null,
+    "frames": 581,
+    "width": 484,
+    "height": 574,
+    "dpr": 2,
+    "draws": 34,
+    "segments": 21060,
+    "opaqueVertices": 72864,
+    "blendedVertices": 0,
+    "liveGpu": {
+     "uploads": 4675,
+     "bytesUploaded": 34969512,
+     "groups": 0,
+     "layerPixels": 0,
+     "atlasAllocations": 0
+    },
+    "ms": {
+     "liveJs": {
+      "median": 0.7,
+      "p95": 1,
+      "n": 583
+     },
+     "encode": {
+      "median": 0.1,
+      "p95": 0.2,
+      "n": 581
+     },
+     "encodeWithGroups": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpu": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpuCacheRebuild": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "parse": {
+      "median": 0.7,
+      "p95": 1,
+      "n": 581
+     },
+     "upload": {
+      "median": 0,
+      "p95": 0.1,
+      "n": 581
+     }
+    }
+   },
+   {
+    "ready": true,
+    "error": null,
+    "frames": 581,
+    "width": 484,
+    "height": 574,
+    "dpr": 2,
+    "draws": 34,
+    "segments": 21060,
+    "opaqueVertices": 72864,
+    "blendedVertices": 0,
+    "liveGpu": {
+     "uploads": 4672,
+     "bytesUploaded": 34974288,
+     "groups": 0,
+     "layerPixels": 0,
+     "atlasAllocations": 0
+    },
+    "ms": {
+     "liveJs": {
+      "median": 0.7,
+      "p95": 1.1,
+      "n": 583
+     },
+     "encode": {
+      "median": 0.1,
+      "p95": 0.2,
+      "n": 581
+     },
+     "encodeWithGroups": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpu": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpuCacheRebuild": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "parse": {
+      "median": 0.7,
+      "p95": 1.1,
+      "n": 581
+     },
+     "upload": {
+      "median": 0,
+      "p95": 0.1,
+      "n": 581
+     }
+    }
+   },
+   {
+    "ready": true,
+    "error": null,
+    "frames": 581,
+    "width": 484,
+    "height": 574,
+    "dpr": 2,
+    "draws": 34,
+    "segments": 21060,
+    "opaqueVertices": 72864,
+    "blendedVertices": 0,
+    "liveGpu": {
+     "uploads": 4677,
+     "bytesUploaded": 34969800,
+     "groups": 0,
+     "layerPixels": 0,
+     "atlasAllocations": 0
+    },
+    "ms": {
+     "liveJs": {
+      "median": 0.7,
+      "p95": 1.1,
+      "n": 583
+     },
+     "encode": {
+      "median": 0.1,
+      "p95": 0.2,
+      "n": 581
+     },
+     "encodeWithGroups": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpu": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpuCacheRebuild": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "parse": {
+      "median": 0.7,
+      "p95": 1.1,
+      "n": 581
+     },
+     "upload": {
+      "median": 0,
+      "p95": 0.1,
+      "n": 581
+     }
+    }
+   },
+   {
+    "ready": true,
+    "error": null,
+    "frames": 580,
+    "width": 484,
+    "height": 574,
+    "dpr": 2,
+    "draws": 34,
+    "segments": 21060,
+    "opaqueVertices": 72864,
+    "blendedVertices": 0,
+    "liveGpu": {
+     "uploads": 4659,
+     "bytesUploaded": 34889568,
+     "groups": 0,
+     "layerPixels": 0,
+     "atlasAllocations": 0
+    },
+    "ms": {
+     "liveJs": {
+      "median": 0.7,
+      "p95": 1.1,
+      "n": 582
+     },
+     "encode": {
+      "median": 0.1,
+      "p95": 0.2,
+      "n": 580
+     },
+     "encodeWithGroups": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpu": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpuCacheRebuild": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "parse": {
+      "median": 0.7,
+      "p95": 1.1,
+      "n": 580
+     },
+     "upload": {
+      "median": 0,
+      "p95": 0.1,
+      "n": 580
+     }
+    }
+   },
+   {
+    "ready": true,
+    "error": null,
+    "frames": 580,
+    "width": 484,
+    "height": 574,
+    "dpr": 2,
+    "draws": 34,
+    "segments": 21060,
+    "opaqueVertices": 72864,
+    "blendedVertices": 0,
+    "liveGpu": {
+     "uploads": 4660,
+     "bytesUploaded": 34900920,
+     "groups": 0,
+     "layerPixels": 0,
+     "atlasAllocations": 0
+    },
+    "ms": {
+     "liveJs": {
+      "median": 0.7,
+      "p95": 1,
+      "n": 582
+     },
+     "encode": {
+      "median": 0.1,
+      "p95": 0.2,
+      "n": 580
+     },
+     "encodeWithGroups": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpu": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpuCacheRebuild": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "parse": {
+      "median": 0.7,
+      "p95": 1.1,
+      "n": 580
+     },
+     "upload": {
+      "median": 0,
+      "p95": 0.1,
+      "n": 580
+     }
+    }
+   },
+   {
+    "ready": true,
+    "error": null,
+    "frames": 580,
+    "width": 484,
+    "height": 574,
+    "dpr": 2,
+    "draws": 34,
+    "segments": 21060,
+    "opaqueVertices": 72864,
+    "blendedVertices": 0,
+    "liveGpu": {
+     "uploads": 4661,
+     "bytesUploaded": 34880544,
+     "groups": 0,
+     "layerPixels": 0,
+     "atlasAllocations": 0
+    },
+    "ms": {
+     "liveJs": {
+      "median": 0.7,
+      "p95": 1,
+      "n": 582
+     },
+     "encode": {
+      "median": 0.1,
+      "p95": 0.2,
+      "n": 580
+     },
+     "encodeWithGroups": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpu": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpuCacheRebuild": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "parse": {
+      "median": 0.7,
+      "p95": 1,
+      "n": 580
+     },
+     "upload": {
+      "median": 0,
+      "p95": 0.1,
+      "n": 580
+     }
+    }
+   },
+   {
+    "ready": true,
+    "error": null,
+    "frames": 580,
+    "width": 484,
+    "height": 574,
+    "dpr": 2,
+    "draws": 34,
+    "segments": 21060,
+    "opaqueVertices": 72864,
+    "blendedVertices": 0,
+    "liveGpu": {
+     "uploads": 4660,
+     "bytesUploaded": 34903968,
+     "groups": 0,
+     "layerPixels": 0,
+     "atlasAllocations": 0
+    },
+    "ms": {
+     "liveJs": {
+      "median": 0.7,
+      "p95": 1,
+      "n": 582
+     },
+     "encode": {
+      "median": 0.1,
+      "p95": 0.2,
+      "n": 580
+     },
+     "encodeWithGroups": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpu": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpuCacheRebuild": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "parse": {
+      "median": 0.7,
+      "p95": 1.1,
+      "n": 580
+     },
+     "upload": {
+      "median": 0,
+      "p95": 0.1,
+      "n": 580
+     }
+    }
+   },
+   {
+    "ready": true,
+    "error": null,
+    "frames": 580,
+    "width": 484,
+    "height": 574,
+    "dpr": 2,
+    "draws": 34,
+    "segments": 21060,
+    "opaqueVertices": 72864,
+    "blendedVertices": 0,
+    "liveGpu": {
+     "uploads": 4660,
+     "bytesUploaded": 34880832,
+     "groups": 0,
+     "layerPixels": 0,
+     "atlasAllocations": 0
+    },
+    "ms": {
+     "liveJs": {
+      "median": 0.7,
+      "p95": 1.1,
+      "n": 582
+     },
+     "encode": {
+      "median": 0.1,
+      "p95": 0.2,
+      "n": 580
+     },
+     "encodeWithGroups": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpu": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpuCacheRebuild": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "parse": {
+      "median": 0.7,
+      "p95": 1,
+      "n": 580
+     },
+     "upload": {
+      "median": 0,
+      "p95": 0.1,
+      "n": 580
+     }
+    }
+   }
+  ]
+ },
+ "trace": {
+  "seconds": 3,
+  "events": 324292,
+  "frames": 166,
+  "windowMs": 3013.2,
+  "threads": {
+   "main": {
+    "threads": 1,
+    "busyMsPerFrame": 18.024,
+    "top": [
+     {
+      "name": "FunctionCall",
+      "msPerFrame": 16.486
+     },
+     {
+      "name": "ThreadControllerImpl::RunTask",
+      "msPerFrame": 0.156
+     },
+     {
+      "name": "V8.GC_SCAVENGER_SCAVENGE_PARALLEL_PHASE",
+      "msPerFrame": 0.111
+     },
+     {
+      "name": "LocalFrameView::performLayout",
+      "msPerFrame": 0.087
+     },
+     {
+      "name": "LocalFrameView::RunPrePaintLifecyclePhase",
+      "msPerFrame": 0.082
+     },
+     {
+      "name": "RunTask",
+      "msPerFrame": 0.072
+     },
+     {
+      "name": "V8.GC_SCAVENGER_SCAVENGE_COLLECT_OLD_TO_NEW_PAGES",
+      "msPerFrame": 0.07
+     },
+     {
+      "name": "FireAnimationFrame",
+      "msPerFrame": 0.064
+     },
+     {
+      "name": "V8.GC_SCAVENGER_SCAVENGE_PARALLEL",
+      "msPerFrame": 0.06
+     },
+     {
+      "name": "LocalFrameView::ScheduleAnimation",
+      "msPerFrame": 0.059
+     },
+     {
+      "name": "ProxyMain::BeginMainFrame",
+      "msPerFrame": 0.058
+     },
+     {
+      "name": "CommandBufferProxyImpl::Flush",
+      "msPerFrame": 0.056
+     }
+    ],
+    "kindsMsPerFrame": {
+     "script": 16.764,
+     "other": 0.433,
+     "gc": 0.412,
+     "commit": 0.117,
+     "layout": 0.096,
+     "prepaint": 0.095,
+     "paint": 0.055,
+     "layerize": 0.027,
+     "style": 0.026
+    }
+   },
+   "compositor": {
+    "threads": 1,
+    "busyMsPerFrame": 0.401,
+    "top": [
+     {
+      "name": "Graphics.Pipeline",
+      "msPerFrame": 0.065
+     },
+     {
+      "name": "GpuChannelHost::VerifyFlush",
+      "msPerFrame": 0.045
+     },
+     {
+      "name": "TileManager::ScheduleTasks",
+      "msPerFrame": 0.02
+     },
+     {
+      "name": "SimpleWatcher::OnHandleReady",
+      "msPerFrame": 0.018
+     },
+     {
+      "name": "Scheduler::BeginImplFrame",
+      "msPerFrame": 0.013
+     },
+     {
+      "name": "ThreadControllerImpl::RunTask",
+      "msPerFrame": 0.013
+     },
+     {
+      "name": "TreeSynchronizer::PushLayerPropertiesTo.Active",
+      "msPerFrame": 0.012
+     },
+     {
+      "name": "Receive mojo message",
+      "msPerFrame": 0.012
+     },
+     {
+      "name": "RunTask",
+      "msPerFrame": 0.011
+     },
+     {
+      "name": "LayerTreeHostImpl::CalculateRenderPasses",
+      "msPerFrame": 0.009
+     },
+     {
+      "name": "LayerTreeImpl::PullProperties",
+      "msPerFrame": 0.009
+     },
+     {
+      "name": "TreeSynchronizer::PushLayerPropertiesTo.Main",
+      "msPerFrame": 0.008
+     }
+    ]
+   },
+   "raster": {
+    "threads": 12,
+    "busyMsPerFrame": 4.459,
+    "top": [
+     {
+      "name": "ThreadPool_RunTask",
+      "msPerFrame": 3.131
+     },
+     {
+      "name": "V8.GC_SCAVENGER_BACKGROUND_SCAVENGE_PARALLEL",
+      "msPerFrame": 0.97
+     },
+     {
+      "name": "V8.GC_BACKGROUND_YOUNG_ARRAY_BUFFER_SWEEP",
+      "msPerFrame": 0.259
+     },
+     {
+      "name": "RasterImplementation::RasterCHROMIUM",
+      "msPerFrame": 0.028
+     },
+     {
+      "name": "V8.GC_BACKGROUND_SAFEPOINT",
+      "msPerFrame": 0.024
+     },
+     {
+      "name": "V8.GC_BACKGROUND_UNPARK",
+      "msPerFrame": 0.023
+     },
+     {
+      "name": "TaskSetFinishedTaskImpl::RunOnWorkerThread",
+      "msPerFrame": 0.005
+     },
+     {
+      "name": "TaskGraphRunner::RunTask",
+      "msPerFrame": 0.004
+     },
+     {
+      "name": "RasterizerTaskImpl::RunOnWorkerThread",
+      "msPerFrame": 0.004
+     },
+     {
+      "name": "GpuRasterBuffer::Playback",
+      "msPerFrame": 0.004
+     },
+     {
+      "name": "RasterTask",
+      "msPerFrame": 0.002
+     },
+     {
+      "name": "CommandBufferProxyImpl::OrderingBarrier",
+      "msPerFrame": 0.001
+     }
+    ]
+   },
+   "gpuMain": {
+    "threads": 1,
+    "busyMsPerFrame": 2.45,
+    "top": [
+     {
+      "name": "CommandBufferService:PutChanged",
+      "msPerFrame": 1.6
+     },
+     {
+      "name": "CommitPresentedFrameToCA",
+      "msPerFrame": 0.156
+     },
+     {
+      "name": "ThreadControllerImpl::RunTask",
+      "msPerFrame": 0.127
+     },
+     {
+      "name": "IOSurfaceImageBacking::WaitForCommandsToBeScheduled::Dawn",
+      "msPerFrame": 0.107
+     },
+     {
+      "name": "RasterDecoderImpl::DoEndRasterCHROMIUM::Flush",
+      "msPerFrame": 0.066
+     },
+     {
+      "name": "GPUTask",
+      "msPerFrame": 0.061
+     },
+     {
+      "name": "CARendererLayerTree::CommitScheduledCALayers",
+      "msPerFrame": 0.041
+     },
+     {
+      "name": "RunTask",
+      "msPerFrame": 0.04
+     },
+     {
+      "name": "RasterDecoderImpl::DoRasterCHROMIUM::Deserializing",
+      "msPerFrame": 0.038
+     },
+     {
+      "name": "SkiaOutputDevice->ScheduleOverlays()",
+      "msPerFrame": 0.034
+     },
+     {
+      "name": "GpuChannel::ExecuteDeferredRequest",
+      "msPerFrame": 0.028
+     },
+     {
+      "name": "CommandBufferStub::PerformWork",
+      "msPerFrame": 0.026
+     }
+    ]
+   },
+   "viz": {
+    "threads": 1,
+    "busyMsPerFrame": 0.229,
+    "top": [
+     {
+      "name": "Graphics.Pipeline",
+      "msPerFrame": 0.086
+     },
+     {
+      "name": "ThreadControllerImpl::RunTask",
+      "msPerFrame": 0.029
+     },
+     {
+      "name": "Receive mojo message",
+      "msPerFrame": 0.022
+     },
+     {
+      "name": "SimpleWatcher::OnHandleReady",
+      "msPerFrame": 0.017
+     },
+     {
+      "name": "Surface::ActivateFrame",
+      "msPerFrame": 0.011
+     },
+     {
+      "name": "SkiaRenderer::FinishDrawingFrame",
+      "msPerFrame": 0.007
+     },
+     {
+      "name": "DirectRenderer::DrawFrame",
+      "msPerFrame": 0.007
+     },
+     {
+      "name": "ExternalBeginFrameSource::OnBeginFrame",
+      "msPerFrame": 0.007
+     },
+     {
+      "name": "DisplayScheduler::BeginFrame",
+      "msPerFrame": 0.007
+     },
+     {
+      "name": "SkiaOutputSurfaceImpl::FlushGpuTasks",
+      "msPerFrame": 0.006
+     },
+     {
+      "name": "RunTask",
+      "msPerFrame": 0.006
+     },
+     {
+      "name": "OverlayProcessorMac::ProcessForOverlays",
+      "msPerFrame": 0.004
+     }
+    ]
+   },
+   "gpuOther": {
+    "threads": 3,
+    "busyMsPerFrame": 0.308,
+    "top": [
+     {
+      "name": "ThreadControllerImpl::RunTask",
+      "msPerFrame": 0.126
+     },
+     {
+      "name": "SimpleWatcher::OnHandleReady",
+      "msPerFrame": 0.057
+     },
+     {
+      "name": "Receive mojo message",
+      "msPerFrame": 0.036
+     },
+     {
+      "name": "GpuChannelMessageFilter::FlushDeferredRequests",
+      "msPerFrame": 0.032
+     },
+     {
+      "name": "Scheduler::ScheduleTask",
+      "msPerFrame": 0.032
+     },
+     {
+      "name": "RunTask",
+      "msPerFrame": 0.025
+     },
+     {
+      "name": "ThreadPool_RunTask",
+      "msPerFrame": 0
+     },
+     {
+      "name": "Closed mojo endpoint",
+      "msPerFrame": 0
+     },
+     {
+      "name": "Receive mojo reply",
+      "msPerFrame": 0
+     }
+    ]
+   }
+  },
+  "perFrame": {
+   "scriptMs": 17.176,
+   "styleMs": 0.026,
+   "layoutMs": 0.096,
+   "paintMainMs": 0.293,
+   "rasterMs": 0.036,
+   "gpuRasterMs": 0.123,
+   "webgpuMs": 1.644,
+   "gpuWaitMs": 0.116,
+   "gpuMs": 2.679,
+   "compositorMs": 0.401,
+   "mainBusyMs": 18.024,
+   "gpuCpuMs": 2.563
+  },
+  "pipelineReporter": {
+   "STATE_PRESENTED_ALL": 162,
+   "STATE_PRESENTED_PARTIAL": 162,
+   "STATE_DROPPED": 17
+  }
+ },
+ "layers": {
+  "count": 14,
+  "drawsContent": 12
+ },
+ "dom": {
+  "elements": 26281,
+  "slots": 160,
+  "scrollY": 0,
+  "stageInView": {
+   "top": 0,
+   "bottom": 900,
+   "height": 900,
+   "width": 1280,
+   "innerHeight": 900
+  }
+ },
+ "pageStats": {
+  "gpuLiveJsMs": {
+   "window": 3479,
+   "perFrame": 7.697
+  },
+  "gpuLiveJsN": {
+   "window": 4547,
+   "perFrame": 10.06
+  },
+  "gpuParseMs": {
+   "window": 3419,
+   "perFrame": 7.564
+  },
+  "gpuParseN": {
+   "window": 4547,
+   "perFrame": 10.06
+  },
+  "gpuUploadMs": {
+   "window": 192.2,
+   "perFrame": 0.425
+  },
+  "gpuUploadN": {
+   "window": 4547,
+   "perFrame": 10.06
+  },
+  "gpuEncodeMs": {
+   "window": 443.8,
+   "perFrame": 0.982
+  },
+  "gpuEncodeN": {
+   "window": 4547,
+   "perFrame": 10.06
+  }
+ },
+ "problems": []
+}

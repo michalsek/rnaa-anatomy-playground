@@ -47,6 +47,11 @@ export interface RendererOptions {
    * runs at higher clocks, so this shows the cost at a steady clock rather than the idle one (default 1).
    */
   measureRepeat?: number;
+  /**
+   * GPU timestamp queries per frame (`stats.lastGpuMs`, `onGpuTime`). Off by default: each measured frame costs an extra
+   * pass and two extra submits (resolve, read-back).
+   */
+  timestamps?: boolean;
 }
 
 /**
@@ -147,7 +152,10 @@ export class Renderer {
   private staticGroupVersion = -1;
 
   // painter's order and depth layout
+  /** Every painter known to the renderer (compiled and disposed with it), whether or not it owns a slot now. */
   private readonly painters: SlotPainter[] = [];
+  /** Painters that own at least one slot: the only ones whose prepare / drawOpaque run. */
+  private activePainters: SlotPainter[] = [];
   private readonly painterOfSlot: (SlotPainter | null)[];
   private readonly capacities: Uint32Array;
   private readonly slotEnvelopes: SlotEnvelopes;
@@ -209,7 +217,7 @@ export class Renderer {
     this.order = new Uint32Array(this.itemCount);
     this.bases = new Uint32Array(this.itemCount + this.slots.length);
     this.offsets = new Float32Array((this.itemCount + this.slots.length) * 2);
-    if (root.enabledFeatures.has('timestamp-query')) this.query = { set: createQuerySet(root), busy: false };
+    if (options.timestamps && root.enabledFeatures.has('timestamp-query')) this.query = { set: createQuerySet(root), busy: false };
     const renderer = this;
     this.frameContext = {
       root,
@@ -229,17 +237,38 @@ export class Renderer {
     };
   }
 
-  /** Registers the painter of its slots (a later painter replaces an earlier one for the slots it names). */
-  setSlotPainter(painter: SlotPainter) {
-    this.painters.push(painter);
-    for (const slot of painter.slots) this.painterOfSlot[slot] = painter;
+  /** Makes a painter known without giving it slots: it is compiled with the renderer and disposed with it. */
+  addPainter(painter: SlotPainter) {
+    if (!this.painters.includes(painter)) this.painters.push(painter);
+  }
+
+  /**
+   * Gives `slots` (default: every slot the painter names) to `painter`. A previous owner is told to release them and
+   * no longer draws them; a painter left without slots is no longer prepared or drawn.
+   */
+  setSlotPainter(painter: SlotPainter, slots: readonly number[] = painter.slots) {
+    this.addPainter(painter);
+    const released = new Map<SlotPainter, number[]>();
+    for (const slot of slots) {
+      const previous = this.painterOfSlot[slot];
+      if (previous === painter) continue;
+      if (previous) released.set(previous, [...(released.get(previous) ?? []), slot]);
+      this.painterOfSlot[slot] = painter;
+    }
+    for (const [previous, lost] of released) previous.release(lost);
+    this.activePainters = this.painters.filter((p) => this.painterOfSlot.includes(p));
     this.invalidateCache('slot painter');
+  }
+
+  /** The painter that draws `slot` now (null: nothing). */
+  painterOf(slot: number): SlotPainter | null {
+    return this.painterOfSlot[slot] ?? null;
   }
 
   /** Compiles every pipeline (the renderer's and the slot painters') ahead of the first frame. */
   async compile() {
     await compilePipelines(this.pipelines);
-    await Promise.all(this.painters.flatMap((p) => p.pipelines()).map((pipeline) => pipeline.initAsync()));
+    await compilePipelines(this.painters.flatMap((p) => p.pipelines()));
   }
 
   get width() {
@@ -293,7 +322,7 @@ export class Renderer {
     if (query) this.beginTimestamp(encoder, query.set);
     this.halo.prepare(encoder, geometry.halos, this.haloVB!, group, { scale: this.viewScale(), translate: [tx, ty], width: targets.width, height: targets.height }, this.paints,
       (item) => [this.offsets[item * 2], this.offsets[item * 2 + 1]], (item, layer) => depthOfSlot(this.bases[item] + layer, this.depthTotal));
-    for (const painter of this.painters) painter.prepare(this.frameContext, encoder);
+    for (const painter of this.activePainters) painter.prepare(this.frameContext, encoder);
     const cached = this.cacheMode !== 'off' && this.stableShareFrames >= STABLE_SHARE_FRAMES;
     let rebuilt = false;
     if (cached) {
@@ -355,13 +384,13 @@ export class Renderer {
         pass.setVertexBuffer(S.fillLayout, this.regionOpaqueVB!);
         pass.draw(regionOpaque);
       }
-      for (const painter of this.painters) painter.drawOpaque(this.frameContext, pass);
+      for (const painter of this.activePainters) painter.drawOpaque(this.frameContext, pass);
       this.drawList(pass, this.frameDraws, group);
       if (this.cacheMode === 'overlay') this.drawOverlay(pass);
     } else {
       pass.setBindGroup(S.layout, group);
       this.drawOpaqueStatic(pass);
-      for (const painter of this.painters) painter.drawOpaque(this.frameContext, pass);
+      for (const painter of this.activePainters) painter.drawOpaque(this.frameContext, pass);
       this.drawList(pass, this.fullDraws, group);
     }
     pass.end();
@@ -514,7 +543,7 @@ export class Renderer {
    * static segment and triangle that can reach the region is in the per-frame lists).
    */
   private writeRegion(targets: Targets) {
-    const contentVersion = this.painters.reduce((sum, painter) => sum + painter.version, 0);
+    const contentVersion = this.activePainters.reduce((sum, painter) => sum + painter.version, 0);
     if (this.region && contentVersion === this.regionVersion && this.regionLayoutValid) return;
     this.regionVersion = contentVersion;
     this.regionLayoutValid = true;

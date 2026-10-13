@@ -8,6 +8,8 @@
 //      out/gpu/static(-light).html                ← out/svg/centrifuge(-light).html + DL         (static: module script dropped)
 //      out/gpu/live(-light).html                  ← the same pages with v2's module script kept verbatim (prod bundle)
 //      out/gpu/live-dev.html                      dev bundle: unsupported live markup throws at the runtime's write
+//    Live pages get one injected line at `function drawRotor(now) {` (the native rotor hook, src/native/rotor-contract.ts);
+//    exactly one such site must exist, else the build fails.
 //    The live pages' module script must equal the script a fresh v2 page() writes now (drift check), and the figure must
 //    hold exactly the DL's slots.
 // --dev: only the dev outputs (live-dev.html); the prod pages stay as they are.
@@ -17,6 +19,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sceneModule, svgPageOf } from "../export/export.mjs";
+import { ROTOR_HOOK_LINE } from "../src/native/rotor-contract.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(ROOT, "out/gpu");
@@ -45,6 +48,22 @@ const FIGURE_TAG = /<svg\b[^>]*\bclass="iso-svg"[^>]*>/;
 const MODULE_SCRIPT = /<script type="module">([\s\S]*?)<\/script>/;
 /** While WebGPU boots the figure overlays the (hidden) canvas, which has the figure's CSS box. */
 const FIGURE_OVERLAY_STYLE = "position:absolute;left:0;top:0;width:100%";
+/** Where the native rotor hook goes (v2 centrifugeLive). */
+const ROTOR_ENTRY = "function drawRotor(now) {";
+
+/** The live page's module script with the native rotor hook as the first line of drawRotor (exactly one site). */
+function injectRotorHook(html, page) {
+  const match = MODULE_SCRIPT.exec(html);
+  const script = match?.[1] ?? "";
+  const sites = script.split(ROTOR_ENTRY).length - 1;
+  if (sites !== 1) throw new Error(`${page}: ${sites} occurrences of "${ROTOR_ENTRY}" in the module script (the native rotor hook needs exactly 1)`);
+  const at = script.indexOf(ROTOR_ENTRY) + ROTOR_ENTRY.length;
+  const indent = /\n([ \t]*)[^\n]*$/.exec(script.slice(0, at))?.[1] ?? "";
+  const injected = `${script.slice(0, at)}\n${indent}  ${ROTOR_HOOK_LINE}${script.slice(at)}`;
+  const start = match.index + match[0].indexOf(script);
+  return html.slice(0, start) + injected + html.slice(start + script.length);
+}
+
 const log = (file, html) => console.log(`${file.replace(ROOT + "/", "")} ${html.length} B`);
 
 /**
@@ -64,6 +83,7 @@ function gpuPage(svgPage, { dataScripts, bundleJs, live }) {
   const figure = tag[0].replace(/>$/, ` style="${FIGURE_OVERLAY_STYLE}">`);
   html = html.slice(0, tag.index) + canvas + figure + html.slice(tag.index + tag[0].length);
   if (!live) html = html.replace(MODULE_SCRIPT, "");
+  else html = injectRotorHook(html, svgPage);
   // a classic inline script: runs during parsing, before the deferred module script, so the slot interceptors are in
   // place before the runtime binds; the last </body>: v2's module script contains the text "</body>" too
   const bodyEnd = html.lastIndexOf("</body>");
