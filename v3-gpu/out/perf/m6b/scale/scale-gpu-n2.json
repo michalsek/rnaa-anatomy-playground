@@ -1,0 +1,337 @@
+{
+ "meta": {
+  "label": "scale-gpu-n2",
+  "page": "bench/stress2-iframe-gpu-light.html",
+  "url": "file:///Users/michalsek/Documents/rnaa-anatomy/v3-gpu/bench/stress2-iframe-gpu-light.html",
+  "sha1": "645ff1133408",
+  "date": "2026-10-13T06:49:39.530Z",
+  "viewport": {
+   "width": 1280,
+   "height": 900,
+   "dpr": 2,
+   "mobile": false
+  },
+  "throttle": 1,
+  "seconds": 4,
+  "warmup": 2,
+  "mode": "headless=new",
+  "chrome": "Chrome/155.0.8059.40",
+  "gpu": {
+   "featureStatus": {
+    "2d_canvas": "enabled",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "enabled_on",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "enabled",
+    "webgl": "enabled",
+    "webgpu": "enabled",
+    "webnn": "disabled_off"
+   },
+   "device": "Google Inc. (Apple) ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Version 27.2 (Build 26B5101f))",
+   "driver": "27.2"
+  },
+  "preload": [
+   "bench/preload/gpu-timing.js"
+  ],
+  "eval": [],
+  "flags": [],
+  "vsyncMs": 16.667,
+  "blankIntervals": {
+   "n": 59,
+   "mean": 16.666,
+   "min": 16.6,
+   "p50": 16.7,
+   "p95": 16.8,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "loadavg": {
+   "before": [
+    2.863,
+    3.779,
+    6.122
+   ],
+   "after": [
+    3.052,
+    3.773,
+    6.078
+   ]
+  },
+  "cpuIdle": {
+   "before": 77.37,
+   "after": 75.96
+  }
+ },
+ "frames": {
+  "frames": 241,
+  "intervals": {
+   "n": 240,
+   "mean": 16.666,
+   "min": 16.5,
+   "p50": 16.7,
+   "p95": 16.7,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "droppedFrames": 0,
+  "droppedPct": 0,
+  "fps": 60.003,
+  "longIntervals50": 0,
+  "measuredSeconds": 4.018,
+  "pageFrames": 241,
+  "pageFrameRatio": 1
+ },
+ "script": {
+  "callbackMsPerFrame": 1.474,
+  "callbackMs": {
+   "n": 241,
+   "mean": 1.474,
+   "min": 1,
+   "p50": 1.5,
+   "p95": 1.7,
+   "p99": 1.9,
+   "max": 2
+  },
+  "callbacksPerFrame": 2
+ },
+ "loaf": {
+  "count": 0,
+  "perSecond": 0,
+  "duration": {
+   "n": 0
+  },
+  "blockingMsPerSecond": 0,
+  "split": null
+ },
+ "metrics": {
+  "deltas": {
+   "ScriptDuration": 0.811,
+   "LayoutDuration": 0.015,
+   "RecalcStyleDuration": 0.004,
+   "TaskDuration": 0.931,
+   "LayoutCount": 417,
+   "RecalcStyleCount": 417
+  },
+  "perFrame": {
+   "scriptMs": 3.367,
+   "layoutMs": 0.061,
+   "styleMs": 0.017,
+   "taskMs": 3.863,
+   "layouts": 1.73,
+   "styleRecalcs": 1.73
+  },
+  "end": {
+   "Nodes": 10767,
+   "JSHeapUsedMB": 29.209,
+   "JSHeapTotalMB": 92.25,
+   "Documents": 5,
+   "Frames": 3
+  }
+ },
+ "gpuUtil": {
+  "source": "ioreg IOAccelerator PerformanceStatistics 'Device Utilization %' (whole machine)",
+  "before": {
+   "n": 8,
+   "mean": 17.75,
+   "min": 0,
+   "p50": 24,
+   "p95": 45,
+   "p99": 45,
+   "max": 45
+  },
+  "window": {
+   "n": 16,
+   "mean": 52.75,
+   "min": 47,
+   "p50": 53,
+   "p95": 60,
+   "p99": 60,
+   "max": 60
+  }
+ },
+ "gpuPage": {
+  "instances": 2,
+  "ready": 2,
+  "errors": [],
+  "readyAfterLoadMs": 313,
+  "adapters": [
+   {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "description": "",
+    "features": [
+     "core-features-and-limits",
+     "timestamp-query"
+    ]
+   }
+  ],
+  "reinits": 0,
+  "gpuFramesPerFrame": 2,
+  "medianSumMs": {
+   "liveJs": 1.4,
+   "parse": 1.5,
+   "upload": 0,
+   "encode": 0.2,
+   "gpuPass": 5.767
+  },
+  "perInstance": [
+   {
+    "ready": true,
+    "error": null,
+    "frames": 368,
+    "width": 1252,
+    "height": 1486,
+    "dpr": 2,
+    "draws": 33,
+    "segments": 21050,
+    "opaqueVertices": 72864,
+    "blendedVertices": 0,
+    "liveGpu": {
+     "uploads": 2909,
+     "bytesUploaded": 17026032,
+     "groups": 0,
+     "layerPixels": 0
+    },
+    "ms": {
+     "liveJs": {
+      "median": 0.7,
+      "p95": 0.9,
+      "n": 372
+     },
+     "parse": {
+      "median": 0.8,
+      "p95": 1,
+      "n": 368
+     },
+     "upload": {
+      "median": 0,
+      "p95": 0.1,
+      "n": 368
+     },
+     "encode": {
+      "median": 0.1,
+      "p95": 0.2,
+      "n": 368
+     },
+     "encodeWithGroups": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpu": {
+      "median": 2.753,
+      "p95": 6.423,
+      "n": 365
+     }
+    }
+   },
+   {
+    "ready": true,
+    "error": null,
+    "frames": 367,
+    "width": 1252,
+    "height": 1486,
+    "dpr": 2,
+    "draws": 33,
+    "segments": 21050,
+    "opaqueVertices": 72864,
+    "blendedVertices": 0,
+    "liveGpu": {
+     "uploads": 2897,
+     "bytesUploaded": 16964640,
+     "groups": 0,
+     "layerPixels": 0
+    },
+    "ms": {
+     "liveJs": {
+      "median": 0.7,
+      "p95": 0.9,
+      "n": 372
+     },
+     "parse": {
+      "median": 0.7,
+      "p95": 0.9,
+      "n": 367
+     },
+     "upload": {
+      "median": 0,
+      "p95": 0.1,
+      "n": 367
+     },
+     "encode": {
+      "median": 0.1,
+      "p95": 0.2,
+      "n": 367
+     },
+     "encodeWithGroups": {
+      "median": 0,
+      "p95": 0,
+      "n": 0
+     },
+     "gpu": {
+      "median": 3.015,
+      "p95": 6.291,
+      "n": 365
+     }
+    }
+   }
+  ]
+ },
+ "layers": {
+  "count": 6,
+  "drawsContent": 4
+ },
+ "dom": {
+  "elements": 103,
+  "slots": 32,
+  "scrollY": 0,
+  "stageInView": {
+   "top": 0,
+   "bottom": 900,
+   "height": 900,
+   "width": 1280,
+   "innerHeight": 900
+  }
+ },
+ "pageStats": {
+  "gpuLiveJsMs": {
+   "window": 352.1,
+   "perFrame": 1.461
+  },
+  "gpuLiveJsN": {
+   "window": 482,
+   "perFrame": 2
+  },
+  "gpuParseMs": {
+   "window": 377.8,
+   "perFrame": 1.568
+  },
+  "gpuParseN": {
+   "window": 482,
+   "perFrame": 2
+  },
+  "gpuUploadMs": {
+   "window": 12.7,
+   "perFrame": 0.053
+  },
+  "gpuUploadN": {
+   "window": 482,
+   "perFrame": 2
+  },
+  "gpuEncodeMs": {
+   "window": 56.6,
+   "perFrame": 0.235
+  },
+  "gpuEncodeN": {
+   "window": 482,
+   "perFrame": 2
+  }
+ },
+ "problems": []
+}

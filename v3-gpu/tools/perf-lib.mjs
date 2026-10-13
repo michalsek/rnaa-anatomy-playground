@@ -169,7 +169,7 @@ export const RECORDER = String.raw`(() => {
     }).observe({ type: "long-animation-frame", buffered: false });
   } catch {}
   P.start = () => { P.own = []; P.ft = []; P.fms = []; P.fn = []; P.loaf = []; P.t0 = now(); P.on = true; };
-  P.stop = () => { P.on = false; P.t1 = now(); return { own: P.own, ft: P.ft, fms: P.fms, fn: P.fn, loaf: P.loaf, t0: P.t0, t1: P.t1 }; };
+  P.stop = () => { P.on = false; P.t1 = now(); return { own: P.own, ft: P.ft, fms: P.fms, fn: P.fn, loaf: P.loaf, t0: P.t0, t1: P.t1, timeOrigin: performance.timeOrigin }; };
 })();`;
 
 // Expression evaluated in the top frame: start/stop the recorder in every same-origin frame and merge the data.
@@ -366,10 +366,20 @@ export function summarizeTrace(events, frames) {
     rasterMs: per(outermost(groups.raster, (n) => n === "RasterTask")),
     // GPU process: raster replay (RasterDecoderImpl*) + compositing / presentation, CrGpuMain + VizCompositorThread
     gpuRasterMs: per(outermost(groups.gpuMain, (n) => n.startsWith("RasterDecoderImpl::Do"))),
+    // WebGPU pages: the GPU process' share of the page's WebGPU work = Dawn wire command decoding + validation + Metal
+    // encoding/submission for the renderer's WebGPU command buffer, on CrGpuMain: "WebGPU" (gpu category, scope of
+    // WebGPUDecoderImpl::DoCommands) plus WebGPUDecoderImpl::* (only with disabled-by-default-gpu.dawn: HandleDawnCommands
+    // nests inside "WebGPU"; PerformPollingWork runs outside it). The WebGPU analogue of gpuRasterMs; both are CPU
+    // time inside gpuMs. GPU hardware execution time is not in the trace (see gpuPage.medianSumMs.gpuPass).
+    webgpuMs: per(outermost(groups.gpuMain, (n) => n === "WebGPU" || n.startsWith("WebGPUDecoderImpl"))),
+    // CrGpuMain blocked until a canvas' Metal/Dawn command buffers are scheduled (before CoreAnimation overlay
+    // presentation, inside SwapBuffers): waiting on the GPU hardware, not CPU work. gpuMs includes it; gpuCpuMs does not.
+    gpuWaitMs: per(outermost(groups.gpuMain, (n) => n.startsWith("IOSurfaceImageBacking::WaitForCommandsToBeScheduled"))),
     gpuMs: out.threads.gpuMain.busyMsPerFrame + out.threads.viz.busyMsPerFrame,
     compositorMs: out.threads.compositor.busyMsPerFrame,
     mainBusyMs: out.threads.main.busyMsPerFrame,
   };
+  out.perFrame.gpuCpuMs = out.perFrame.gpuMs - out.perFrame.gpuWaitMs;
   // cc's frame reporter: presented / dropped as the compositor sees them
   const reporter = events.filter((e) => e.name === "PipelineReporter" && (e.ph === "b" || e.ph === "X") && String(e.pid) === String(renderer));
   if (reporter.length) {

@@ -22,16 +22,22 @@ function usage() {
   --select css        element scrolled to the viewport centre (default .fx-stage; "none" to skip)
   --headed            real window instead of --headless=new
   --chrome-flag f     extra Chrome flag (repeatable)
+  --trace-category c  extra trace category (repeatable), e.g. disabled-by-default-gpu.dawn
+  --gpu-ready-timeout s  wait (default 30) after load until every frame's window.__gpu is ready or failed
+  --gpu-util          sample macOS IOAccelerator "Device Utilization %" (system-wide GPU busy) every 250 ms: 2 s
+                      before Chrome starts (machine baseline) and over the measurement window
   --shot file.png     screenshot of the viewport at the end
   --raw               keep the raw frame series in the JSON
 
 Measured window: rAF intervals (own loop on the unwrapped rAF), page rAF callback time per frame (wrapped callbacks),
 long animation frames, CDP Performance.getMetrics deltas. Trace window (after it, so tracing overhead never touches
-the main numbers): renderer main-thread self time by kind, compositor, raster workers and GPU-process busy time.`);
+the main numbers): renderer main-thread self time by kind, compositor, raster workers and GPU-process busy time.
+GPU pages (window.__gpu in any frame): instances, adapter, readiness, GPU frames drawn and __gpu.frameStats() per
+instance are added as "gpuPage"; the GPU process' WebGPU share (Dawn wire decoding on CrGpuMain) as trace.perFrame.webgpuMs.`);
 }
 
 function parse(argv) {
-  const o = { width: 1280, height: null, dpr: 2, throttle: 1, seconds: 8, warmup: 2, traceSeconds: 3, trace: true, label: null, out: null, preload: [], evals: [], select: ".fx-stage", headed: false, flags: [], shot: null, raw: false };
+  const o = { width: 1280, height: null, dpr: 2, throttle: 1, seconds: 8, warmup: 2, traceSeconds: 3, trace: true, label: null, out: null, preload: [], evals: [], select: ".fx-stage", headed: false, flags: [], shot: null, raw: false, traceCategories: [], gpuReadyTimeout: 30, gpuUtil: false };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -51,6 +57,9 @@ function parse(argv) {
     else if (a === "--select") o.select = next();
     else if (a === "--headed") o.headed = true;
     else if (a === "--chrome-flag") o.flags.push(next());
+    else if (a === "--trace-category") o.traceCategories.push(next());
+    else if (a === "--gpu-ready-timeout") o.gpuReadyTimeout = Number(next());
+    else if (a === "--gpu-util") o.gpuUtil = true;
     else if (a === "--shot") o.shot = next();
     else if (a === "--raw") o.raw = true;
     else if (a === "--help" || a === "-h") o.help = true;
@@ -80,6 +89,7 @@ async function main() {
   const preloads = o.preload.map((file) => readFileSync(file, "utf8"));
   const load0 = loadavg();
   const idle0 = cpuIdle();
+  const utilBefore = o.gpuUtil ? stats(await sampleGpuUtil(2000)) : null;
 
   const browser = await launchChrome({ headed: o.headed, windowSize: [o.width + 20, o.height + 120], flags: o.flags });
   const problems = [];
@@ -129,6 +139,15 @@ async function main() {
     await loaded;
     if (o.select !== "none") await cdp.evaluate(`(() => { const el = document.querySelector(${JSON.stringify(o.select)}); if (el) el.scrollIntoView({ block: "center", inline: "center" }); return !!el; })()`);
     for (const js of o.evals) await cdp.evaluate(js);
+    // GPU pages boot asynchronously (adapter, device, pipelines): warm up only once every instance has settled
+    const gpuReady0 = Date.now();
+    let gpuWait = await cdp.evaluate(GPU_STATE);
+    while (gpuWait.instances && gpuWait.pending && Date.now() - gpuReady0 < o.gpuReadyTimeout * 1000) {
+      await sleep(100);
+      gpuWait = await cdp.evaluate(GPU_STATE);
+    }
+    const gpuReadyMs = gpuWait.instances ? Date.now() - gpuReady0 : null;
+    if (gpuWait.pending) problems.push(`gpu: ${gpuWait.pending} of ${gpuWait.instances} instances not ready after ${o.gpuReadyTimeout} s`);
     await sleep(o.warmup * 1000);
 
     step("measuring");
@@ -136,18 +155,35 @@ async function main() {
     const metric = async () => Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((m) => [m.name, m.value]));
     const benchStats = () => cdp.evaluate(`(() => { const all = ${ALL_FRAMES}.map((w) => w.__benchStats).filter(Boolean); if (!all.length) return null; const sum = {}; for (const s of all) for (const [k, v] of Object.entries(s)) sum[k] = (sum[k] ?? 0) + v; return sum; })()`);
     const b0 = await benchStats();
+    const g0 = await cdp.evaluate(GPU_FACTS);
     const m0 = await metric();
     await cdp.evaluate(`${ALL_FRAMES}.forEach((w) => w.__perf.start())`);
-    await sleep(o.seconds * 1000);
+    const util = o.gpuUtil ? await sampleGpuUtil(o.seconds * 1000) : (await sleep(o.seconds * 1000), null);
     const rec = await cdp.evaluate(`${ALL_FRAMES}.map((w) => w.__perf.stop())`);
     const m1 = await metric();
     const b1 = await benchStats();
+    const g1 = await cdp.evaluate(GPU_FACTS);
 
     const own = rec[0].own;
     const frames = frameSummary(own, vsync);
+    // iframes: rAF timestamps are on each document's own timeline → shift to the top frame's and snap to the nearest
+    // own-loop frame (else every iframe's callbacks count as separate page frames)
+    const ownSorted = rec[0].own;
+    const snap = (ts) => {
+      let lo = 0;
+      let hi = ownSorted.length - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (ownSorted[mid] <= ts) lo = mid;
+        else hi = mid;
+      }
+      const best = ownSorted.length && Math.abs(ownSorted[hi] - ts) < Math.abs(ownSorted[lo] - ts) ? ownSorted[hi] : ownSorted[lo];
+      return best !== undefined && Math.abs(best - ts) < vsync / 2 ? best : ts;
+    };
     const perTs = new Map();
     for (const r of rec)
-      r.ft.forEach((ts, i) => {
+      r.ft.forEach((rawTs, i) => {
+        const ts = r === rec[0] || r.timeOrigin == null ? rawTs : snap(rawTs + r.timeOrigin - rec[0].timeOrigin);
         const cur = perTs.get(ts) ?? { ms: 0, n: 0 };
         cur.ms += r.fms[i];
         cur.n += r.fn[i];
@@ -186,6 +222,8 @@ async function main() {
       loaf: loafSummary(rec.flatMap((r) => r.loaf), seconds),
       metrics,
     };
+    if (util) result.gpuUtil = { source: "ioreg IOAccelerator PerformanceStatistics 'Device Utilization %' (whole machine)", before: utilBefore, window: stats(util) };
+    if (g1.length) result.gpuPage = gpuPageSummary(g0, g1, nFrames, gpuReadyMs);
 
     step("tracing");
     // ---------------- trace window
@@ -198,7 +236,7 @@ async function main() {
         transferMode: "ReportEvents",
         traceConfig: {
           recordMode: "recordAsMuchAsPossible",
-          includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "disabled-by-default-devtools.timeline.frame", "toplevel", "v8.execute", "cc", "gpu", "viz", "benchmark"],
+          includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "disabled-by-default-devtools.timeline.frame", "toplevel", "v8.execute", "cc", "gpu", "viz", "benchmark", ...o.traceCategories],
         },
       });
       await sleep(o.traceSeconds * 1000);
@@ -249,6 +287,52 @@ async function main() {
   }
 }
 
+// macOS: system-wide GPU busy % from the IOAccelerator's PerformanceStatistics (no root needed), sampled for `ms`
+async function sampleGpuUtil(ms) {
+  const { execFile } = await import("node:child_process");
+  const read = () => new Promise((done) => execFile("ioreg", ["-r", "-d", "1", "-w", "0", "-c", "IOAccelerator"], (error, out) => {
+    const m = !error && String(out).match(/"Device Utilization %"=(\d+)/);
+    done(m ? Number(m[1]) : null);
+  }));
+  const samples = [];
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    const t = Date.now();
+    const v = await read();
+    if (v !== null) samples.push(v);
+    await sleep(Math.max(0, 250 - (Date.now() - t)));
+  }
+  return samples;
+}
+
+// every frame's window.__gpu (src/main.ts tool surface): pending = instances still booting
+const GPU_STATE = `(() => { const g = ${ALL_FRAMES}.map((w) => w.__gpu).filter(Boolean); return { instances: g.length, pending: g.filter((x) => !x.ready && !x.error).length }; })()`;
+const GPU_FACTS = `${ALL_FRAMES}.map((w) => w.__gpu).filter(Boolean).map((g) => { let stats = null; try { stats = g.frameStats(); } catch (e) { stats = { error: String(e) }; } return { ready: g.ready, error: g.error, adapter: g.adapter, frames: g.frames, stats }; })`;
+
+// Per-instance frameStats are rolling windows (last 600 samples, src/live/adapter.ts Samples): their medians are
+// summed over instances = one display frame's cost when every instance draws once per frame.
+function gpuPageSummary(g0, g1, nFrames, readyMs) {
+  const sumMedian = (pick) => g1.reduce((s, g) => s + (pick(g.stats?.live?.ms ?? {})?.median ?? 0), 0);
+  const devices = new Set(g1.map((g) => JSON.stringify(g.adapter)));
+  return {
+    instances: g1.length,
+    ready: g1.filter((g) => g.ready).length,
+    errors: g1.map((g) => g.error).filter(Boolean),
+    readyAfterLoadMs: readyMs,
+    adapters: [...devices].map((a) => JSON.parse(a)),
+    reinits: g1.reduce((s, g) => s + (g.stats?.reinits ?? 0), 0),
+    gpuFramesPerFrame: g1.reduce((s, g, i) => s + g.frames - (g0[i]?.frames ?? 0), 0) / nFrames,
+    medianSumMs: {
+      liveJs: sumMedian((m) => m.liveJs),
+      parse: sumMedian((m) => m.parse),
+      upload: sumMedian((m) => m.upload),
+      encode: sumMedian((m) => m.encode),
+      gpuPass: sumMedian((m) => m.gpu),
+    },
+    perInstance: g1.map((g) => ({ ready: g.ready, error: g.error, frames: g.frames, width: g.stats?.width, height: g.stats?.height, dpr: g.stats?.dpr, draws: g.stats?.draws, segments: g.stats?.segments, opaqueVertices: g.stats?.opaqueVertices, blendedVertices: g.stats?.blendedVertices, liveGpu: g.stats?.live?.gpu, ms: Object.fromEntries(Object.entries(g.stats?.live?.ms ?? {}).map(([k, v]) => [k, { median: v.median, p95: v.p95, n: v.n }])) })),
+  };
+}
+
 export function summaryLine(r) {
   const f = (v, n = 1) => (Number.isFinite(v) ? v.toFixed(n) : "–");
   const t = r.trace?.perFrame;
@@ -256,8 +340,10 @@ export function summaryLine(r) {
     `${r.meta.label}:`,
     `frame p50 ${f(r.frames.intervals.p50)} p95 ${f(r.frames.intervals.p95)} p99 ${f(r.frames.intervals.p99)} ms, dropped ${f(r.frames.droppedPct)}%`,
     `| rAF cb ${f(r.script.callbackMsPerFrame, 2)} · script ${f(r.metrics.perFrame.scriptMs, 2)} · style ${f(r.metrics.perFrame.styleMs, 2)} · layout ${f(r.metrics.perFrame.layoutMs, 2)} · task ${f(r.metrics.perFrame.taskMs, 2)} ms/f`,
-    t ? `| trace main ${f(t.mainBusyMs, 2)} (paint ${f(t.paintMainMs, 2)}) raster ${f(t.rasterMs, 2)} gpu ${f(t.gpuMs, 2)} (raster ${f(t.gpuRasterMs, 2)}) ms/f` : "",
+    t ? `| trace main ${f(t.mainBusyMs, 2)} (paint ${f(t.paintMainMs, 2)}) raster ${f(t.rasterMs, 2)} gpu ${f(t.gpuMs, 2)} (raster ${f(t.gpuRasterMs, 2)}${t.webgpuMs ? `, webgpu ${f(t.webgpuMs, 2)}` : ""}, wait ${f(t.gpuWaitMs, 2)}) ms/f` : "",
+    r.gpuUtil ? `| GPU util ${f(r.gpuUtil.window.p50, 0)}% (before ${f(r.gpuUtil.before.p50, 0)}%)` : "",
     `| LoAF ${r.loaf.count} | nodes ${r.metrics.end.Nodes} | page-frames ${f(100 * r.frames.pageFrameRatio, 0)}%`,
+    r.gpuPage ? `| gpu ${r.gpuPage.ready}/${r.gpuPage.instances} ready, ${f(r.gpuPage.gpuFramesPerFrame, 2)} draws/f, Σmedian js ${f(r.gpuPage.medianSumMs.liveJs, 2)} parse ${f(r.gpuPage.medianSumMs.parse, 2)} enc ${f(r.gpuPage.medianSumMs.encode, 2)} pass ${f(r.gpuPage.medianSumMs.gpuPass, 2)} ms` : "",
   ].filter(Boolean).join(" ");
 }
 
