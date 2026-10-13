@@ -6,19 +6,20 @@ import * as d from 'typegpu/data';
 import type { BlendMode, ResolvedPaint } from './palette.ts';
 import { orderOf, type GpuScene } from './scene.ts';
 import * as S from './shaders.ts';
+import type { LiveSlots, SlotPlacement } from './live/slot-renderer.ts';
 
 const SAMPLES = 4;
 const DEPTH_FORMAT = 'depth32float';
 
-const OVER: GPUBlendState = {
+export const OVER: GPUBlendState = {
   color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
   alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
 };
-const MULTIPLY: GPUBlendState = {
+export const MULTIPLY: GPUBlendState = {
   color: { srcFactor: 'dst', dstFactor: 'zero', operation: 'add' },
   alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
 };
-const SCREEN: GPUBlendState = {
+export const SCREEN: GPUBlendState = {
   color: { srcFactor: 'one-minus-dst', dstFactor: 'one', operation: 'add' },
   alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
 };
@@ -30,6 +31,7 @@ type Entry =
 
 type Draw =
   | { kind: 'segs'; first: number; count: number }
+  | { kind: 'slot'; slot: number }
   | { kind: 'fill'; blend: BlendMode; first: number; count: number }
   | { kind: 'halo'; halo: number };
 
@@ -60,9 +62,9 @@ function assertSize(name: string, schema: d.AnyWgslData, bytes: number) {
 
 export class Renderer {
   private readonly device: GPUDevice;
-  private readonly format: GPUTextureFormat;
+  readonly format: GPUTextureFormat;
   private readonly context: GPUCanvasContext;
-  private paints: ResolvedPaint[] = [];
+  paints: ResolvedPaint[] = [];
   private background: [number, number, number, number] = [1, 1, 1, 1];
 
   // geometry (built once per palette classification)
@@ -75,21 +77,21 @@ export class Renderer {
   private haloVB: any;
   private segBuffer: any;
   private orderBuffer: any;
-  private itemBuffer: any;
-  private paintBuffer: any;
-  private gradBuffer: any;
-  private stopBuffer: any;
-  private frameBuffer: any;
+  itemBuffer: any;
+  paintBuffer: any;
+  gradBuffer: any;
+  stopBuffer: any;
+  frameBuffer: any;
   private bindGroup: any;
   private gradIndexOf: number[] = [];
 
   // pipelines
-  private pipes: Record<string, any> = {};
+  pipes: Record<string, any> = {};
 
   // size-dependent
-  private width = 0;
-  private height = 0;
-  private dpr = 1;
+  width = 0;
+  height = 0;
+  dpr = 1;
   private msaa: any;
   private depth: any;
   private haloTex: { a: any; b: any; bgH: any; bgV: any; bgComposite: any; params: any; blurH: any; blurV: any }[] = [];
@@ -99,18 +101,33 @@ export class Renderer {
   // frame state
   share = 0;
   private lastOrder: Uint32Array | null = null;
+  private orderShare = 0;
+  /** Static items and slot pseudo-items in painter order. */
+  private frameOrder = new Uint32Array(0);
+  private itemWords = { f32: new Float32Array(0), u32: new Uint32Array(0) };
   private draws: Draw[] = [];
-  private itemBases = new Uint32Array(0);
-  private total = 0;
+  itemBases = new Uint32Array(0);
+  total = 0;
   stats: FrameStats = { frames: 0, lastEncodeMs: 0, avgEncodeMs: 0, lastGpuMs: null, draws: 0, segments: 0, opaqueVertices: 0, blendedVertices: 0, reorders: 0 };
 
   private query: { set: any; busy: boolean } | null = null;
 
+  /** Live slots (M3): pseudo-items `scene.items.length + i`, spliced into the frame order next to their anchor. */
+  live: LiveSlots | null = null;
+  private readonly slots: SlotPlacement[];
+  /** Depth slots of each live slot this frame (its current primitive count). */
+  readonly slotLayers: Uint32Array;
+  /** Bumped whenever a buffer shared with the live slots' bind groups is replaced. */
+  resourceVersion = 0;
+
   constructor(
-    private readonly root: TgpuRoot,
+    readonly root: TgpuRoot,
     private readonly canvas: HTMLCanvasElement,
-    private readonly scene: GpuScene,
+    readonly scene: GpuScene,
+    slots: SlotPlacement[] = [],
   ) {
+    this.slots = slots;
+    this.slotLayers = new Uint32Array(slots.length);
     this.device = root.device;
     this.format = navigator.gpu.getPreferredCanvasFormat();
     this.context = root.configureContext({ canvas, alphaMode: 'opaque' });
@@ -123,7 +140,7 @@ export class Renderer {
     this.createPipelines();
     this.sampler = root.createSampler({ magFilter: 'linear', minFilter: 'linear' });
     this.frameBuffer = root.createBuffer(S.Frame).$usage('uniform');
-    this.itemBuffer = root.createBuffer(d.arrayOf(S.Item, Math.max(1, scene.items.length))).$usage('storage');
+    this.itemBuffer = root.createBuffer(d.arrayOf(S.Item, Math.max(1, scene.items.length + slots.length))).$usage('storage');
     if (root.enabledFeatures.has('timestamp-query')) {
       this.query = { set: root.createQuerySet('timestamp', 2), busy: false };
     }
@@ -147,10 +164,14 @@ export class Renderer {
     this.pipes.fillOver = blended(S.fillFragOver, OVER);
     this.pipes.fillMultiply = blended(S.fillFragMultiply, MULTIPLY);
     this.pipes.fillScreen = blended(S.fillFragScreen, SCREEN);
-    this.pipes.stroke = root.createRenderPipeline({
-      vertex: S.strokeVert, fragment: S.strokeFrag,
-      targets: { format: this.format, blend: OVER }, depthStencil: depthTest, multisample: ms,
-    });
+    const stroke = (fragment: typeof S.strokeFrag, blend: GPUBlendState) =>
+      root.createRenderPipeline({
+        vertex: S.strokeVert, fragment,
+        targets: { format: this.format, blend }, depthStencil: depthTest, multisample: ms,
+      });
+    this.pipes.stroke = stroke(S.strokeFrag, OVER);
+    this.pipes.strokeMultiply = stroke(S.strokeFragMultiply, MULTIPLY);
+    this.pipes.strokeScreen = stroke(S.strokeFrag, SCREEN);
     this.pipes.haloMask = root.createRenderPipeline({
       vertex: S.haloMaskVert, fragment: S.haloMaskFrag, attribs: fillAttribs,
       targets: { format: 'r8unorm' },
@@ -210,19 +231,36 @@ export class Renderer {
     }
     const stopBytes = new Float32Array(Math.max(8, stops.length));
     stopBytes.set(stops);
+    // Capacity grows by half again so live paints discovered one by one do not reallocate every time; the shaders
+    // index by id, so spare elements are never read.
     const ensure = (current: any, count: number, schema: any): any => {
-      if (current && current.dataType.elementCount === count) return current;
+      if (current && current.dataType.elementCount >= count) return current;
       current?.destroy();
-      return (root.createBuffer as any)((d.arrayOf as any)(schema, count)).$usage("storage");
+      const capacity = current ? Math.ceil(count * 1.5) : count;
+      return (root.createBuffer as any)((d.arrayOf as any)(schema, capacity)).$usage("storage");
     };
     const prev = [this.paintBuffer, this.gradBuffer, this.stopBuffer];
     this.paintBuffer = ensure(this.paintBuffer, Math.max(1, paints.length), S.Paint);
     this.gradBuffer = ensure(this.gradBuffer, Math.max(1, grads.length / 8), S.Gradient);
     this.stopBuffer = ensure(this.stopBuffer, Math.max(1, stops.length / 8), S.Stop);
-    this.paintBuffer.write(paintBytes);
-    this.gradBuffer.write(gradBytes);
-    this.stopBuffer.write(stopBytes.buffer);
-    if (prev.some((b, i) => b !== [this.paintBuffer, this.gradBuffer, this.stopBuffer][i])) this.bindGroup = null;
+    this.root.device.queue.writeBuffer(this.paintBuffer.buffer, 0, paintBytes);
+    this.root.device.queue.writeBuffer(this.gradBuffer.buffer, 0, gradBytes);
+    this.root.device.queue.writeBuffer(this.stopBuffer.buffer, 0, stopBytes.buffer);
+    if (prev.some((b, i) => b !== [this.paintBuffer, this.gradBuffer, this.stopBuffer][i])) {
+      this.bindGroup = null;
+      this.resourceVersion++;
+    }
+  }
+
+  /** Appends paints discovered at runtime (live slots); `scene.paints` must already hold their descriptors. */
+  appendPaints(resolved: ResolvedPaint[]) {
+    this.paints.push(...resolved);
+    this.uploadPaints();
+  }
+
+  /** Compiles every pipeline ahead of the first frame (TypeGPU compiles lazily on first draw otherwise). */
+  async compilePipelines() {
+    await Promise.all([...Object.values(this.pipes), ...(this.live?.pipelines() ?? [])].map((pipeline) => pipeline.initAsync()));
   }
 
   private buildGeometry() {
@@ -372,35 +410,60 @@ export class Renderer {
     });
   }
 
-  /** CPU per frame: rank items, prefix-sum depth slots, rebuild the stroke order buffer when the order changed. */
+  /**
+   * CPU per frame: rank items (re-sorted only when `share` changes), splice the live slots in next to their anchors,
+   * prefix-sum depth slots (static layers + each slot's current primitive count) into the item buffer. The stroke
+   * order buffer and the draw list are rebuilt only when the static order changes.
+   */
   private updateOrder() {
     const { scene } = this;
-    const order = orderOf(scene.items, this.share);
-    const items = new ArrayBuffer(Math.max(1, scene.items.length) * 16);
-    const f = new Float32Array(items);
-    const u = new Uint32Array(items);
-    let base = 0;
-    const bases = new Uint32Array(scene.items.length);
-    for (const i of order) {
-      bases[i] = base;
-      base += scene.items[i].layers;
+    const itemCount = scene.items.length;
+    const reordered = !this.lastOrder || this.share !== this.orderShare;
+    if (reordered) {
+      const order = orderOf(scene.items, this.share);
+      const same = this.lastOrder && this.lastOrder.length === order.length && this.lastOrder.every((v, i) => v === order[i]);
+      this.orderShare = this.share;
+      if (!same) {
+        this.lastOrder = order;
+        this.rebuildDrawList(order);
+      }
     }
-    scene.items.forEach((it, i) => {
+    const frameOrder = this.frameOrder;
+    const bases = this.itemBases;
+    let base = 0;
+    for (let k = 0; k < frameOrder.length; k++) {
+      const i = frameOrder[k];
+      bases[i] = base;
+      base += i < itemCount ? scene.items[i].layers : this.slotLayers[i - itemCount];
+    }
+    const f = this.itemWords.f32;
+    const u = this.itemWords.u32;
+    for (let i = 0; i < bases.length; i++) {
+      const it = scene.items[i < itemCount ? i : this.slots[i - itemCount].anchor];
       f[i * 4] = it.move[0] * this.share;
       f[i * 4 + 1] = it.move[1] * this.share;
       u[i * 4 + 2] = bases[i];
-    });
-    this.itemBuffer.write(items);
-    this.itemBases = bases;
+    }
+    this.root.device.queue.writeBuffer(this.itemBuffer.buffer, 0, f.buffer, 0, bases.length * 16);
     this.total = base;
-    const same = this.lastOrder && this.lastOrder.length === order.length && this.lastOrder.every((v, i) => v === order[i]);
-    if (same) return;
-    this.lastOrder = order;
+  }
+
+  private rebuildDrawList(order: Uint32Array) {
+    const itemCount = this.scene.items.length;
     this.stats.reorders++;
+    const frameOrder: number[] = [];
+    const slotsAt = (anchor: number, side: SlotPlacement['side']) =>
+      this.slots.map((slot, index) => ({ slot, index })).filter(({ slot }) => slot.anchor === anchor && slot.side === side).sort((a, b) => a.slot.seq - b.slot.seq);
     const indices = new Uint32Array(Math.max(1, this.segCount));
     let n = 0;
     const draws: Draw[] = [];
+    const pushSlot = (index: number) => {
+      frameOrder.push(itemCount + index);
+      draws.push({ kind: 'slot', slot: index });
+    };
     for (const item of order) {
+      for (const { index } of slotsAt(item, 'before')) pushSlot(index);
+      frameOrder.push(item);
       for (const e of this.entries[item]) {
         if (e.kind === 'segs') {
           const last = draws[draws.length - 1];
@@ -413,12 +476,19 @@ export class Renderer {
           draws.push({ kind: 'halo', halo: e.halo });
         }
       }
+      for (const { index } of slotsAt(item, 'after')) pushSlot(index);
     }
     this.orderBuffer.write(indices.buffer);
     this.draws = draws;
+    this.frameOrder = Uint32Array.from(frameOrder);
+    if (this.itemBases.length !== frameOrder.length) {
+      this.itemBases = new Uint32Array(frameOrder.length);
+      const words = new ArrayBuffer(frameOrder.length * 16);
+      this.itemWords = { f32: new Float32Array(words), u32: new Uint32Array(words) };
+    }
   }
 
-  private viewTransform() {
+  viewTransform() {
     const [vx, vy, vw] = this.scene.viewBox;
     // SVG maps the viewBox onto the CSS box (width:100%, height from the aspect ratio); the canvas has the same box,
     // so the scale comes from the width in device px; the height only differs by device-pixel snapping.
@@ -469,7 +539,6 @@ export class Renderer {
 
   render() {
     if (!this.width || !this.paints.length) return;
-    const t0 = performance.now();
     performance.mark('gpu:encode-start');
     this.updateOrder();
     const [sx, sy, tx, ty] = this.viewTransform();
@@ -477,6 +546,7 @@ export class Renderer {
     this.ensureBindGroup();
     const encoder = this.root['~unstable'].createCommandEncoder();
     this.ensureHalos(encoder);
+    this.live?.encodeLayers(encoder);
     this.halos.forEach((halo, i) => {
       const p = this.paints[halo.paint];
       const it = this.scene.items[halo.item];
@@ -498,8 +568,11 @@ export class Renderer {
     pass.setBindGroup(S.layout, this.bindGroup);
     pass.setVertexBuffer(S.fillLayout, this.fillVB);
     if (this.opaqueCount) pass.draw(this.opaqueCount);
+    this.live?.drawOpaque(pass);
     for (const draw of this.draws) {
-      if (draw.kind === 'segs') {
+      if (draw.kind === 'slot') {
+        this.live?.drawSlot(pass, draw.slot);
+      } else if (draw.kind === 'segs') {
         pass.setPipeline(this.pipes.stroke);
         pass.setBindGroup(S.layout, this.bindGroup);
         pass.draw(6, draw.count, 0, draw.first);
@@ -528,7 +601,9 @@ export class Renderer {
     }
     performance.mark('gpu:encode-end');
     performance.measure('gpu:encode', 'gpu:encode-start', 'gpu:encode-end');
-    const ms = performance.now() - t0;
+    // Durations come from User Timing marks: they run on the real clock even when tools/lockstep.js virtualizes
+    // performance.now().
+    const ms = performance.measure('gpu-encode', 'gpu:encode-start', 'gpu:encode-end').duration;
     const s = this.stats;
     s.frames++;
     s.lastEncodeMs = ms;
@@ -540,5 +615,6 @@ export class Renderer {
     for (const b of [this.fillVB, this.blendVB, this.haloVB, this.segBuffer, this.orderBuffer, this.itemBuffer, this.paintBuffer, this.gradBuffer, this.stopBuffer, this.frameBuffer]) b?.destroy();
     this.msaa?.destroy();
     this.depth?.destroy();
+    this.live?.destroy();
   }
 }

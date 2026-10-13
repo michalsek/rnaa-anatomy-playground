@@ -1,0 +1,276 @@
+{
+ "tag": "fade-dpr4",
+ "dpr": 2,
+ "scale": 2,
+ "ticks": [
+  404,
+  408
+ ],
+ "themes": [
+  "dark",
+  "light"
+ ],
+ "inject": [
+  {
+   "tick": 400,
+   "js": "FACTORY.machines.centrifuge.accept(\"in\", FACTORY.item(\"graph\"))"
+  }
+ ],
+ "reduced": false,
+ "results": [
+  {
+   "theme": "dark",
+   "tick": 404,
+   "width": 2608,
+   "height": 3096,
+   "pixelmatch": 48,
+   "pixelmatchPct": 0.0006,
+   "withAA": 1695,
+   "withAAPct": 0.021,
+   "strict": 49292,
+   "strictPct": 0.6105,
+   "readout": [
+    "held 3/10 · 7.6 rpm · filling",
+    "held 3/10 · 7.6 rpm · filling"
+   ],
+   "status": [
+    "filling",
+    "filling"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/fade-dpr4-intake-dark-t404.png",
+     "pixelmatch": 18,
+     "strict": 1996,
+     "pct": 0.013
+    }
+   ]
+  },
+  {
+   "theme": "dark",
+   "tick": 408,
+   "width": 2608,
+   "height": 3096,
+   "pixelmatch": 39,
+   "pixelmatchPct": 0.0005,
+   "withAA": 1680,
+   "withAAPct": 0.0208,
+   "strict": 49778,
+   "strictPct": 0.6165,
+   "readout": [
+    "held 3/10 · 6.4 rpm · filling",
+    "held 3/10 · 6.4 rpm · filling"
+   ],
+   "status": [
+    "filling",
+    "filling"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/fade-dpr4-intake-dark-t408.png",
+     "pixelmatch": 9,
+     "strict": 2342,
+     "pct": 0.006
+    }
+   ]
+  },
+  {
+   "theme": "light",
+   "tick": 404,
+   "width": 2608,
+   "height": 3096,
+   "pixelmatch": 602,
+   "pixelmatchPct": 0.0075,
+   "withAA": 3722,
+   "withAAPct": 0.0461,
+   "strict": 68324,
+   "strictPct": 0.8462,
+   "readout": [
+    "held 3/10 · 7.6 rpm · filling",
+    "held 3/10 · 7.6 rpm · filling"
+   ],
+   "status": [
+    "filling",
+    "filling"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/fade-dpr4-intake-light-t404.png",
+     "pixelmatch": 30,
+     "strict": 2706,
+     "pct": 0.021
+    }
+   ]
+  },
+  {
+   "theme": "light",
+   "tick": 408,
+   "width": 2608,
+   "height": 3096,
+   "pixelmatch": 591,
+   "pixelmatchPct": 0.0073,
+   "withAA": 3717,
+   "withAAPct": 0.046,
+   "strict": 68757,
+   "strictPct": 0.8515,
+   "readout": [
+    "held 3/10 · 6.4 rpm · filling",
+    "held 3/10 · 6.4 rpm · filling"
+   ],
+   "status": [
+    "filling",
+    "filling"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/fade-dpr4-intake-light-t408.png",
+     "pixelmatch": 22,
+     "strict": 2959,
+     "pct": 0.015
+    }
+   ]
+  }
+ ],
+ "problems-dark": {
+  "svg": [],
+  "gpu": []
+ },
+ "stats-dark": {
+  "frames": 407,
+  "lastEncodeMs": 0.09999999403953552,
+  "avgEncodeMs": 0.07248157237173593,
+  "lastGpuMs": 1.376256,
+  "draws": 33,
+  "segments": 21050,
+  "opaqueVertices": 72864,
+  "blendedVertices": 0,
+  "reorders": 1,
+  "reinits": 0,
+  "width": 2608,
+  "height": 3096,
+  "dpr": 4,
+  "share": 0,
+  "live": {
+   "frames": 406,
+   "slotsChanged": 3219,
+   "bytesUploaded": 19087680,
+   "paints": 56,
+   "errors": 0,
+   "mesh": {
+    "meshHits": 1953,
+    "meshMisses": 44798,
+    "fills": 46751,
+    "segments": 153991
+   },
+   "gpu": {
+    "uploads": 3219,
+    "bytesUploaded": 19087680,
+    "groups": 9,
+    "layerPixels": 202650
+   },
+   "ms": {
+    "liveJs": {
+     "n": 408,
+     "last": 0.7000000029802322,
+     "median": 0.5999999940395355,
+     "p95": 0.8999999910593033,
+     "mean": 0.6024509804213748
+    },
+    "parse": {
+     "n": 406,
+     "last": 0.7999999970197678,
+     "median": 0.6000000089406967,
+     "p95": 1,
+     "mean": 0.6775862066249542
+    },
+    "upload": {
+     "n": 406,
+     "last": 0.10000000894069672,
+     "median": 0,
+     "p95": 0.10000000894069672,
+     "mean": 0.022660098639615062
+    },
+    "encode": {
+     "n": 407,
+     "last": 0.09999999403953552,
+     "median": 0.09999999403953552,
+     "p95": 0.20000000298023224,
+     "mean": 0.07248157237173591
+    }
+   }
+  }
+ },
+ "problems-light": {
+  "svg": [],
+  "gpu": []
+ },
+ "stats-light": {
+  "frames": 406,
+  "lastEncodeMs": 0.20000000298023224,
+  "avgEncodeMs": 0.0674876844501261,
+  "lastGpuMs": 1.376256,
+  "draws": 33,
+  "segments": 21050,
+  "opaqueVertices": 72864,
+  "blendedVertices": 0,
+  "reorders": 1,
+  "reinits": 0,
+  "width": 2608,
+  "height": 3096,
+  "dpr": 4,
+  "share": 0,
+  "live": {
+   "frames": 405,
+   "slotsChanged": 3215,
+   "bytesUploaded": 19051968,
+   "paints": 56,
+   "errors": 0,
+   "mesh": {
+    "meshHits": 1910,
+    "meshMisses": 44746,
+    "fills": 46656,
+    "segments": 153731
+   },
+   "gpu": {
+    "uploads": 3215,
+    "bytesUploaded": 19051968,
+    "groups": 9,
+    "layerPixels": 202650
+   },
+   "ms": {
+    "liveJs": {
+     "n": 408,
+     "last": 0.7999999970197678,
+     "median": 0.6000000089406967,
+     "p95": 1,
+     "mean": 0.6850490194617533
+    },
+    "parse": {
+     "n": 405,
+     "last": 0.7999999970197678,
+     "median": 0.6000000089406967,
+     "p95": 1,
+     "mean": 0.6782716051663882
+    },
+    "upload": {
+     "n": 405,
+     "last": 0,
+     "median": 0,
+     "p95": 0.10000000894069672,
+     "mean": 0.030864197346899245
+    },
+    "encode": {
+     "n": 406,
+     "last": 0.20000000298023224,
+     "median": 0.09999999403953552,
+     "p95": 0.20000000298023224,
+     "mean": 0.06748768445012604
+    }
+   }
+  }
+ }
+}

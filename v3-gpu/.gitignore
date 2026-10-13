@@ -1,3 +1,5 @@
 node_modules/
 out/tmp/
 out/gate/*.html
+out/gpu/live-crops/
+out/gpu/live-dev.html

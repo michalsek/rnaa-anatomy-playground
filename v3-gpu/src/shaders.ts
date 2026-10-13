@@ -205,26 +205,20 @@ export const strokeVert = tgpu.vertexFn({
   return out;
 }`.$uses({ layout, devOf, toClip, depthOf });
 
-export const strokeFrag = tgpu.fragmentFn({
-  in: {
-    position: d.builtin.position,
-    seg: d.interpolate('flat', d.u32),
-    a: d.interpolate('flat', d.vec2f),
-    b: d.interpolate('flat', d.vec2f),
-    hw: d.interpolate('flat', d.f32),
-  },
-  out: d.vec4f,
-})/* wgsl */ `{
-  let px = in.position.xy;
-  let s = layout.$.segs[in.seg];
+/**
+ * Premultiplied stroke / dot colour at device pixel `px`; alpha ≤ 0 means "draw nothing here" (another segment of
+ * the polyline owns the pixel, or no coverage) and the entry points discard.
+ */
+const strokeShade = tgpu.fn([d.vec2f, d.u32, d.vec2f, d.vec2f, d.f32], d.vec4f)/* wgsl */ `(px: vec2f, seg: u32, a: vec2f, b: vec2f, hw: f32) -> vec4f {
+  let s = layout.$.segs[seg];
   var cov: f32;
   if ((s.flags & 1u) != 0u) {
-    cov = diskCoverage(px, in.a, in.hw);
+    cov = diskCoverage(px, a, hw);
   } else {
-    let dist = segDist(px, in.a, in.b);
+    let dist = segDist(px, a, b);
     // Nearest-segment ownership inside the polyline: each pixel is blended once per path (no double blend at joins).
     let n = i32(s.polyEnd - s.polyStart);
-    let local = i32(in.seg - s.polyStart);
+    let local = i32(seg - s.polyStart);
     let closed = (s.flags & 2u) != 0u;
     for (var k = -3; k <= 3; k++) {
       if (k == 0) { continue; }
@@ -235,41 +229,62 @@ export const strokeFrag = tgpu.fragmentFn({
         continue;
       }
       let other = s.polyStart + u32(j);
-      if (other == in.seg) { continue; }
+      if (other == seg) { continue; }
       let o = layout.$.segs[other];
       let od = segDist(px, devOf(o.p0, o.item), devOf(o.p1, o.item));
-      if (od < dist || (od == dist && other < in.seg)) { discard; }
+      if (od < dist || (od == dist && other < seg)) { return vec4f(0.0); }
     }
-    cov = bandCoverage(dist, in.hw);
+    cov = bandCoverage(dist, hw);
     if ((s.flags & 60u) != 0u) {
       // Open polyline ends: separable box filter — band across × overlap along the axis with the stroke's extent.
       // Butt caps end at the point; thin round caps get an extension of 0.6·hw, fitted on the calibration sheet's
       // short ticks (the radial band formula over-inked them +20 % at 0.6 px and +100 % at 0.4 px @DPR1; the
       // area-equivalent π/4·hw still left +6–12 % at DPR 2–3).
-      let ab = in.b - in.a;
+      let ab = b - a;
       let len = length(ab);
       let t = select(vec2f(1.0, 0.0), ab / max(len, 1e-6), len > 1e-5);
-      let u = dot(px - in.a, t);
+      let u = dot(px - a, t);
       // Round caps of strokes ≥ 1.5 device px keep the true (radial) capsule shape.
-      let thin = in.hw < 0.75;
+      let thin = hw < 0.75;
       let startCap = (s.flags & 4u) != 0u || (thin && (s.flags & 16u) != 0u);
       let endCap = (s.flags & 8u) != 0u || (thin && (s.flags & 32u) != 0u);
       let nearStart = u < len * 0.5;
       if ((nearStart && startCap) || (!nearStart && endCap) || (startCap && endCap)) {
-        let round = 0.6 * in.hw;
+        let round = 0.6 * hw;
         let extS = select(1e4, select(round, 0.0, (s.flags & 4u) != 0u), startCap);
         let extE = select(1e4, select(round, 0.0, (s.flags & 8u) != 0u), endCap);
         let along = clamp(min(u + 0.5, len + extE) - max(u - 0.5, -extS), 0.0, 1.0);
-        let perp = abs(dot(px - in.a, vec2f(-t.y, t.x)));
-        cov = bandCoverage(perp, in.hw) * along;
+        let perp = abs(dot(px - a, vec2f(-t.y, t.x)));
+        cov = bandCoverage(perp, hw) * along;
       }
     }
   }
   let c = layout.$.paints[s.paint].color;
   let alpha = c.a * s.alpha * cov;
-  if (alpha <= 0.0) { discard; }
   return vec4f(c.rgb * alpha, alpha);
 }`.$uses({ layout, devOf, segDist, bandCoverage, diskCoverage });
+
+const strokeIn = {
+  position: d.builtin.position,
+  seg: d.interpolate('flat', d.u32),
+  a: d.interpolate('flat', d.vec2f),
+  b: d.interpolate('flat', d.vec2f),
+  hw: d.interpolate('flat', d.f32),
+};
+
+/** Normal (source-over) and screen blending: premultiplied output. */
+export const strokeFrag = tgpu.fragmentFn({ in: strokeIn, out: d.vec4f })/* wgsl */ `{
+  let c = strokeShade(in.position.xy, in.seg, in.a, in.b, in.hw);
+  if (c.a <= 0.0) { discard; }
+  return c;
+}`.$uses({ strokeShade });
+
+/** mix-blend-mode: multiply (lamp glow dots in light theme): dst · (1 − a + a·src), blend factors (dst, zero). */
+export const strokeFragMultiply = tgpu.fragmentFn({ in: strokeIn, out: d.vec4f })/* wgsl */ `{
+  let c = strokeShade(in.position.xy, in.seg, in.a, in.b, in.hw);
+  if (c.a <= 0.0) { discard; }
+  return vec4f(vec3f(1.0 - c.a) + c.rgb, c.a);
+}`.$uses({ strokeShade });
 
 // ---- halo: silhouette mask → separable gaussian → composite -----------------------------------------------------------
 export const haloMaskVert = tgpu.vertexFn({
@@ -336,3 +351,36 @@ export const haloFrag = tgpu.fragmentFn({
   if (a <= 0.0) { discard; }
   return vec4f(p.color.rgb * a, a);
 }`.$uses({ haloLayout, layout });
+
+// ---- group opacity: an offscreen layer composited at the group's depth ------------------------------------------------
+export const GroupParams = d.struct({ origin: d.vec2i, depth: d.f32, alpha: d.f32 });
+
+export const compositeLayout = tgpu.bindGroupLayout({
+  layer: { texture: d.texture2d(d.f32) },
+  groups: { storage: d.arrayOf(GroupParams), access: 'readonly' },
+});
+
+export const compositeVert = tgpu.vertexFn({
+  in: { vid: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
+  out: { position: d.builtin.position, group: d.interpolate('flat', d.u32) },
+})/* wgsl */ `{
+  var pts = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var out: Out;
+  out.position = vec4f(pts[in.vid], compositeLayout.$.groups[in.iid].depth, 1.0);
+  out.group = in.iid;
+  return out;
+}`.$uses({ compositeLayout });
+
+/** The layer holds the group's premultiplied colour; scaling it by the group alpha is SVG group opacity. */
+export const compositeFrag = tgpu.fragmentFn({
+  in: { position: d.builtin.position, group: d.interpolate('flat', d.u32) },
+  out: d.vec4f,
+})/* wgsl */ `{
+  let g = compositeLayout.$.groups[in.group];
+  let q = vec2i(in.position.xy) - g.origin;
+  let size = vec2i(textureDimensions(compositeLayout.$.layer));
+  if (any(q < vec2i(0)) || any(q >= size)) { discard; }
+  let c = textureLoad(compositeLayout.$.layer, q, 0) * g.alpha;
+  if (c.a <= 0.0) { discard; }
+  return c;
+}`.$uses({ compositeLayout });

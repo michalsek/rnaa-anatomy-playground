@@ -67,6 +67,11 @@ const num = (text: string, fallback: number) => {
  * --anatomy-paper: var(--anatomy-card) apply exactly as they did to the SVG).
  */
 export function resolvePalette(scene: GpuScene, stage: Element): ResolvedPaint[] {
+  return resolvePaints(scene.paints, scene, stage);
+}
+
+/** Resolve `paints` (any subset, e.g. live paints discovered at runtime) in the scene's probe context. */
+export function resolvePaints(paints: PaintDesc[], scene: Pick<GpuScene, 'svgClass' | 'chainPrefix'>, stage: Element): ResolvedPaint[] {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('class', scene.svgClass);
   svg.setAttribute('aria-hidden', 'true');
@@ -78,7 +83,7 @@ export function resolvePalette(scene: GpuScene, stage: Element): ResolvedPaint[]
       const nodes = build(prefixHost, chain);
       return nodes;
     };
-    return scene.paints.map((desc: PaintDesc): ResolvedPaint => {
+    return paints.map((desc: PaintDesc): ResolvedPaint => {
       const nodes = leafOf(desc.chain);
       const leaf = nodes[nodes.length - 1];
       const cs = getComputedStyle(leaf);

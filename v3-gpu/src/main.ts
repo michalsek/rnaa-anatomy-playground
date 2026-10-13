@@ -1,10 +1,23 @@
 // Boot: find the canvas, load the scene, init TypeGPU, probe the palette, size to device pixels, draw on demand.
 // window.__gpu is the tool surface (ready, frameStats, setShare, setTheme, simulateDeviceLoss).
 import tgpu from 'typegpu';
-import { resolveBackground, resolvePalette } from './palette.ts';
+import { resolveBackground, resolvePaints, resolvePalette } from './palette.ts';
 import { Renderer } from './renderer.ts';
-import { sceneFromWire, type GpuScene } from './scene.ts';
+import { sceneFromWire, type ChainNode, type GpuScene } from './scene.ts';
 import { sceneFromDl } from './dl-loader.ts';
+import { LiveAdapter, measureSince } from './live/adapter.ts';
+import { DomSlotSource } from './live/dom-slots.ts';
+import { LiveSlots, type SlotPlacement } from './live/slot-renderer.ts';
+
+/** Build-time flag (tools/build.mjs --dev): unsupported live markup throws at the runtime's write instead of warning. */
+declare const __GPU_DEV__: boolean;
+
+/** Probe ancestors of slot content in the v2 page: `<g class="fx-parts">` › `<g data-slot>` (data-slot is not a key). */
+const SLOT_CHAIN: ChainNode[] = [{ tag: 'g', attrs: { class: 'fx-parts' } }, { tag: 'g', attrs: {} }];
+/** User Timing entries of the live path are cleared this often (PerformanceObservers still see every entry). */
+const TIMING_CLEAR_FRAMES = 600;
+const TIMING_MEASURES = ['live-js', 'adapter-parse', 'adapter-upload', 'gpu-encode', 'gpu:encode'];
+const TIMING_MARKS = ['live-js-start', 'adapter-parse-start', 'adapter-upload-start', 'gpu:encode-start', 'gpu:encode-end'];
 
 interface GpuApi {
   ready: boolean;
@@ -30,26 +43,95 @@ const api: GpuApi = ((window as any).__gpu = {
   simulateDeviceLoss: () => {},
 });
 
-function loadScene(): GpuScene {
+function loadScene(): { scene: GpuScene; slots: SlotPlacement[] } {
   const wire = document.getElementById('gpu-scene');
-  if (wire) return sceneFromWire(JSON.parse(wire.textContent!));
+  if (wire) return { scene: sceneFromWire(JSON.parse(wire.textContent!)), slots: [] };
   const dl = document.getElementById('gpu-dl');
-  if (dl) return sceneFromDl(JSON.parse(dl.textContent!), document.getElementById('gpu-dl-bin')!.textContent!.trim());
+  if (dl) {
+    const json = JSON.parse(dl.textContent!);
+    const slots: SlotPlacement[] = json.slots.map(({ name, anchor, side, seq }: SlotPlacement) => ({ name, anchor, side, seq }));
+    return { scene: sceneFromDl(json, document.getElementById('gpu-dl-bin')!.textContent!.trim()), slots };
+  }
   throw new Error('no scene data on the page');
 }
 
-function showFallback(canvas: HTMLCanvasElement, reason: string) {
-  api.error = reason;
+/**
+ * Live pages (canvas[data-live]): the v2 runtime keeps running verbatim against hidden skeleton slots. Installed
+ * synchronously, before the page's module script runs; returns null on static pages.
+ */
+function installLive(canvas: HTMLCanvasElement, scene: GpuScene, slots: SlotPlacement[]) {
+  if (canvas.dataset.live === undefined) return null;
+  const stage = canvas.parentElement!;
+  const skeleton = stage.querySelector('svg.fx-live-slots');
+  if (!skeleton) throw new Error('live page without its slot skeleton (svg.fx-live-slots)');
+  const elements = new Map<string, Element>();
+  for (const { name } of slots) {
+    const el = skeleton.querySelector(`[data-slot="${CSS.escape(name)}"]`);
+    if (!el) throw new Error(`live slot ${name} is missing from the skeleton`);
+    elements.set(name, el);
+  }
+  let adapter: LiveAdapter | null = null;
+  const source = new DomSlotSource(elements, __GPU_DEV__ ? (markup) => adapter!.validate(markup) : null);
+  adapter = new LiveAdapter(source, scene, { resolve: (paints) => resolvePaints(paints, scene, stage) }, __GPU_DEV__ ? 'throw' : 'skip', SLOT_CHAIN);
+  // live-js: every page rAF callback (the runtime's tick: simulation + slot writes), timed on the real clock.
+  const pageRaf = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (callback) =>
+    pageRaf((time) => {
+      performance.mark('live-js-start');
+      try {
+        callback(time);
+      } finally {
+        adapter!.samples.liveJs.push(measureSince('live-js', 'live-js-start'));
+      }
+    });
+  return { source, adapter, pageRaf };
+}
+
+/**
+ * Until the first GPU frame is presented the SVG from the <template> covers the (hidden) canvas, so the figure is
+ * never blank while WebGPU boots and compiles. It is appended at the end of the stage: runtime.js binds to the first
+ * <svg> of the stage, which must stay the live slot skeleton.
+ */
+function showPreview(canvas: HTMLCanvasElement): SVGSVGElement | null {
   const template = document.getElementById('svg-fallback') as HTMLTemplateElement | null;
-  if (template) canvas.replaceWith(template.content.cloneNode(true));
+  const svg = template?.content.querySelector('svg')?.cloneNode(true) as SVGSVGElement | undefined;
+  if (!svg) return null;
+  svg.setAttribute('aria-hidden', 'true');
+  svg.style.cssText = `position:absolute;left:${canvas.offsetLeft}px;top:${canvas.offsetTop}px;width:${canvas.offsetWidth}px;height:${canvas.offsetHeight}px`;
+  canvas.style.visibility = 'hidden';
+  canvas.parentElement!.appendChild(svg);
+  return svg;
+}
+
+/** No WebGPU: the preview SVG takes the canvas' place for good. */
+function showFallback(canvas: HTMLCanvasElement, preview: SVGSVGElement | null, reason: string) {
+  api.error = reason;
+  if (preview) {
+    preview.removeAttribute('style');
+    preview.removeAttribute('aria-hidden');
+    canvas.replaceWith(preview);
+  } else {
+    canvas.remove();
+  }
   document.documentElement.dataset.gpu = 'fallback';
 }
 
 async function main() {
   const canvas = document.querySelector('canvas[data-gpu]') as HTMLCanvasElement;
   const stage = canvas.parentElement!;
-  if (!navigator.gpu) return showFallback(canvas, 'no-webgpu');
-  const scene = loadScene();
+  const { scene, slots } = loadScene();
+  const live = installLive(canvas, scene, slots);
+  const raf = live?.pageRaf ?? requestAnimationFrame;
+  const preview = showPreview(canvas);
+  if (live && preview) live.source.forwardTo(preview);
+  const fallback = (reason: string) => showFallback(canvas, preview, reason);
+  const reveal = () => {
+    if (!preview?.isConnected || api.error) return;
+    preview.remove();
+    canvas.style.visibility = '';
+    live?.source.stopForwarding();
+  };
+  if (!navigator.gpu) return fallback('no-webgpu');
   let renderer: Renderer | null = null;
   let root: Awaited<ReturnType<typeof tgpu.init>> | null = null;
   let reinits = 0;
@@ -57,22 +139,46 @@ async function main() {
   let pending = false;
   let intentionalLoss = false;
   let share = 0;
+  // Ready (and the preview swapped for the canvas) once the first frame's GPU work is done. Not tied to rAF: the live
+  // pages' first frame may come from a slot write while tools/lockstep.js holds rAF frozen.
+  let firstFrame: () => void = () => {};
+  const presented = new Promise<void>((resolve) => {
+    firstFrame = () => root!.device.queue.onSubmittedWorkDone().then(() => resolve());
+  });
 
   const draw = () => {
     pending = false;
     if (!renderer) return;
+    live?.adapter.flush();
     renderer.share = share;
     renderer.render();
     api.frames++;
+    if (api.frames === 1) firstFrame();
+    if (live) {
+      const { samples } = live.adapter;
+      samples.encode.push(renderer.stats.lastEncodeMs);
+      if (renderer.live?.activeGroups) samples.encodeWithGroups.push(renderer.stats.lastEncodeMs);
+      if (renderer.stats.lastGpuMs !== null) samples.gpu.push(renderer.stats.lastGpuMs);
+      if (api.frames % TIMING_CLEAR_FRAMES === 0) {
+        for (const name of TIMING_MEASURES) performance.clearMeasures(name);
+        for (const name of TIMING_MARKS) performance.clearMarks(name);
+      }
+    }
   };
   const request = () => {
     if (pending) return;
     pending = true;
-    requestAnimationFrame(draw);
+    raf(() => {
+      if (pending) draw();
+    });
   };
+  // Live frames render right after the runtime's rAF callback has written its slots (microtask), so one rAF drives
+  // both the simulation and the GPU frame; a pending resize / theme redraw is folded into it.
+  if (live) live.source.onChange = () => queueMicrotask(() => renderer && draw());
   const probe = () => {
     if (!renderer) return;
     renderer.setPalette(resolvePalette(scene, stage), resolveBackground(stage));
+    live?.adapter.reclassify();
     request();
   };
 
@@ -80,34 +186,49 @@ async function main() {
     try {
       root = await tgpu.init({ device: { optionalFeatures: ['timestamp-query'] } });
     } catch (e) {
-      return showFallback(canvas, `no-adapter: ${(e as Error).message}`);
+      fallback(`no-adapter: ${(e as Error).message}`);
+      return false;
     }
     const info = (root.device as any).adapterInfo ?? {};
     api.adapter = { vendor: info.vendor, architecture: info.architecture, description: info.description, features: [...root.enabledFeatures] };
     root.device.lost.then((lost) => {
       renderer = null;
+      live?.adapter.detach();
       if (lost.reason === 'destroyed' && !intentionalLoss) return;
       intentionalLoss = false;
       reinits++;
       start().then(() => request());
     });
     root.device.addEventListener('uncapturederror', (e: any) => console.error('WebGPU:', e.error?.message ?? e));
-    renderer = new Renderer(root, canvas, scene);
+    const next = new Renderer(root, canvas, scene, live ? slots : []);
+    if (live) next.live = new LiveSlots(next, slots);
+    await next.compilePipelines();
+    renderer = next;
     if (size.width) renderer.resize(size.width, size.height, size.dpr);
     probe();
+    if (live && renderer.live) live.adapter.attach(renderer, renderer.live);
+    return true;
   }
 
   // Device pixels: devicePixelContentBoxSize is exact (snapped) on real displays, but under CDP device-metrics
   // emulation (capture.mjs / drive.mjs --scale) Chrome reports it in CSS px while devicePixelRatio is emulated, so
   // trust it only when it agrees with devicePixelRatio to within a pixel.
+  // The backing store must have exactly the device rows/columns Chrome displays the canvas in (a fractional CSS box,
+  // e.g. 774.25 px, is snapped). devicePixelContentBoxSize gives them on real displays; under CDP device-scale
+  // emulation it reports the snapped box in CSS px instead, which is scaled by devicePixelRatio here.
   const applySize = (cssW: number, cssH: number, dev?: { inlineSize: number; blockSize: number }) => {
     const ratio = devicePixelRatio || 1;
-    const agrees = dev && Math.abs(dev.inlineSize - cssW * ratio) <= 1 && Math.abs(dev.blockSize - cssH * ratio) <= 1;
-    const width = agrees ? dev!.inlineSize : Math.max(1, Math.round(cssW * ratio));
-    const height = agrees ? dev!.blockSize : Math.max(1, Math.round(cssH * ratio));
+    const near = (a: number, b: number) => Math.abs(a - b) <= 1;
+    const devicePx = dev && near(dev.inlineSize, cssW * ratio) && near(dev.blockSize, cssH * ratio);
+    const snappedCssPx = dev && !devicePx && near(dev.inlineSize, cssW) && near(dev.blockSize, cssH);
+    const width = devicePx ? dev!.inlineSize : snappedCssPx ? Math.round(dev!.inlineSize * ratio) : Math.max(1, Math.round(cssW * ratio));
+    const height = devicePx ? dev!.blockSize : snappedCssPx ? Math.round(dev!.blockSize * ratio) : Math.max(1, Math.round(cssH * ratio));
     size = { width, height, dpr: width / cssW };
-    renderer?.resize(width, height, size.dpr);
-    request();
+    if (!renderer) return request();
+    // ResizeObserver callbacks run in the rendering steps right before paint: redraw now, so the resized (cleared)
+    // canvas never shows a blank or stale frame, also while page rAF is held (tools/lockstep.js freeze).
+    renderer.resize(width, height, size.dpr);
+    draw();
   };
   const observer = new ResizeObserver((entries) => {
     const entry = entries[entries.length - 1];
@@ -132,18 +253,28 @@ async function main() {
   new MutationObserver(probe).observe(document.body, { attributes: true, attributeFilter: ['data-theme', 'class'] });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', probe);
 
-  api.frameStats = () => ({ ...(renderer?.stats ?? {}), reinits, width: size.width, height: size.height, dpr: size.dpr, share });
+  api.frameStats = () => ({
+    ...(renderer?.stats ?? {}),
+    reinits,
+    width: size.width,
+    height: size.height,
+    dpr: size.dpr,
+    share,
+    ...(live ? { live: liveStats() } : {}),
+  });
+  const liveStats = () => {
+    const { adapter } = live!;
+    const ms = Object.fromEntries(Object.entries(adapter.samples).map(([name, samples]) => [name, samples.summary()]));
+    return { ...adapter.counters, mesh: { ...adapter.meshStats }, gpu: { ...(renderer?.live?.stats ?? {}) }, ms };
+  };
   api.setShare = (x: number) => { share = x; request(); };
   api.setTheme = (theme) => { document.body.dataset.theme = theme; probe(); };
   api.redraw = request;
   api.simulateDeviceLoss = () => { intentionalLoss = true; root?.device.destroy(); };
 
-  await start();
-  // Ready once the first frame has been submitted and presented.
-  await new Promise<void>((resolve) => {
-    const wait = () => (api.frames > 0 ? root!.device.queue.onSubmittedWorkDone().then(() => requestAnimationFrame(() => resolve())) : requestAnimationFrame(wait));
-    wait();
-  });
+  if (!(await start())) return;
+  await presented;
+  reveal();
   api.ready = true;
   document.documentElement.dataset.gpu = 'ready';
 }

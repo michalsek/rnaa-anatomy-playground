@@ -1,0 +1,113 @@
+{
+ "theme-switch": {
+  "vsFreshLightGpu": {
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 0,
+   "pixelmatchPct": 0,
+   "withAA": 0,
+   "withAAPct": 0,
+   "strict": 0,
+   "strictPct": 0
+  },
+  "vsSvgLight": {
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 253,
+   "pixelmatchPct": 0.0125,
+   "withAA": 1793,
+   "withAAPct": 0.0888,
+   "strict": 32105,
+   "strictPct": 1.5905
+  },
+  "problems": []
+ },
+ "resizeStats": {
+  "width": 928,
+  "height": 1102,
+  "dpr": 2,
+  "canvas": [
+   928,
+   1102
+  ],
+  "ticks": 700,
+  "readout": "held 6/10 · 14.5 rpm · spinning up",
+  "frames": 699
+ },
+ "resizeSvg": {
+  "ticks": 700,
+  "readout": "held 6/10 · 14.5 rpm · spinning up"
+ },
+ "resize": {
+  "width": 928,
+  "height": 1102,
+  "pixelmatch": 222,
+  "pixelmatchPct": 0.0217,
+  "withAA": 761,
+  "withAAPct": 0.0744,
+  "strict": 18095,
+  "strictPct": 1.7694,
+  "stats": {
+   "width": 928,
+   "height": 1102,
+   "dpr": 2,
+   "canvas": [
+    928,
+    1102
+   ],
+   "ticks": 700,
+   "readout": "held 6/10 · 14.5 rpm · spinning up",
+   "frames": 699
+  },
+  "svg": {
+   "ticks": 700,
+   "readout": "held 6/10 · 14.5 rpm · spinning up"
+  }
+ },
+ "hidden": {
+  "hidden0": {
+   "ticks": 302,
+   "frames": 298
+  },
+  "hidden1": {
+   "ticks": 302,
+   "frames": 298
+  },
+  "shown": {
+   "ticks": 1154,
+   "frames": 1150
+  },
+  "stoppedWhileHidden": true,
+  "resumed": true
+ },
+ "unsupported-dev": {
+  "write": "threw: svgsub: unsupported element <text>",
+  "after": {
+   "errors": 0,
+   "error": null
+  },
+  "problems": []
+ },
+ "unsupported-prod": {
+  "write": "no throw",
+  "after": {
+   "errors": 1,
+   "error": null
+  },
+  "problems": [
+   "console.warning: live slot skipped (centrifuge:lamp: svgsub: unsupported element <text>)"
+  ]
+ },
+ "no-webgpu": {
+  "error": "no-webgpu",
+  "gpuAttr": "fallback",
+  "svgs": [
+   "iso-svg",
+   "fx-live-slots"
+  ],
+  "canvas": false,
+  "readout": "held 0/10 · 1.1 rpm · filling",
+  "rotorChildren": 10,
+  "problems": []
+ }
+}

@@ -1,0 +1,95 @@
+{
+ "width": 1280,
+ "dpr": 2,
+ "throttle": 1,
+ "frames": 600,
+ "adapter": {
+  "vendor": "apple",
+  "architecture": "metal-3",
+  "description": "",
+  "features": [
+   "core-features-and-limits",
+   "timestamp-query"
+  ]
+ },
+ "stats": {
+  "frames": 1209,
+  "lastEncodeMs": 0.19999998807907104,
+  "avgEncodeMs": 0.12655086843705166,
+  "lastGpuMs": 2.883584,
+  "draws": 33,
+  "segments": 21050,
+  "opaqueVertices": 72864,
+  "blendedVertices": 0,
+  "reorders": 1,
+  "reinits": 0,
+  "width": 1304,
+  "height": 1548,
+  "dpr": 2,
+  "share": 0,
+  "live": {
+   "frames": 1209,
+   "slotsChanged": 10727,
+   "bytesUploaded": 75309888,
+   "paints": 58,
+   "errors": 0,
+   "mesh": {
+    "meshHits": 3927,
+    "meshMisses": 165230,
+    "fills": 169157,
+    "segments": 641939
+   },
+   "gpu": {
+    "uploads": 10727,
+    "bytesUploaded": 75309888,
+    "groups": 0,
+    "layerPixels": 0
+   },
+   "ms": {
+    "liveJs": {
+     "n": 600,
+     "last": 1,
+     "median": 1,
+     "p95": 1.199999988079071,
+     "mean": 0.9658333338052034
+    },
+    "parse": {
+     "n": 600,
+     "last": 1.1000000089406967,
+     "median": 1,
+     "p95": 1.4000000059604645,
+     "mean": 1.0278333330651124
+    },
+    "upload": {
+     "n": 600,
+     "last": 0,
+     "median": 0,
+     "p95": 0.10000000894069672,
+     "mean": 0.03150000010927518
+    },
+    "encode": {
+     "n": 600,
+     "last": 0.19999998807907104,
+     "median": 0.10000000894069672,
+     "p95": 0.20000000298023224,
+     "mean": 0.12166666681567828
+    },
+    "encodeWithGroups": {
+     "n": 0,
+     "last": 0,
+     "median": 0,
+     "p95": 0,
+     "mean": 0
+    },
+    "gpu": {
+     "n": 600,
+     "last": 3.342336,
+     "median": 3.866624,
+     "p95": 6.488064,
+     "mean": 4.074045440000002
+    }
+   }
+  }
+ },
+ "problems": []
+}

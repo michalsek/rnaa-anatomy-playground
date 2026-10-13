@@ -1,0 +1,1201 @@
+{
+ "tag": "gate-dpr2",
+ "dpr": 2,
+ "scale": 1,
+ "ticks": [
+  100,
+  300,
+  520,
+  700,
+  900,
+  1100,
+  1300,
+  1600
+ ],
+ "themes": [
+  "dark",
+  "light"
+ ],
+ "inject": [],
+ "reduced": false,
+ "results": [
+  {
+   "theme": "dark",
+   "tick": 100,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 203,
+   "pixelmatchPct": 0.0101,
+   "withAA": 1037,
+   "withAAPct": 0.0514,
+   "strict": 23319,
+   "strictPct": 1.1552,
+   "readout": [
+    "held 0/10 · 1.1 rpm · idle",
+    "held 0/10 · 1.1 rpm · idle"
+   ],
+   "status": [
+    "idle",
+    "idle"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-dark-t100.png",
+     "pixelmatch": 32,
+     "strict": 4478,
+     "pct": 0.027
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-dark-t100.png",
+     "pixelmatch": 14,
+     "strict": 1264,
+     "pct": 0.035
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-dark-t100.png",
+     "pixelmatch": 5,
+     "strict": 2946,
+     "pct": 0.004
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-dark-t100.png",
+     "pixelmatch": 23,
+     "strict": 1072,
+     "pct": 0.095
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-dark-t100.png",
+     "pixelmatch": 13,
+     "strict": 638,
+     "pct": 0.041
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-dark-t100.png",
+     "pixelmatch": 0,
+     "strict": 1438,
+     "pct": 0
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-dark-t100.png",
+     "pixelmatch": 6,
+     "strict": 536,
+     "pct": 0.039
+    }
+   ]
+  },
+  {
+   "theme": "dark",
+   "tick": 300,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 212,
+   "pixelmatchPct": 0.0105,
+   "withAA": 1033,
+   "withAAPct": 0.0512,
+   "strict": 23836,
+   "strictPct": 1.1808,
+   "readout": [
+    "held 1/10 · 1.1 rpm · filling",
+    "held 1/10 · 1.1 rpm · filling"
+   ],
+   "status": [
+    "filling",
+    "filling"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-dark-t300.png",
+     "pixelmatch": 34,
+     "strict": 4675,
+     "pct": 0.028
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-dark-t300.png",
+     "pixelmatch": 13,
+     "strict": 1276,
+     "pct": 0.033
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-dark-t300.png",
+     "pixelmatch": 6,
+     "strict": 2944,
+     "pct": 0.004
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-dark-t300.png",
+     "pixelmatch": 24,
+     "strict": 1068,
+     "pct": 0.099
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-dark-t300.png",
+     "pixelmatch": 13,
+     "strict": 839,
+     "pct": 0.041
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-dark-t300.png",
+     "pixelmatch": 1,
+     "strict": 1416,
+     "pct": 0.001
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-dark-t300.png",
+     "pixelmatch": 6,
+     "strict": 536,
+     "pct": 0.039
+    }
+   ]
+  },
+  {
+   "theme": "dark",
+   "tick": 520,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 207,
+   "pixelmatchPct": 0.0103,
+   "withAA": 1061,
+   "withAAPct": 0.0526,
+   "strict": 24125,
+   "strictPct": 1.1951,
+   "readout": [
+    "held 4/10 · 0.7 rpm · filling",
+    "held 4/10 · 0.7 rpm · filling"
+   ],
+   "status": [
+    "filling",
+    "filling"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-dark-t520.png",
+     "pixelmatch": 33,
+     "strict": 5181,
+     "pct": 0.028
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-dark-t520.png",
+     "pixelmatch": 13,
+     "strict": 1285,
+     "pct": 0.033
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-dark-t520.png",
+     "pixelmatch": 6,
+     "strict": 2970,
+     "pct": 0.004
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-dark-t520.png",
+     "pixelmatch": 23,
+     "strict": 1071,
+     "pct": 0.095
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-dark-t520.png",
+     "pixelmatch": 15,
+     "strict": 971,
+     "pct": 0.047
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-dark-t520.png",
+     "pixelmatch": 0,
+     "strict": 1209,
+     "pct": 0
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-dark-t520.png",
+     "pixelmatch": 6,
+     "strict": 537,
+     "pct": 0.039
+    }
+   ]
+  },
+  {
+   "theme": "dark",
+   "tick": 700,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 220,
+   "pixelmatchPct": 0.0109,
+   "withAA": 1071,
+   "withAAPct": 0.0531,
+   "strict": 23956,
+   "strictPct": 1.1868,
+   "readout": [
+    "held 6/10 · 14.5 rpm · spinning up",
+    "held 6/10 · 14.5 rpm · spinning up"
+   ],
+   "status": [
+    "spinning up",
+    "spinning up"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-dark-t700.png",
+     "pixelmatch": 42,
+     "strict": 5295,
+     "pct": 0.035
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-dark-t700.png",
+     "pixelmatch": 17,
+     "strict": 1429,
+     "pct": 0.043
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-dark-t700.png",
+     "pixelmatch": 4,
+     "strict": 2926,
+     "pct": 0.003
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-dark-t700.png",
+     "pixelmatch": 23,
+     "strict": 1069,
+     "pct": 0.095
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-dark-t700.png",
+     "pixelmatch": 22,
+     "strict": 1009,
+     "pct": 0.069
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-dark-t700.png",
+     "pixelmatch": 0,
+     "strict": 928,
+     "pct": 0
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-dark-t700.png",
+     "pixelmatch": 6,
+     "strict": 536,
+     "pct": 0.039
+    }
+   ]
+  },
+  {
+   "theme": "dark",
+   "tick": 900,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 202,
+   "pixelmatchPct": 0.01,
+   "withAA": 1002,
+   "withAAPct": 0.0496,
+   "strict": 24352,
+   "strictPct": 1.2064,
+   "readout": [
+    "held 5/10 · 14.1 rpm · in sync",
+    "held 5/10 · 14.1 rpm · in sync"
+   ],
+   "status": [
+    "in sync",
+    "in sync"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-dark-t900.png",
+     "pixelmatch": 37,
+     "strict": 5288,
+     "pct": 0.031
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-dark-t900.png",
+     "pixelmatch": 11,
+     "strict": 1401,
+     "pct": 0.028
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-dark-t900.png",
+     "pixelmatch": 4,
+     "strict": 3029,
+     "pct": 0.003
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-dark-t900.png",
+     "pixelmatch": 18,
+     "strict": 1032,
+     "pct": 0.074
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-dark-t900.png",
+     "pixelmatch": 12,
+     "strict": 867,
+     "pct": 0.037
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-dark-t900.png",
+     "pixelmatch": 0,
+     "strict": 1449,
+     "pct": 0
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-dark-t900.png",
+     "pixelmatch": 6,
+     "strict": 536,
+     "pct": 0.039
+    }
+   ]
+  },
+  {
+   "theme": "dark",
+   "tick": 1100,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 223,
+   "pixelmatchPct": 0.011,
+   "withAA": 1128,
+   "withAAPct": 0.0559,
+   "strict": 26222,
+   "strictPct": 1.299,
+   "readout": [
+    "held 3/10 · 14.3 rpm · in sync",
+    "held 3/10 · 14.3 rpm · in sync"
+   ],
+   "status": [
+    "in sync",
+    "in sync"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-dark-t1100.png",
+     "pixelmatch": 44,
+     "strict": 5265,
+     "pct": 0.037
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-dark-t1100.png",
+     "pixelmatch": 19,
+     "strict": 1592,
+     "pct": 0.048
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-dark-t1100.png",
+     "pixelmatch": 15,
+     "strict": 4812,
+     "pct": 0.011
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-dark-t1100.png",
+     "pixelmatch": 21,
+     "strict": 1056,
+     "pct": 0.087
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-dark-t1100.png",
+     "pixelmatch": 13,
+     "strict": 940,
+     "pct": 0.041
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-dark-t1100.png",
+     "pixelmatch": 2,
+     "strict": 1517,
+     "pct": 0.003
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-dark-t1100.png",
+     "pixelmatch": 6,
+     "strict": 537,
+     "pct": 0.039
+    }
+   ]
+  },
+  {
+   "theme": "dark",
+   "tick": 1300,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 221,
+   "pixelmatchPct": 0.0109,
+   "withAA": 1070,
+   "withAAPct": 0.053,
+   "strict": 24185,
+   "strictPct": 1.1981,
+   "readout": [
+    "held 2/10 · 14.3 rpm · in sync",
+    "held 2/10 · 14.3 rpm · in sync"
+   ],
+   "status": [
+    "in sync",
+    "in sync"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-dark-t1300.png",
+     "pixelmatch": 38,
+     "strict": 4893,
+     "pct": 0.032
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-dark-t1300.png",
+     "pixelmatch": 12,
+     "strict": 1395,
+     "pct": 0.03
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-dark-t1300.png",
+     "pixelmatch": 19,
+     "strict": 3995,
+     "pct": 0.014
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-dark-t1300.png",
+     "pixelmatch": 21,
+     "strict": 1051,
+     "pct": 0.087
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-dark-t1300.png",
+     "pixelmatch": 14,
+     "strict": 641,
+     "pct": 0.044
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-dark-t1300.png",
+     "pixelmatch": 0,
+     "strict": 916,
+     "pct": 0
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-dark-t1300.png",
+     "pixelmatch": 6,
+     "strict": 536,
+     "pct": 0.039
+    }
+   ]
+  },
+  {
+   "theme": "dark",
+   "tick": 1600,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 208,
+   "pixelmatchPct": 0.0103,
+   "withAA": 1078,
+   "withAAPct": 0.0534,
+   "strict": 24005,
+   "strictPct": 1.1892,
+   "readout": [
+    "held 0/10 · 9.4 rpm · spinning down",
+    "held 0/10 · 9.4 rpm · spinning down"
+   ],
+   "status": [
+    "spinning down",
+    "spinning down"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-dark-t1600.png",
+     "pixelmatch": 29,
+     "strict": 4464,
+     "pct": 0.024
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-dark-t1600.png",
+     "pixelmatch": 21,
+     "strict": 1247,
+     "pct": 0.052
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-dark-t1600.png",
+     "pixelmatch": 10,
+     "strict": 3430,
+     "pct": 0.007
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-dark-t1600.png",
+     "pixelmatch": 31,
+     "strict": 1066,
+     "pct": 0.128
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-dark-t1600.png",
+     "pixelmatch": 12,
+     "strict": 828,
+     "pct": 0.037
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-dark-t1600.png",
+     "pixelmatch": 0,
+     "strict": 1476,
+     "pct": 0
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-dark-t1600.png",
+     "pixelmatch": 6,
+     "strict": 536,
+     "pct": 0.039
+    }
+   ]
+  },
+  {
+   "theme": "light",
+   "tick": 100,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 231,
+   "pixelmatchPct": 0.0114,
+   "withAA": 1773,
+   "withAAPct": 0.0878,
+   "strict": 31401,
+   "strictPct": 1.5556,
+   "readout": [
+    "held 0/10 · 1.1 rpm · idle",
+    "held 0/10 · 1.1 rpm · idle"
+   ],
+   "status": [
+    "idle",
+    "idle"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-light-t100.png",
+     "pixelmatch": 50,
+     "strict": 6463,
+     "pct": 0.042
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-light-t100.png",
+     "pixelmatch": 30,
+     "strict": 1729,
+     "pct": 0.075
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-light-t100.png",
+     "pixelmatch": 12,
+     "strict": 4393,
+     "pct": 0.009
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-light-t100.png",
+     "pixelmatch": 34,
+     "strict": 1220,
+     "pct": 0.14
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-light-t100.png",
+     "pixelmatch": 23,
+     "strict": 854,
+     "pct": 0.072
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-light-t100.png",
+     "pixelmatch": 2,
+     "strict": 2167,
+     "pct": 0.003
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-light-t100.png",
+     "pixelmatch": 4,
+     "strict": 749,
+     "pct": 0.026
+    }
+   ]
+  },
+  {
+   "theme": "light",
+   "tick": 300,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 243,
+   "pixelmatchPct": 0.012,
+   "withAA": 1773,
+   "withAAPct": 0.0878,
+   "strict": 32008,
+   "strictPct": 1.5857,
+   "readout": [
+    "held 1/10 · 1.1 rpm · filling",
+    "held 1/10 · 1.1 rpm · filling"
+   ],
+   "status": [
+    "filling",
+    "filling"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-light-t300.png",
+     "pixelmatch": 60,
+     "strict": 6806,
+     "pct": 0.05
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-light-t300.png",
+     "pixelmatch": 32,
+     "strict": 1715,
+     "pct": 0.08
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-light-t300.png",
+     "pixelmatch": 13,
+     "strict": 4419,
+     "pct": 0.01
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-light-t300.png",
+     "pixelmatch": 35,
+     "strict": 1216,
+     "pct": 0.145
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-light-t300.png",
+     "pixelmatch": 22,
+     "strict": 1088,
+     "pct": 0.069
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-light-t300.png",
+     "pixelmatch": 3,
+     "strict": 2022,
+     "pct": 0.004
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-light-t300.png",
+     "pixelmatch": 4,
+     "strict": 749,
+     "pct": 0.026
+    }
+   ]
+  },
+  {
+   "theme": "light",
+   "tick": 520,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 242,
+   "pixelmatchPct": 0.012,
+   "withAA": 1792,
+   "withAAPct": 0.0888,
+   "strict": 32094,
+   "strictPct": 1.5899,
+   "readout": [
+    "held 4/10 · 0.7 rpm · filling",
+    "held 4/10 · 0.7 rpm · filling"
+   ],
+   "status": [
+    "filling",
+    "filling"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-light-t520.png",
+     "pixelmatch": 58,
+     "strict": 7162,
+     "pct": 0.048
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-light-t520.png",
+     "pixelmatch": 30,
+     "strict": 1725,
+     "pct": 0.075
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-light-t520.png",
+     "pixelmatch": 13,
+     "strict": 4423,
+     "pct": 0.01
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-light-t520.png",
+     "pixelmatch": 34,
+     "strict": 1219,
+     "pct": 0.14
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-light-t520.png",
+     "pixelmatch": 24,
+     "strict": 1243,
+     "pct": 0.075
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-light-t520.png",
+     "pixelmatch": 2,
+     "strict": 1800,
+     "pct": 0.003
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-light-t520.png",
+     "pixelmatch": 4,
+     "strict": 750,
+     "pct": 0.026
+    }
+   ]
+  },
+  {
+   "theme": "light",
+   "tick": 700,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 253,
+   "pixelmatchPct": 0.0125,
+   "withAA": 1793,
+   "withAAPct": 0.0888,
+   "strict": 32105,
+   "strictPct": 1.5905,
+   "readout": [
+    "held 6/10 · 14.5 rpm · spinning up",
+    "held 6/10 · 14.5 rpm · spinning up"
+   ],
+   "status": [
+    "spinning up",
+    "spinning up"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-light-t700.png",
+     "pixelmatch": 65,
+     "strict": 7259,
+     "pct": 0.054
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-light-t700.png",
+     "pixelmatch": 29,
+     "strict": 1832,
+     "pct": 0.072
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-light-t700.png",
+     "pixelmatch": 9,
+     "strict": 4509,
+     "pct": 0.007
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-light-t700.png",
+     "pixelmatch": 34,
+     "strict": 1217,
+     "pct": 0.14
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-light-t700.png",
+     "pixelmatch": 32,
+     "strict": 1267,
+     "pct": 0.1
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-light-t700.png",
+     "pixelmatch": 2,
+     "strict": 1587,
+     "pct": 0.003
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-light-t700.png",
+     "pixelmatch": 4,
+     "strict": 749,
+     "pct": 0.026
+    }
+   ]
+  },
+  {
+   "theme": "light",
+   "tick": 900,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 227,
+   "pixelmatchPct": 0.0112,
+   "withAA": 1710,
+   "withAAPct": 0.0847,
+   "strict": 32602,
+   "strictPct": 1.6151,
+   "readout": [
+    "held 5/10 · 14.1 rpm · in sync",
+    "held 5/10 · 14.1 rpm · in sync"
+   ],
+   "status": [
+    "in sync",
+    "in sync"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-light-t900.png",
+     "pixelmatch": 51,
+     "strict": 7326,
+     "pct": 0.043
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-light-t900.png",
+     "pixelmatch": 25,
+     "strict": 1937,
+     "pct": 0.063
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-light-t900.png",
+     "pixelmatch": 12,
+     "strict": 4589,
+     "pct": 0.009
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-light-t900.png",
+     "pixelmatch": 27,
+     "strict": 1196,
+     "pct": 0.112
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-light-t900.png",
+     "pixelmatch": 24,
+     "strict": 1147,
+     "pct": 0.075
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-light-t900.png",
+     "pixelmatch": 2,
+     "strict": 2153,
+     "pct": 0.003
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-light-t900.png",
+     "pixelmatch": 4,
+     "strict": 749,
+     "pct": 0.026
+    }
+   ]
+  },
+  {
+   "theme": "light",
+   "tick": 1100,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 295,
+   "pixelmatchPct": 0.0146,
+   "withAA": 1841,
+   "withAAPct": 0.0912,
+   "strict": 34537,
+   "strictPct": 1.7109,
+   "readout": [
+    "held 3/10 · 14.3 rpm · in sync",
+    "held 3/10 · 14.3 rpm · in sync"
+   ],
+   "status": [
+    "in sync",
+    "in sync"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-light-t1100.png",
+     "pixelmatch": 71,
+     "strict": 7232,
+     "pct": 0.059
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-light-t1100.png",
+     "pixelmatch": 47,
+     "strict": 2041,
+     "pct": 0.117
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-light-t1100.png",
+     "pixelmatch": 51,
+     "strict": 6513,
+     "pct": 0.038
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-light-t1100.png",
+     "pixelmatch": 35,
+     "strict": 1205,
+     "pct": 0.145
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-light-t1100.png",
+     "pixelmatch": 23,
+     "strict": 1198,
+     "pct": 0.072
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-light-t1100.png",
+     "pixelmatch": 7,
+     "strict": 2200,
+     "pct": 0.01
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-light-t1100.png",
+     "pixelmatch": 4,
+     "strict": 750,
+     "pct": 0.026
+    }
+   ]
+  },
+  {
+   "theme": "light",
+   "tick": 1300,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 274,
+   "pixelmatchPct": 0.0136,
+   "withAA": 1754,
+   "withAAPct": 0.0869,
+   "strict": 32693,
+   "strictPct": 1.6196,
+   "readout": [
+    "held 2/10 · 14.3 rpm · in sync",
+    "held 2/10 · 14.3 rpm · in sync"
+   ],
+   "status": [
+    "in sync",
+    "in sync"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-light-t1300.png",
+     "pixelmatch": 58,
+     "strict": 7053,
+     "pct": 0.048
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-light-t1300.png",
+     "pixelmatch": 32,
+     "strict": 1889,
+     "pct": 0.08
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-light-t1300.png",
+     "pixelmatch": 44,
+     "strict": 5780,
+     "pct": 0.033
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-light-t1300.png",
+     "pixelmatch": 34,
+     "strict": 1204,
+     "pct": 0.14
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-light-t1300.png",
+     "pixelmatch": 24,
+     "strict": 853,
+     "pct": 0.075
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-light-t1300.png",
+     "pixelmatch": 2,
+     "strict": 1572,
+     "pct": 0.003
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-light-t1300.png",
+     "pixelmatch": 4,
+     "strict": 749,
+     "pct": 0.026
+    }
+   ]
+  },
+  {
+   "theme": "light",
+   "tick": 1600,
+   "width": 1304,
+   "height": 1548,
+   "pixelmatch": 249,
+   "pixelmatchPct": 0.0123,
+   "withAA": 1805,
+   "withAAPct": 0.0894,
+   "strict": 32178,
+   "strictPct": 1.5941,
+   "readout": [
+    "held 0/10 · 9.4 rpm · spinning down",
+    "held 0/10 · 9.4 rpm · spinning down"
+   ],
+   "status": [
+    "spinning down",
+    "spinning down"
+   ],
+   "readoutMatch": true,
+   "crops": [
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-rotor-light-t1600.png",
+     "pixelmatch": 54,
+     "strict": 6516,
+     "pct": 0.045
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-spout-light-t1600.png",
+     "pixelmatch": 35,
+     "strict": 1673,
+     "pct": 0.087
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-belt-light-t1600.png",
+     "pixelmatch": 24,
+     "strict": 4976,
+     "pct": 0.018
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-lamp-tach-light-t1600.png",
+     "pixelmatch": 39,
+     "strict": 1215,
+     "pct": 0.161
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-intake-light-t1600.png",
+     "pixelmatch": 22,
+     "strict": 1097,
+     "pct": 0.069
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-feed-light-t1600.png",
+     "pixelmatch": 3,
+     "strict": 2114,
+     "pct": 0.004
+    },
+    {
+     "file": "/Users/michalsek/Documents/rnaa-anatomy/v3-gpu/out/gpu/live-crops/gate-dpr2-crank-light-t1600.png",
+     "pixelmatch": 4,
+     "strict": 749,
+     "pct": 0.026
+    }
+   ]
+  }
+ ],
+ "problems-dark": {
+  "svg": [],
+  "gpu": []
+ },
+ "stats-dark": {
+  "frames": 1605,
+  "lastEncodeMs": 0,
+  "avgEncodeMs": 0.04947040516453738,
+  "lastGpuMs": 1.703936,
+  "draws": 33,
+  "segments": 21050,
+  "opaqueVertices": 72864,
+  "blendedVertices": 0,
+  "reorders": 1,
+  "reinits": 0,
+  "width": 1304,
+  "height": 1548,
+  "dpr": 2,
+  "share": 0,
+  "live": {
+   "frames": 1598,
+   "slotsChanged": 14230,
+   "bytesUploaded": 100343280,
+   "paints": 58,
+   "errors": 0,
+   "mesh": {
+    "meshHits": 5769,
+    "meshMisses": 217580,
+    "fills": 223349,
+    "segments": 852528
+   },
+   "gpu": {
+    "uploads": 14230,
+    "bytesUploaded": 100343280,
+    "groups": 0,
+    "layerPixels": 0
+   },
+   "ms": {
+    "liveJs": {
+     "n": 600,
+     "last": 0.5,
+     "median": 0.6000000089406967,
+     "p95": 0.9000000059604645,
+     "mean": 0.6556666666020949
+    },
+    "parse": {
+     "n": 600,
+     "last": 0.6000000089406967,
+     "median": 0.7999999970197678,
+     "p95": 1.2000000029802322,
+     "mean": 0.8298333329707384
+    },
+    "upload": {
+     "n": 600,
+     "last": 0,
+     "median": 0,
+     "p95": 0.10000000894069672,
+     "mean": 0.023833333204189937
+    },
+    "encode": {
+     "n": 600,
+     "last": 0,
+     "median": 0,
+     "p95": 0.10000000894069672,
+     "mean": 0.049333333497246105
+    }
+   }
+  }
+ },
+ "problems-light": {
+  "svg": [],
+  "gpu": []
+ },
+ "stats-light": {
+  "frames": 1604,
+  "lastEncodeMs": 0,
+  "avgEncodeMs": 0.046321695665840414,
+  "lastGpuMs": 1.6384,
+  "draws": 33,
+  "segments": 21050,
+  "opaqueVertices": 72864,
+  "blendedVertices": 0,
+  "reorders": 1,
+  "reinits": 0,
+  "width": 1304,
+  "height": 1548,
+  "dpr": 2,
+  "share": 0,
+  "live": {
+   "frames": 1597,
+   "slotsChanged": 14226,
+   "bytesUploaded": 100307568,
+   "paints": 58,
+   "errors": 0,
+   "mesh": {
+    "meshHits": 5728,
+    "meshMisses": 217526,
+    "fills": 223254,
+    "segments": 852268
+   },
+   "gpu": {
+    "uploads": 14226,
+    "bytesUploaded": 100307568,
+    "groups": 0,
+    "layerPixels": 0
+   },
+   "ms": {
+    "liveJs": {
+     "n": 600,
+     "last": 0.5,
+     "median": 0.6000000089406967,
+     "p95": 0.9000000059604645,
+     "mean": 0.6529999997963508
+    },
+    "parse": {
+     "n": 600,
+     "last": 0.5999999940395355,
+     "median": 0.7999999970197678,
+     "p95": 1.2999999970197678,
+     "mean": 0.8365000000099341
+    },
+    "upload": {
+     "n": 600,
+     "last": 0,
+     "median": 0,
+     "p95": 0.10000000894069672,
+     "mean": 0.028166666850447653
+    },
+    "encode": {
+     "n": 600,
+     "last": 0,
+     "median": 0,
+     "p95": 0.10000000894069672,
+     "mean": 0.04333333330849806
+    }
+   }
+  }
+ }
+}
