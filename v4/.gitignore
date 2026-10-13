@@ -34,3 +34,6 @@ scratch/
 .DS_Store
 .vscode/
 .idea/
+
+# app icons/splash are source, not artifacts
+!apps/*/assets/**
