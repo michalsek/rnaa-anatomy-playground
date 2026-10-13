@@ -55,8 +55,14 @@ const NO_LINES: LineSetSpec = {
  * green), 2 = lines off. */
 export type DebugMode = 0 | 1 | 2;
 
-/** A canvas context; react-native-webgpu adds `present()`, which must follow each submit. */
-export type CanvasContext = GPUCanvasContext & { present?: () => void };
+/**
+ * A canvas context; react-native-webgpu adds `present()`, which must follow each submit. The
+ * engine is built without the DOM lib, so the canvas is typed by the two fields it reads.
+ */
+export type CanvasContext = GPUCanvasContext & {
+  present?: () => void;
+  readonly canvas: { width: number; height: number };
+};
 
 export interface RendererOptions {
   root: TgpuRoot;
@@ -197,9 +203,10 @@ export function createRenderer(options: RendererOptions): Renderer {
   });
 
   const frame = (time: number) => {
+    // A hidden or collapsed canvas has no pixels (the web host sizes it from its own layout);
+    // asking for its texture would raise a validation error, so skip until it has some.
+    if (context.canvas.width === 0 || context.canvas.height === 0) return;
     const texture = context.getCurrentTexture();
-    // A hidden or collapsed canvas has no pixels; there is nothing to draw until it has some.
-    if (texture.width === 0 || texture.height === 0) return;
     // The canvas may have been resized by the host since the last layout; trust the texture.
     if (texture.width !== viewport.width || texture.height !== viewport.height) {
       resize(texture.width, texture.height, viewport.dpr);
