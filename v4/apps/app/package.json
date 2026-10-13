@@ -5,7 +5,7 @@
   "main": "index.ts",
   "scripts": {
     "web": "expo start --web --port 8090",
-    "start": "expo start --dev-client --port 8081",
+    "start": "expo start --port 8090",
     "ios": "expo run:ios",
     "android": "expo run:android",
     "prebuild": "expo prebuild --clean",
