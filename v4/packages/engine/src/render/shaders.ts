@@ -584,7 +584,9 @@ export const marksVertex = tgpu.vertexFn({
   const visible = (inst.flags & INSTANCE.visible) !== 0 && frame.debug !== 2 && alpha > 0;
 
   const slot = std.select(mark.slot, d.u32(SLOT.dot), isDot);
-  let color = tone(mark.material, slot);
+  // Pool marks inherit their instance's style material.
+  const material = std.select(mark.material, L.$.styles[inst.style].material, mark.material === 0xffff);
+  let color = tone(material, slot);
   if (frame.debug === 1) {
     color = d.vec4f(CYAN);
   }

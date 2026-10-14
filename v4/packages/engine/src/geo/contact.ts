@@ -13,7 +13,11 @@ export interface Placed {
   model: Float32Array;
 }
 
+const isIdentity = (m: Float32Array) =>
+  m.every((v, i) => v === (i % 5 === 0 ? 1 : 0));
+
 function worldPositions({ mesh, model }: Placed): Float32Array {
+  if (isIdentity(model)) return mesh.positions;
   const out = new Float32Array(mesh.positions.length);
   const p = vec3.create();
   for (let i = 0; i < mesh.positions.length; i += 3) {
@@ -69,16 +73,38 @@ export function contactSegments(a: Placed, b: Placed, eps = 1e-4, normals?: numb
   const nB = triangleCount(b.mesh);
   if (!nA || !nB) return new Float32Array(0);
 
-  // ---- a uniform grid over B's triangles ---------------------------------------------------
-  let edgeSum = 0;
+  // ---- a uniform grid over B's triangles near A ---------------------------------------------
+  // Only B triangles that overlap A's bounding box can cross A (a rib touches a small patch of
+  // a big bowl), so the rest are never gridded.
+  const aLo = [Infinity, Infinity, Infinity];
+  const aHi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < PA.length; i += 3) {
+    for (let c = 0; c < 3; c++) {
+      if (PA[i + c]! < aLo[c]!) aLo[c] = PA[i + c]!;
+      if (PA[i + c]! > aHi[c]!) aHi[c] = PA[i + c]!;
+    }
+  }
+  const near: number[] = [];
   for (let t = 0; t < nB; t++) {
+    let inside = true;
+    for (let c = 0; c < 3 && inside; c++) {
+      const v0 = PB[IB[t * 3]! * 3 + c]!;
+      const v1 = PB[IB[t * 3 + 1]! * 3 + c]!;
+      const v2 = PB[IB[t * 3 + 2]! * 3 + c]!;
+      if (Math.max(v0, v1, v2) < aLo[c]! - eps || Math.min(v0, v1, v2) > aHi[c]! + eps) inside = false;
+    }
+    if (inside) near.push(t);
+  }
+  if (!near.length) return new Float32Array(0);
+  let edgeSum = 0;
+  for (const t of near) {
     for (let k = 0; k < 3; k++) {
       const i = IB[t * 3 + k]! * 3;
       const j = IB[t * 3 + ((k + 1) % 3)]! * 3;
       edgeSum += Math.hypot(PB[j]! - PB[i]!, PB[j + 1]! - PB[i + 1]!, PB[j + 2]! - PB[i + 2]!);
     }
   }
-  const cell = Math.max(1e-6, (2 * edgeSum) / (nB * 3));
+  const cell = Math.max(1e-6, (2 * edgeSum) / (near.length * 3));
   const grid = new Map<number, number[]>();
   const lo = new Int32Array(3);
   const hi = new Int32Array(3);
@@ -91,7 +117,7 @@ export function contactSegments(a: Placed, b: Placed, eps = 1e-4, normals?: numb
       hi[c] = Math.floor((Math.max(v0, v1, v2) + eps) / cell);
     }
   };
-  for (let t = 0; t < nB; t++) {
+  for (const t of near) {
     boxOf(PB, IB, t);
     for (let x = lo[0]!; x <= hi[0]!; x++)
       for (let y = lo[1]!; y <= hi[1]!; y++)

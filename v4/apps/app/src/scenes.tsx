@@ -3,16 +3,39 @@ import type { ViewPreset } from '@anatomy/engine';
 import { Gallery } from './gallery/Gallery.tsx';
 import { M1Row } from './gallery/M1Row.tsx';
 import { GALLERY_VIEWS, M1_VIEWS } from './gallery/views.ts';
+import { Centrifuge } from './machines/centrifuge/Centrifuge.tsx';
+import { CENTRIFUGE_CARD, CENTRIFUGE_VIEWS } from './machines/centrifuge/views.ts';
+
+export interface CardText {
+  fig: string;
+  title: string;
+  hint: string;
+  readout: string;
+  /** Accessible label of the figure. */
+  label: string;
+}
 
 export interface SceneEntry {
   name: string;
   views: readonly ViewPreset[];
   Content: ComponentType;
+  card: CardText;
 }
 
 const M1Only = () => <M1Row />;
 
 export const SCENES: SceneEntry[] = [
-  { name: 'gallery', views: GALLERY_VIEWS, Content: Gallery },
-  { name: 'm1', views: M1_VIEWS, Content: M1Only },
+  { name: 'centrifuge', views: CENTRIFUGE_VIEWS, Content: Centrifuge, card: CENTRIFUGE_CARD },
+  {
+    name: 'gallery',
+    views: GALLERY_VIEWS,
+    Content: Gallery,
+    card: { fig: 'Gallery', title: 'Building blocks', hint: 'one of each block', readout: 'M2 gallery', label: 'Every building block once, in rows.' },
+  },
+  {
+    name: 'm1',
+    views: M1_VIEWS,
+    Content: M1Only,
+    card: { fig: 'Spike', title: 'Lines', hint: 'box · tach · rotor · tube', readout: 'M1 line spike', label: 'The M1 line spike: a box, a tach, a rotor and a tube.' },
+  },
 ];

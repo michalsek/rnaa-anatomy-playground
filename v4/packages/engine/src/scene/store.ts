@@ -103,6 +103,7 @@ export interface SegmentSpec {
 }
 
 export interface MarksSpec {
+  /** On a pool, each instance's style material is used instead. */
   material: Material;
   dots?: readonly DotSpec[];
   segments?: readonly SegmentSpec[];
@@ -228,6 +229,8 @@ const DEFAULT_TONE: Record<GeoKind, ToneRule> = {
   belt: 'tube',
 };
 const DEFAULT_FADE = [0.04, 0.42] as const;
+/** Mark material: use the instance's style material (pool marks). */
+const MARK_INHERIT = 0xffff;
 
 export function transformMatrix(t: Transform | undefined, out = mat4.identity()) {
   mat4.identity(out);
@@ -763,8 +766,8 @@ export class SceneStore {
     lap('pack');
     // Marks: marks nodes, pool marks (per instance), contacts.
     const markWords: number[] = [];
-    const pushMarks = (spec: MarksSpec, instance: number) => {
-      const material = MATERIAL[spec.material];
+    const pushMarks = (spec: MarksSpec, instance: number, inherit = false) => {
+      const material = inherit ? MARK_INHERIT : MATERIAL[spec.material];
       for (const dot of spec.dots ?? []) {
         const fade = dot.normal ? (dot.fade ?? DEFAULT_FADE) : [0, 0];
         markWords.push(
@@ -783,7 +786,8 @@ export class SceneStore {
     for (const n of statics) if (n.kind === 'marks') pushMarks(n.spec, slot.get(n.id)!);
     for (const p of pools) {
       if (!p.marks) continue;
-      for (let i = 0; i < p.capacity; i++) pushMarks(p.marks, poolBase.get(p.id)! + i);
+      // Pool marks take each instance's style material (a strap on a blue or an amber packet).
+      for (let i = 0; i < p.capacity; i++) pushMarks(p.marks, poolBase.get(p.id)! + i, true);
     }
     lap('marks');
     const contacts = this.contacts(parts, restWorld);
@@ -1000,13 +1004,27 @@ export class SceneStore {
         used.add(key);
         let hit = contactCache.get(key);
         if (!hit) {
+          // Work in the big part's model space (only the small mesh is transformed), then
+          // carry the segments and normals into the small part's space.
           const normals: number[] = [];
-          const segments = contactSegments(
-            { mesh: small.proto.mesh, model: mat4.identity() },
-            { mesh: big.proto.mesh, model: rel },
+          const inBig = contactSegments(
+            { mesh: small.proto.mesh, model: mat4.inverse(rel) },
+            { mesh: big.proto.mesh, model: mat4.identity() },
             1e-4,
             normals,
           );
+          const segments = new Float32Array(inBig.length);
+          for (let k = 0; k < inBig.length; k += 3) {
+            vec3.transformMat4(inBig.subarray(k, k + 3), rel, p);
+            segments.set(p, k);
+          }
+          for (let k = 0; k < normals.length; k += 3) {
+            const n = vec3.transformMat4Upper3x3([normals[k]!, normals[k + 1]!, normals[k + 2]!], rel);
+            vec3.normalize(n, n);
+            normals[k] = n[0]!;
+            normals[k + 1] = n[1]!;
+            normals[k + 2] = n[2]!;
+          }
           hit = { segments, normals: new Float32Array(normals) };
           contactCache.set(key, hit);
         }
