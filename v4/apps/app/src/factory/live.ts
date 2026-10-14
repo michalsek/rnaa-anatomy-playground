@@ -16,6 +16,7 @@ import {
   type Factory,
   type FrameInfo,
   type LineGraph,
+  type OutputPageGraph,
   type ScannerPageGraph,
   CENTRIFUGE_LAYOUT,
   LINE_LAYOUT,
@@ -23,6 +24,7 @@ import {
   createConveyorPage,
   createCrusherPage,
   createLine,
+  createOutputPage,
   createScannerPage,
 } from '@anatomy/engine';
 import { type Readout, createReadout } from '../overlay/readout.ts';
@@ -113,7 +115,8 @@ function createLive<G extends Graph>(
   };
 }
 
-const mainOf = (g: Graph & { crusher?: Crusher | null; scanner?: unknown }) => (g.centrifuge ? 'centrifuge' : g.scanner ? 'scanner' : g.crusher ? 'crusher' : 'audio');
+const mainOf = (g: Graph & { crusher?: Crusher | null; scanner?: unknown; elevator?: unknown }) =>
+  g.centrifuge ? 'centrifuge' : g.scanner ? 'scanner' : g.crusher ? 'crusher' : g.elevator ? 'elevator' : 'audio';
 
 /** A machine's dev summary (`Machine.status`), with the sim time. */
 function describe(g: Graph, id: string): unknown {
@@ -142,7 +145,8 @@ export const lineLive = createLive(
     const q = g.audio.quanta();
     const out = g.crusher ? `${g.crusher.stats().count} disposed` : `${g.audio.stats.dropped} out`;
     const audio = g.scanner ? ` · ${g.scanner.stats.sent} audio` : '';
-    return `held ${g.centrifuge.tray.held()}/10 · ${g.centrifuge.controller.phase} · q ${q.count}${audio} · ${out}`;
+    const heard = g.speaker ? ` · ${g.speaker.stats.heard} heard` : '';
+    return `held ${g.centrifuge.tray.held()}/10 · ${g.centrifuge.controller.phase} · q ${q.count}${audio}${heard} · ${out}`;
   },
 );
 
@@ -174,5 +178,12 @@ export const crusherLive = createLive(
 export const scannerLive = createLive(
   (seed) => createScannerPage({ seed }),
   (g: ScannerPageGraph) => `quanta read ${g.scanner.stats.reads} · buffer ${g.scanner.stats.delivered % SC.perPacket}/${SC.perPacket} · ${g.scanner.stats.sent} packets out`,
+  () => 'running',
+);
+
+/** The output path: v2's elevator readout (`packets lifted 3`) and the speaker's. */
+export const outputLive = createLive(
+  (seed) => createOutputPage({ seed }),
+  (g: OutputPageGraph) => `packets lifted ${g.elevator.stats.lifted} · ${g.speaker.stats.heard} heard · boot ${g.elevator.stats.queue}`,
   () => 'running',
 );

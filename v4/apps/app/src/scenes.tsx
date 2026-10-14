@@ -3,9 +3,9 @@ import type { ViewPreset } from '@anatomy/engine';
 import { Gallery } from './gallery/Gallery.tsx';
 import { M1Row } from './gallery/M1Row.tsx';
 import { GALLERY_VIEWS, M1_VIEWS } from './gallery/views.ts';
-import { CentrifugeScene, ConveyorScene, CrusherScene, LineScene, ScannerScene } from './factory/Scenes.tsx';
-import { centrifugeLive, conveyorLive, crusherLive, lineLive, scannerLive } from './factory/live.ts';
-import { CONVEYOR_CARD, CONVEYOR_VIEWS, LINE_CARD, LINE_VIEWS } from './factory/views.ts';
+import { CentrifugeScene, ConveyorScene, CrusherScene, LineScene, OutputScene, ScannerScene } from './factory/Scenes.tsx';
+import { centrifugeLive, conveyorLive, crusherLive, lineLive, outputLive, scannerLive } from './factory/live.ts';
+import { CONVEYOR_CARD, CONVEYOR_VIEWS, LINE_CARD, LINE_VIEWS, OUTPUT_CARD, OUTPUT_VIEWS } from './factory/views.ts';
 import { CENTRIFUGE_CARD, CENTRIFUGE_VIEWS } from './machines/centrifuge/views.ts';
 import { CRUSHER_CARD, CRUSHER_VIEWS } from './machines/crusher/views.ts';
 import { SCANNER_CARD, SCANNER_VIEWS } from './machines/scanner/views.ts';
@@ -60,6 +60,13 @@ export const SCENES: SceneEntry[] = [
     Content: ScannerScene,
     card: { ...SCANNER_CARD, readout: scannerLive.readout },
     dev: scannerLive.dev,
+  },
+  {
+    name: 'output',
+    views: OUTPUT_VIEWS,
+    Content: OutputScene,
+    card: { ...OUTPUT_CARD, readout: outputLive.readout },
+    dev: outputLive.dev,
   },
   {
     name: 'conveyor',

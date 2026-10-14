@@ -4,7 +4,7 @@
  */
 import type { ViewPreset } from '@anatomy/engine';
 
-const at = (name: string, frame: ViewPreset['frame']): ViewPreset => ({ name, yaw: 45, elevation: 30, zoom: 1, ...(frame && { frame }) });
+const at = (name: string, frame: ViewPreset['frame'], yaw = 45): ViewPreset => ({ name, yaw, elevation: 30, zoom: 1, ...(frame && { frame }) });
 
 export const LINE_VIEWS: ViewPreset[] = [
   at('fit', undefined),
@@ -28,15 +28,23 @@ export const LINE_VIEWS: ViewPreset[] = [
   at('arm', [[10, 72, 84], [52, 116, 106]]),
   /** The preamp's cells and lip. */
   at('preamp', [[-58, 82, 0], [-30, 106, 34]]),
-  /** Belt D's end (the elevator's place, M8). */
-  at('D-end', [[-70, -205, 0], [-24, -150, 36]]),
+  /** v2 `z-D-elevator`: belt D's head over the elevator's chute, the boot. */
+  at('D-elevator', [[-75, -215, 0], [-20, -160, 45]]),
+  /** The whole elevator. */
+  at('elevator', [[-75, -310, 0], [-20, -185, 280]]),
+  /** The elevator's head: the wheel, cradles rounding it, the hopper. */
+  at('elevator-head', [[-62, -270, 222], [-25, -205, 278]]),
+  /** v2 `z-elevator-speaker`: the head, duct and spout over the speaker's throat. */
+  at('elevator-speaker', [[-100, -310, 195], [-30, -245, 275]]),
+  /** The speaker: cone, throat and meter (turned: from the standard camera the elevator's head hides it). */
+  at('speaker', [[-155, -345, 170], [-40, -255, 230]], -45),
 ];
 
 export const LINE_CARD = {
   fig: 'Line',
-  title: 'Centrifuge → render loop → read arm',
-  hint: 'rings → one per quantum → read → crusher · belt D',
-  label: 'Packets ride belt B into the centrifuge, which drains them one per render quantum onto the audio belt; the read arm reads each quantum and sends one audio packet per four down belt D; spent packets ride belt C to the crusher.',
+  title: 'Centrifuge → render loop → read arm → speaker',
+  hint: 'rings → one per quantum → read → elevator → speaker',
+  label: 'Packets ride belt B into the centrifuge, which drains them one per render quantum onto the audio belt; the read arm reads each quantum and sends one audio packet per four down belt D to the elevator, which lifts it to the speaker; spent packets ride belt C to the crusher.',
 } as const;
 
 export const CONVEYOR_VIEWS: ViewPreset[] = [
@@ -53,4 +61,26 @@ export const CONVEYOR_CARD = {
   title: 'Conveyors',
   hint: 'belt → audio belt → belt',
   label: 'Two conveyor variants: a single-sided belt and the audio belt, the render loop.',
+} as const;
+
+/** The output scene (elevator column at the origin, belt D along +y, the speaker at [−62, −74]). */
+export const OUTPUT_VIEWS: ViewPreset[] = [
+  at('fit', undefined),
+  /** Belt D's head over the chute, the boot. */
+  at('boot', [[-28, -30, 0], [28, 70, 45]]),
+  /** The head: wheel, cradles rounding it, the hopper. */
+  at('head', [[-16, -44, 222], [22, 20, 278]]),
+  /** v2 `z-elevator-speaker`: the duct and spout over the speaker's throat. */
+  at('spout', [[-53, -84, 195], [17, -19, 275]]),
+  /** The speaker (turned: from the standard camera the elevator's head hides it). */
+  at('speaker', [[-110, -120, 170], [5, -30, 230]], -45),
+  /** The meter and the ledge (turned, as the speaker). */
+  at('meter', [[-30, -84, 200], [5, -64, 222]], -45),
+];
+
+export const OUTPUT_CARD = {
+  fig: 'Part',
+  title: 'Elevator → speaker',
+  hint: 'buffer → cradle → fling → spout → cone',
+  label: 'Each 512-frame device buffer rides a cradle up the elevator, is flung into the hopper and drops out of the spout into the speaker, whose cone pumps once per buffer.',
 } as const;

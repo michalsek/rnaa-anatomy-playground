@@ -6,21 +6,24 @@
  *   layout (§2.1);
  * - `ConveyorScene`: v2's conveyor page; `CrusherScene`: v2's crusher page (a source over a short
  *   belt C); `ScannerScene`: v2's scanner page (a source over the loop, the scanner, belt D).
- * The line also runs the read path: the scanner reads the loop, belt D carries its packets to a
- * crate where the elevator will stand (M8).
+ * The line also runs the read and output paths: the scanner reads the loop, belt D carries its
+ * packets to the elevator, which lifts them to the speaker. `OutputScene`: a source over a short
+ * belt D, the elevator and the speaker.
  * Stand-ins: the hopper hides where a source makes packets; a crate hides where a sink takes them.
  */
-import type { Conveyor, ConveyorPageGraph, CrusherPageGraph, LineGraph, ScannerPageGraph, Sink, Source } from '@anatomy/engine';
+import type { Conveyor, ConveyorPageGraph, CrusherPageGraph, LineGraph, OutputPageGraph, ScannerPageGraph, Sink, Source } from '@anatomy/engine';
 import { Box, Group, Lathe, useFrame } from '../blocks/blocks.tsx';
 import { PacketPool } from '../machines/Packets.tsx';
 import { Centrifuge } from '../machines/centrifuge/Centrifuge.tsx';
 import { Crusher } from '../machines/crusher/Crusher.tsx';
+import { Elevator } from '../machines/elevator/Elevator.tsx';
+import { Speaker } from '../machines/speaker/Speaker.tsx';
 import { Scanner } from '../machines/scanner/Scanner.tsx';
 import { Loop } from '../machines/conveyor/Loop.tsx';
 import { Top } from '../machines/conveyor/Top.tsx';
 import { corners, rod } from '../machines/kit.ts';
 import { usePacketPoses } from '../machines/poses.ts';
-import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, lineLive, scannerLive } from './live.ts';
+import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, lineLive, outputLive, scannerLive } from './live.ts';
 
 /**
  * A closed hopper over the source's point (v2 conveyor page's demo hopper), on two posts either
@@ -77,7 +80,7 @@ function SinkBin({
   );
 }
 
-/** A crate where belt D tips its packets off the head drum (the elevator's stand-in, M8). */
+/** A crate where belt D tips its packets off the head drum (the scanner page). */
 function BeltDEnd({ live, sim, belt }: { live: LiveHandle; sim: () => Sink; belt: () => Conveyor }) {
   const [, oy] = belt().geometry.ports.out;
   return <SinkBin id="crateD" live={live} sim={sim} crate={[[-11, oy - 13, 0], [11, oy + 4.5, 6]]} />;
@@ -99,6 +102,8 @@ function LineOf({ live }: { live: Live<LineGraph> }) {
       {g.sink && <SinkBin live={live} sim={() => live.graph().sink!} crate={[[dx + 1, -9, 0], [dx + 21, 9, 12]]} />}
       {g.scanner && <Scanner live={live} sim={() => live.graph().scanner!} />}
       {g.beltD && <Top id="beltD" live={live} sim={() => live.graph().beltD!} />}
+      {g.elevator && <Elevator live={live} sim={() => live.graph().elevator!} />}
+      {g.speaker && <Speaker live={live} sim={() => live.graph().speaker!} />}
     </>
   );
 }
@@ -154,6 +159,20 @@ export function ScannerScene() {
       <Scanner live={live} sim={() => live.graph().scanner} />
       <Top id="beltD" live={live} sim={() => live.graph().beltD} />
       <BeltDEnd live={live} sim={() => live.graph().sinkD} belt={() => live.graph().beltD} />
+    </>
+  );
+}
+
+/** The output path: an audio packet every 2.28 s from a hopper onto belt D, the elevator, the speaker. */
+export function OutputScene() {
+  const live: Live<OutputPageGraph> = outputLive;
+  const g = live.graph();
+  return (
+    <>
+      <Hopper source={g.source} legs across="y" />
+      <Top id="beltD" live={live} sim={() => live.graph().beltD} />
+      <Elevator live={live} sim={() => live.graph().elevator} />
+      <Speaker live={live} sim={() => live.graph().speaker} />
     </>
   );
 }
