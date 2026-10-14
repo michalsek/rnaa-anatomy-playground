@@ -2,11 +2,9 @@
  * Scenes built from machine blocks over one live graph each (`live.ts`):
  * - `CentrifugeScene`: the centrifuge between a short belt B (fed by a source in a hopper) and a
  *   short audio loop (its garbage drops into a bin);
- * - `LineScene`: source → belt B → centrifuge → audio loop → belt C → crusher, at the final
- *   layout (§2.1);
  * - `ConveyorScene`: v2's conveyor page; `CrusherScene`: v2's crusher page (a source over a short
  *   belt C); `ScannerScene`: v2's scanner page (a source over the loop, the scanner, belt D).
- * The line also runs the read and output paths: the scanner reads the loop, belt D carries its
+ * The line (`LineOf`, any `createLine` layout) also runs the read and output paths: the scanner reads the loop, belt D carries its
  * packets to the elevator, which lifts them to the speaker. `OutputScene`: a source over a short
  * belt D, the elevator and the speaker.
  * Stand-ins: the hopper hides where a source makes packets; a crate hides where a sink takes them.
@@ -29,7 +27,7 @@ import { usePacketPoses } from '../machines/poses.ts';
 import { RevealDriver } from './RevealDriver.tsx';
 import { TourDriver } from './TourDriver.tsx';
 import { standsStore } from './stands.ts';
-import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, factoryLive, lineLive, outputLive, packerLive, scannerLive } from './live.ts';
+import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, factoryLive, outputLive, packerLive, scannerLive } from './live.ts';
 
 /**
  * A closed hopper over the source's point (v2 conveyor page's demo hopper), on two posts either
@@ -129,10 +127,6 @@ function InputPath({ live, floor = 0 }: { live: Live<LineGraph> | Live<PackerPag
 
 export function CentrifugeScene() {
   return <LineOf live={centrifugeLive} />;
-}
-
-export function LineScene() {
-  return <LineOf live={lineLive} />;
 }
 
 /** v2's conveyor page (checkpoint C): belt B → the audio loop → belt C → the bin, with a hopper. */

@@ -29,7 +29,9 @@ export function RevealDriver() {
     lidT: { position: [0, 0, 0] as [number, number, number] },
     clip: { lo: [0, 0, 0] as [number, number, number], hi: [0, 0, 0] as [number, number, number], r: 0, band: 0 },
     halos: [] as SpriteHandle[][],
-    /** The store version the halo list was read at (a rebuild re-registers them). */
+    /** The store and its version the halo list was read at (a rebuild re-registers them; a
+     *  remount brings a new store, which reaches the same version count). */
+    halosOf: null as object | null,
     halosAt: -1,
   }));
   // Open the phone when the scene mounts (a remount or an edit replays it).
@@ -62,8 +64,9 @@ export function RevealDriver() {
     const plan = revealCtl.plan;
     const t = revealCtl.advance(info.dt);
     const hs = roots();
-    if (w.halosAt !== store.version) {
+    if (w.halosOf !== store || w.halosAt !== store.version) {
       w.halos = ROOT_IDS.map((id) => store.haloIds(id).map((h) => store.sprite$(h)));
+      w.halosOf = store;
       w.halosAt = store.version;
     }
     for (let i = 0; i < REVEAL_IDS.length; i++) {

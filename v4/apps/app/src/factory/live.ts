@@ -22,7 +22,6 @@ import {
   type ScannerPageGraph,
   CENTRIFUGE_LAYOUT,
   FACTORY_LAYOUT,
-  LINE_LAYOUT,
   SC,
   createConveyorPage,
   createCrusherPage,
@@ -149,19 +148,6 @@ const centrifugeText = (g: LineGraph) => {
 
 /** The centrifuge scene: the M4 readout. */
 export const centrifugeLive = createLive((seed) => createLine(CENTRIFUGE_LAYOUT, { seed }), centrifugeText);
-
-/** The line scene: the centrifuge and the render loop's quanta (v2 conveyor page readout). */
-export const lineLive = createLive(
-  (seed) => createLine(LINE_LAYOUT, { seed }),
-  (g) => {
-    const q = g.audio.quanta();
-    const out = g.crusher ? `${g.crusher.stats().count} disposed` : `${g.audio.stats.dropped} out`;
-    const audio = g.scanner ? ` · ${g.scanner.stats.sent} audio` : '';
-    const heard = g.speaker ? ` · ${g.speaker.stats.heard} heard` : '';
-    const packed = g.packer ? `${g.packer.stats.packets} packed · ` : '';
-    return `${packed}held ${g.centrifuge.tray.held()}/10 · ${g.centrifuge.controller.phase} · q ${q.count}${audio}${heard} · ${out}`;
-  },
-);
 
 /** v2's conveyor page: the readout as v2's (`q 56 · 1.77/s · 2 top · 3 hung · 1 out`). */
 export const conveyorLive = createLive(

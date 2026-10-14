@@ -1,59 +1,10 @@
 /**
- * Views and card text of the line scene and v2's conveyor page scene (world boxes to frame, named
+ * Views and card text of the single-machine scenes and v2's conveyor page scene (world boxes to frame, named
  * like v2's `assembly/shots/z-*` and the conveyor QA crops). Plain module (no components).
  */
 import type { ViewPreset } from '@anatomy/engine';
 
 const at = (name: string, frame: ViewPreset['frame'], yaw = 45): ViewPreset => ({ name, yaw, elevation: 30, zoom: 1, ...(frame && { frame }) });
-
-export const LINE_VIEWS: ViewPreset[] = [
-  at('fit', undefined),
-  /** v2 `z-dispenser-A`: the bead source's hopper over belt A. */
-  at('dispenser-A', [[-8, -205, 220], [60, -175, 275]]),
-  /** v2 `z-A-packer`: belt A's head, the transfer plate, the gutter and the picker. */
-  at('A-packer', [[35, -215, 195], [105, -168, 258]]),
-  /** The packer: deck, lane, both arms, magazine and cabinet. */
-  at('packer', [[68, -224, 176], [132, -162, 258]]),
-  /** v2 `z-packer-B`: the lane's nose over belt B's tail. */
-  at('packer-B', [[85, -185, 185], [118, -140, 225]]),
-  /** v2 `z-centrifuge-audio`: the centrifuge over the audio belt. */
-  at('centrifuge-audio', [[40, 20, 40], [140, 150, 205]]),
-  at('funnel', [[85, 5, 168], [115, 60, 208]]),
-  at('release', [[76, 100, 88], [118, 138, 128]]),
-  at('read', [[12, 108, 42], [48, 132, 82]]),
-  at('head', [[-118, 98, 25], [-62, 142, 112]]),
-  /** v2 `z-audio-C`: the loop's head drum over belt C, where garbage drops. */
-  at('audio-C', [[-125, 92, 0], [-55, 160, 112]]),
-  /** v2 `z-C-crusher`: belt C's end and the crusher. */
-  at('C-crusher', [[-122, 196, 0], [-58, 290, 40]]),
-  /** The crusher alone (with its drawer's travel). */
-  at('crusher', [[-128, 202, 0], [-50, 298, 38]]),
-  /** v2 `z-scanner-read`: the arm over the loop, the preamp and the cable. */
-  at('scanner-read', [[-56, 88, 10], [40, 124, 100]]),
-  /** v2 `z-scanner-D`: the preamp's lip and the start of belt D. */
-  at('scanner-D', [[-66, 60, 8], [-22, 104, 44]]),
-  /** The read head: the arm, ribbon and lamp. */
-  at('arm', [[10, 72, 84], [52, 116, 106]]),
-  /** The preamp's cells and lip. */
-  at('preamp', [[-58, 82, 0], [-30, 106, 34]]),
-  /** v2 `z-D-elevator`: belt D's head over the elevator's chute, the boot. */
-  at('D-elevator', [[-75, -215, 0], [-20, -160, 45]]),
-  /** The whole elevator. */
-  at('elevator', [[-75, -310, 0], [-20, -185, 280]]),
-  /** The elevator's head: the wheel, cradles rounding it, the hopper. */
-  at('elevator-head', [[-62, -270, 222], [-25, -205, 278]]),
-  /** v2 `z-elevator-speaker`: the head, duct and spout over the speaker's throat. */
-  at('elevator-speaker', [[-100, -310, 195], [-30, -245, 275]]),
-  /** The speaker: cone, throat and meter (turned: from the standard camera the elevator's head hides it). */
-  at('speaker', [[-155, -345, 170], [-40, -255, 230]], -45),
-];
-
-export const LINE_CARD = {
-  fig: 'Line',
-  title: 'Packer → centrifuge → render loop → speaker',
-  hint: 'beads → packets → rings → quantum → read → speaker',
-  label: 'Beads ride belt A into the packer, which boxes three into each packet onto belt B; the centrifuge drains them one per render quantum onto the audio belt; the read arm reads each quantum and sends one audio packet per four down belt D to the elevator, which lifts it to the speaker; spent packets ride belt C to the crusher.',
-} as const;
 
 /** The packer scene (packer at the origin, belt A along +x into its gutter, belt B along +y). */
 export const PACKER_VIEWS: ViewPreset[] = [

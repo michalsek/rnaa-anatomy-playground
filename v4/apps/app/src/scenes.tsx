@@ -3,14 +3,14 @@ import type { Material, ViewPreset } from '@anatomy/engine';
 import { Gallery } from './gallery/Gallery.tsx';
 import { M1Row } from './gallery/M1Row.tsx';
 import { GALLERY_VIEWS, M1_VIEWS } from './gallery/views.ts';
-import { CentrifugeScene, ConveyorScene, CrusherScene, FactoryScene, LineScene, OutputScene, PackerScene, ScannerScene } from './factory/Scenes.tsx';
-import { centrifugeLive, conveyorLive, crusherLive, factoryLive, lineLive, outputLive, packerLive, scannerLive } from './factory/live.ts';
+import { CentrifugeScene, ConveyorScene, CrusherScene, FactoryScene, OutputScene, PackerScene, ScannerScene } from './factory/Scenes.tsx';
+import { centrifugeLive, conveyorLive, crusherLive, factoryLive, outputLive, packerLive, scannerLive } from './factory/live.ts';
 import { CAPTION, CARDS, LEGEND, PHASES, READOUTS } from './factory/cards.ts';
 import { FACTORY_VIEWS } from './factory/factoryViews.ts';
 import { revealCtl } from './factory/revealCtl.ts';
 import { tourCtl } from './factory/tour.ts';
 import { standsStore } from './factory/stands.ts';
-import { CONVEYOR_CARD, CONVEYOR_VIEWS, LINE_CARD, LINE_VIEWS, OUTPUT_CARD, OUTPUT_VIEWS, PACKER_CARD, PACKER_VIEWS } from './factory/views.ts';
+import { CONVEYOR_CARD, CONVEYOR_VIEWS, OUTPUT_CARD, OUTPUT_VIEWS, PACKER_CARD, PACKER_VIEWS } from './factory/views.ts';
 import { CENTRIFUGE_CARD, CENTRIFUGE_VIEWS } from './machines/centrifuge/views.ts';
 import { CRUSHER_CARD, CRUSHER_VIEWS } from './machines/crusher/views.ts';
 import { SCANNER_CARD, SCANNER_VIEWS } from './machines/scanner/views.ts';
@@ -78,13 +78,6 @@ export const SCENES: SceneEntry[] = [
       factoryLive.readout.setFormat((g) => READOUTS[k](g, ctl), PHASES[k]);
       factoryLive.readout.flush(factoryLive.graph());
     },
-  },
-  {
-    name: 'line',
-    views: LINE_VIEWS,
-    Content: LineScene,
-    card: { ...LINE_CARD, readout: lineLive.readout },
-    dev: lineLive.dev,
   },
   {
     name: 'packer',
