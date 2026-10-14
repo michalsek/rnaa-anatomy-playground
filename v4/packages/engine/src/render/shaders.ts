@@ -339,15 +339,16 @@ export const fillFragment = tgpu.fragmentFn({
     color = d.vec4f(frame.paper);
   }
 
-  // The inside of an open mesh (only drawn unculled): a flat void, no lines.
+  // The inside of an open mesh (only drawn unculled): a flat void whose only lines are the
+  // outlines of its open rim (no creases, ticks or contours).
   const inside = !input.front;
   if (inside) {
-    color = tone(m, SLOT.s0);
+    color = std.select(tone(m, SLOT.s0), d.vec4f(frame.paper), debug === 1);
   }
 
-  if (debug !== 2 && !inside) {
+  if (debug !== 2) {
     // UV tick lines.
-    if (set > 0) {
+    if (set > 0 && !inside) {
       const nearest = std.round(x);
       const dist = std.abs(x - nearest) / std.max(xGrad, 1e-6);
       const count = d.i32(lineSet.count);
@@ -412,7 +413,7 @@ export const fillFragment = tgpu.fragmentFn({
     // estimate is already right, so the halved one draws those contours up to twice as wide:
     // the faint streaks noted in M1.
     let contour = d.f32(0);
-    if (flagBit(input.flags, FLAG.smoothBit) === 1) {
+    if (flagBit(input.flags, FLAG.smoothBit) === 1 && !inside) {
       contour = edgeCoverage((0.5 * facing) / std.max(input.facingGrad, 1e-6), line.x, line.y);
     }
 
@@ -435,6 +436,8 @@ export const fillFragment = tgpu.fragmentFn({
 
 /** World units a mark is pulled toward the viewer, so it wins the depth test on its surface. */
 const MARK_BIAS = 0.05;
+/** World units: the most a contact line is pulled off its surface toward the viewer. */
+const CONTACT_LIFT_CAP = 0.15;
 const CYAN = d.vec4f(0.05, 0.75, 0.85, 1);
 
 /** Quad corner k of 6 (two triangles): x = 0 at the start, 1 at the end; y = side (±1). */
@@ -487,6 +490,7 @@ export const marksVertex = tgpu.vertexFn({
   const pb = toPixels(cb, frame.viewport);
 
   const isDot = mark.kind === MARK.dot;
+  const isContact = mark.kind === MARK.contact;
   const wpx = mark.size * frame.pxPerCss;
   const line = wire(wpx);
   const size = std.select(line.x, wpx, isDot);
@@ -510,12 +514,16 @@ export const marksVertex = tgpu.vertexFn({
   const facing = std.dot(nw, frame.toward);
 
   // The corner sits on the mark's tangent plane, so the quad keeps the depth of the surface
-  // it is drawn on (a flat quad would sink into a sloped face). Without a normal (contact
-  // lines), the quad is pulled toward the viewer by its own size instead.
-  let lift = std.max(dx * dx + dy * dy, 0);
-  lift = std.sqrt(lift);
+  // it is drawn on (a flat quad would sink into a sloped face). Without a usable normal the
+  // quad is pulled toward the viewer by its own size, capped so a mark on a thin part cannot
+  // jump in front of it. A contact line lies in an inside corner: the smaller part rises from
+  // the surface and would hide the inner half of the line, so it gets half its width more.
+  let lift = std.min(std.sqrt(std.max(dx * dx + dy * dy, 0)), CONTACT_LIFT_CAP * 2);
   if (hasNormal && std.abs(facing) > 0.1) {
     lift = -(std.dot(nw, frame.right) * dx + std.dot(nw, frame.up) * dy) / facing;
+  }
+  if (isContact) {
+    lift = lift + std.min((0.5 * line.x) / frame.pxPerUnit, CONTACT_LIFT_CAP);
   }
   const endWorld = std.select(wa, wb, atEnd);
   const corner = std.add(
@@ -523,7 +531,7 @@ export const marksVertex = tgpu.vertexFn({
     std.mul(frame.toward, lift),
   );
   let alpha = std.select(line.y, dotOpacity(mark.slot), isDot);
-  if (hasNormal) {
+  if (hasNormal && !isContact) {
     alpha = alpha * std.select(std.smoothstep(mark.fade.x, mark.fade.y, facing), 0, facing <= 0);
   }
   const visible = (inst.flags & INSTANCE.visible) !== 0 && frame.debug !== 2 && alpha > 0;

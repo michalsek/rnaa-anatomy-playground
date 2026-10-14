@@ -7,3 +7,5 @@ export declare const PLATFORM: HostPlatform;
 export declare const DEV: boolean;
 /** Host logger (the engine is built without DOM/Node libs, so it has no `console` type). */
 export declare function log(...args: unknown[]): void;
+/** A monotonic clock in milliseconds (`performance.now()`), for DEV timings. */
+export declare function now(): number;

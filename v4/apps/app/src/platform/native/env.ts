@@ -6,4 +6,12 @@ declare const __DEV__: boolean;
 
 export const PLATFORM: HostPlatform = Platform.OS === 'android' ? 'android' : 'ios';
 export const DEV: boolean = __DEV__;
-export const log = (...args: unknown[]) => console.log(...args);
+/** Also kept in a small ring (`globalThis.__v4logs`) for dev tools that can't read the console. */
+export const log = (...args: unknown[]) => {
+  console.log(...args);
+  const g = globalThis as { __v4logs?: string[] };
+  const ring = (g.__v4logs ??= []);
+  ring.push(args.map(String).join(' '));
+  if (ring.length > 50) ring.shift();
+};
+export const now = () => performance.now();

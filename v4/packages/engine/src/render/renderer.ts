@@ -6,7 +6,7 @@
  * canvas context, its format, size and DPR.
  */
 import { d, type TgpuRoot } from 'typegpu';
-import { DEV, PLATFORM, log } from '#platform/env.ts';
+import { DEV, PLATFORM, log, now } from '#platform/env.ts';
 import {
   type Bounds,
   type CameraState,
@@ -163,8 +163,9 @@ export function createRenderer(options: RendererOptions): Renderer {
   let scene: SceneGpu | null = null;
 
   const rebuild = () => {
-    const t0 = Date.now();
+    const t0 = now();
     const build = store.build();
+    const t1 = now();
     for (const r of scene?.owned ?? []) r.destroy();
     const vertices = root.createBuffer(d.arrayOf(GpuVertex, Math.max(1, build.vertexCount))).$usage('storage');
     if (build.vertexCount) vertices.write(build.vertices.buffer as ArrayBuffer);
@@ -201,8 +202,11 @@ export function createRenderer(options: RendererOptions): Renderer {
     if (boundsChanged && onPreset) applyPreset();
     if (DEV) {
       const s = build.stats;
+      const phases = Object.entries({ ...build.timings, upload: now() - t1 })
+        .map(([k, ms]) => `${k} ${ms.toFixed(1)}`)
+        .join(', ');
       log(
-        `[engine] scene built in ${Date.now() - t0} ms on ${PLATFORM}: ${s.triangles} triangles, ` +
+        `[engine] scene built in ${(now() - t0).toFixed(1)} ms on ${PLATFORM} (${phases}): ${s.triangles} triangles, ` +
           `${build.vertexCount} vertices, ${s.parts} parts, ${s.pools} pools, ${s.instances} instances, ` +
           `${s.marks} marks (${s.contacts} contact segments), ${build.batches.length} batches`,
       );

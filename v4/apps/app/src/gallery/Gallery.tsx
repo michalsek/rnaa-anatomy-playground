@@ -12,7 +12,6 @@ import {
   type PoolHandle,
   type ProfilePoint,
   type Vec3,
-  type ViewPreset,
   boltCircle,
   polyline,
   sphereProfile,
@@ -29,28 +28,8 @@ import {
   useFrame,
   useNode,
 } from '../blocks/blocks.tsx';
-import { M1Row, m1Views } from './M1Row.tsx';
-
-/** Screen right and toward the viewer on the ground, at the kit view (yaw 45°). */
-const RIGHT: Vec3 = [Math.SQRT1_2, -Math.SQRT1_2, 0];
-const FRONT: Vec3 = [Math.SQRT1_2, Math.SQRT1_2, 0];
-const CELL = 24;
-/** Row depth (toward the viewer); rows are spaced by the height of the row in front. */
-const ROW_AT = { m1: 0, ext: 44, lathe: 76, inst: 108, marks: 140, contact: 172 } as const;
-type Row = keyof typeof ROW_AT;
-
-const cell = (row: Row, col: number): [number, number, number] => {
-  const u = (col - 2) * CELL;
-  const w = ROW_AT[row];
-  return [RIGHT[0] * u + FRONT[0] * w, RIGHT[1] * u + FRONT[1] * w, 0];
-};
-const local = (row: Row, col: number): Vec3 => {
-  const [x, y] = cell(row, col);
-  const [ox, oy] = cell(row, 2);
-  return [x - ox, y - oy, 0];
-};
-
-const lift = (p: Vec3, z: number): Vec3 => [p[0], p[1], z];
+import { M1Row } from './M1Row.tsx';
+import { cell, lift, local } from './views.ts';
 
 // ---- row: extrudes --------------------------------------------------------------------------
 
@@ -345,47 +324,3 @@ export function Gallery() {
     </>
   );
 }
-
-const rowView = (row: Row, zoom = 2.6): ViewPreset => {
-  const [x, y] = cell(row, 2);
-  return { name: `row ${row}`, yaw: 45, elevation: 30, zoom, focus: [x, y, 3] };
-};
-/** Pairs of neighbouring cells, close up. */
-const pairView = (row: Row, col: number, zoom = 3.5): ViewPreset => {
-  const [x0, y0] = cell(row, col);
-  const [x1, y1] = cell(row, col + 1);
-  return { name: `${row} ${col}+${col + 1}`, yaw: 45, elevation: 30, zoom, focus: [(x0 + x1) / 2, (y0 + y1) / 2, 3] };
-};
-const at = (row: Row, col: number, p: Vec3): [number, number, number] => {
-  const [x, y] = cell(row, col);
-  return [x + p[0], y + p[1], p[2]];
-};
-
-export const GALLERY_VIEWS: ViewPreset[] = [
-  { name: 'fit', yaw: 45, elevation: 30, zoom: 1 },
-  { name: 'yaw 160', yaw: 160, elevation: 30, zoom: 1 },
-  rowView('m1', 2),
-  pairView('ext', 0),
-  pairView('ext', 2),
-  pairView('ext', 3),
-  pairView('lathe', 0),
-  pairView('lathe', 2),
-  pairView('lathe', 3),
-  pairView('inst', 1, 3),
-  pairView('marks', 1),
-  pairView('marks', 2),
-  pairView('contact', 0),
-  pairView('contact', 2),
-  // Close-ups (zoom relative to the whole gallery's fit).
-  { name: 'close cage', yaw: 45, elevation: 30, zoom: 10, focus: at('contact', 0, [0, 0, 5]) },
-  { name: 'close ribs', yaw: 45, elevation: 30, zoom: 10, focus: at('contact', 1, [3, 3, 3]) },
-  { name: 'close saddle', yaw: 45, elevation: 30, zoom: 10, focus: at('contact', 2, [0, 0, 4.5]) },
-  { name: 'close flush', yaw: 45, elevation: 30, zoom: 10, focus: at('contact', 3, [0, 0, 2]) },
-  { name: 'close tube bend', yaw: 45, elevation: 30, zoom: 10, focus: at('lathe', 3, [-1, -2, 1.5]) },
-  { name: 'close extrude corner', yaw: 45, elevation: 30, zoom: 10, focus: at('ext', 1, [4, 2, 2]) },
-  { name: 'close spinner', yaw: 45, elevation: 30, zoom: 8, focus: at('inst', 1, [0, 0, 2]) },
-  { name: 'close packets', yaw: 45, elevation: 30, zoom: 6, focus: at('inst', 3, [0, 0, 1]) },
-  { name: 'close needle', yaw: 45, elevation: 30, zoom: 9, focus: at('marks', 1, [0, 0, 1]) },
-  { name: 'close dots', yaw: 45, elevation: 30, zoom: 8, focus: at('marks', 3, [0, 0, 3]) },
-  ...m1Views(cell('m1', 2), 'm1 '),
-];

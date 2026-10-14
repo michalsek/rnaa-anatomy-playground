@@ -4,9 +4,9 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StatusBar, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { TgpuRoot } from 'typegpu';
-import { type DebugMode, PAPER, type SceneStore, TOKENS, type Theme, type ViewPreset, initGpu } from '@anatomy/engine';
+import { type DebugMode, PAPER, type SceneStore, TOKENS, type Theme, type ViewPreset } from '@anatomy/engine';
 import { Scene } from './src/blocks/Scene.tsx';
-import { retireRoot } from './src/gpuRoot.ts';
+import { acquireRoot } from './src/gpuRoot.ts';
 import { SCENES } from './src/scenes.tsx';
 
 export default function App() {
@@ -75,25 +75,18 @@ function Main() {
   const [root, setRoot] = useState<TgpuRoot | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    let disposed = false;
-    let created: TgpuRoot | null = null;
-    initGpu().then(
-      (next) => {
-        if (disposed) {
-          retireRoot(next);
-          return;
-        }
-        created = next;
-        setRoot(next);
-      },
-      (err: unknown) => !disposed && setError(err instanceof Error ? err.message : String(err)),
+    let live = true;
+    acquireRoot().then(
+      (next) => live && setRoot(next),
+      (err: unknown) => live && setError(err instanceof Error ? err.message : String(err)),
     );
     return () => {
-      disposed = true;
-      setRoot(null);
-      if (created) retireRoot(created);
+      live = false;
     };
   }, []);
+
+  // A stable element: theme, view or debug toggles re-render the Scene but not the ~175 blocks.
+  const content = useMemo(() => <scene.Content />, [scene]);
 
   const ink = TOKENS[theme].steel.hi;
   const viewName = typeof view === 'number' ? (scene.views[view]?.name ?? 'fit') : view.name;
@@ -102,7 +95,7 @@ function Main() {
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
       {root && (
         <Scene key={scene.name} root={root} views={scene.views} controls={controls} storeRef={storeRef}>
-          <scene.Content />
+          {content}
         </Scene>
       )}
       {error !== null && (

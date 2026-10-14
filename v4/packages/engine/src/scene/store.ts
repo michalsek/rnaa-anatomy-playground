@@ -12,6 +12,7 @@
  *   recomputing below nodes that changed.
  */
 import { mat4, vec3 } from 'wgpu-matrix';
+import { now } from '#platform/env.ts';
 import type { Bounds } from '../camera/camera.ts';
 import { contactSegments } from '../geo/contact.ts';
 import type { Vec3 } from '../geo/mesh.ts';
@@ -91,8 +92,12 @@ export interface PoolHandle {
   readonly capacity: number;
   /** Instances 0..count−1 are drawn. */
   count: number;
-  /** Instance pose in the pool's frame: a position and a yaw about z (radians). */
-  pose(i: number, p: Vec3, yaw?: number): void;
+  /**
+   * Instance pose in the pool's frame: a position, then a rotation in radians applied as
+   * Rz(yaw) · Ry(pitch) · Rx(roll) (yaw about z, then pitch about the turned y, then roll about
+   * the instance's own x). Unchanged values do not mark the store dirty.
+   */
+  pose(i: number, p: Vec3, yaw?: number, pitch?: number, roll?: number): void;
   /** Instance style: an index into the pool's `styles`. */
   style(i: number, k: number): void;
 }
@@ -117,6 +122,8 @@ export interface SceneBuild {
   markCount: number;
   bounds: Bounds;
   stats: { parts: number; pools: number; triangles: number; instances: number; marks: number; contacts: number };
+  /** Milliseconds per build phase (DEV log). */
+  timings: Record<string, number>;
 }
 
 type NodeKind = 'group' | 'part' | 'pool' | 'marks';
@@ -131,6 +138,12 @@ interface NodeBase {
   motion: Float32Array | null;
   world: Float32Array;
   dirty: boolean;
+  /** Resolved at build (parents first). */
+  parentNode: Node | null;
+  /** Flatten pass that last recomputed `world`. */
+  stamp: number;
+  /** The last `spin` (axis code, angle): an unchanged spin is a no-op. */
+  spun: [number, number] | null;
 }
 interface GroupNode extends NodeBase {
   kind: 'group';
@@ -140,6 +153,8 @@ interface PartNode extends NodeBase {
   geo: GeoSpec;
   style: StyleSpec;
   contacts: boolean;
+  /** The prototype, resolved once (a node's geo never changes; edits re-register). */
+  proto: Prototype | null;
 }
 interface PoolNode extends NodeBase {
   kind: 'pool';
@@ -148,7 +163,7 @@ interface PoolNode extends NodeBase {
   capacity: number;
   marks: MarksSpec | null;
   count: number;
-  /** x, y, z, yaw per instance. */
+  /** x, y, z, yaw, pitch, roll per instance. */
   poses: Float32Array;
   styleOf: Uint16Array;
   poolDirty: boolean;
@@ -183,6 +198,71 @@ export function transformMatrix(t: Transform | undefined, out = mat4.identity())
 }
 
 const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] } as const;
+const AXIS_CODE = { x: 0, y: 1, z: 2 } as const;
+const POSE_FLOATS = 6;
+
+/**
+ * Contact segments per (small prototype, big prototype, relative placement), shared by every
+ * store like the prototype cache: edits and remounts rebuild warm. Swept back to the pairs the
+ * last build used once it holds more than CONTACT_CACHE_LIMIT entries.
+ */
+const contactCache = new Map<string, { segments: Float32Array; normals: Float32Array }>();
+const CONTACT_CACHE_LIMIT = 4096;
+
+/** Packed GPU blocks of a prototype (local indices), built once per prototype. */
+interface Packed {
+  vertices: Float32Array;
+  /** 12 words per triangle; idx/adj/partner local, NO_NEIGHBOUR kept. */
+  tris: Uint32Array;
+}
+const packedCache = new WeakMap<Prototype, Packed>();
+function packedOf(proto: Prototype): Packed {
+  let packed = packedCache.get(proto);
+  if (packed) return packed;
+  const { mesh, topology } = proto;
+  const vc = mesh.positions.length / 3;
+  const tc = triangleCountOf(topology);
+  const vertices = new Float32Array(vc * VERTEX_FLOATS);
+  for (let v = 0; v < vc; v++) {
+    const o = v * VERTEX_FLOATS;
+    vertices[o] = mesh.positions[v * 3]!;
+    vertices[o + 1] = mesh.positions[v * 3 + 1]!;
+    vertices[o + 2] = mesh.positions[v * 3 + 2]!;
+    vertices[o + 3] = mesh.uvs[v * 2]!;
+    vertices[o + 4] = mesh.normals[v * 3]!;
+    vertices[o + 5] = mesh.normals[v * 3 + 1]!;
+    vertices[o + 6] = mesh.normals[v * 3 + 2]!;
+    vertices[o + 7] = mesh.uvs[v * 2 + 1]!;
+    vertices[o + 8] = mesh.tangents[v * 3]!;
+    vertices[o + 9] = mesh.tangents[v * 3 + 1]!;
+    vertices[o + 10] = mesh.tangents[v * 3 + 2]!;
+  }
+  const tris = new Uint32Array(tc * 12);
+  const tf = new Float32Array(tris.buffer);
+  for (let t = 0; t < tc; t++) {
+    const o = t * 12;
+    tris[o] = mesh.indices[t * 3]!;
+    tris[o + 1] = mesh.indices[t * 3 + 1]!;
+    tris[o + 2] = mesh.indices[t * 3 + 2]!;
+    tf[o + 4] = topology.faceNormals[t * 3]!;
+    tf[o + 5] = topology.faceNormals[t * 3 + 1]!;
+    tf[o + 6] = topology.faceNormals[t * 3 + 2]!;
+    const flags = topology.flags[t]!;
+    const tag = (flags >>> FLAG.lineSetShift) & FLAG.lineSetMask;
+    if (tag > proto.lineSets.length) {
+      throw new Error(`geometry ${proto.key.slice(0, 60)}…: line set ${tag} unknown (${proto.lineSets.length} defined)`);
+    }
+    tris[o + 7] = flags;
+    tris[o + 8] = topology.adj[t * 3]!;
+    tris[o + 9] = topology.adj[t * 3 + 1]!;
+    tris[o + 10] = topology.adj[t * 3 + 2]!;
+    const partner = mesh.partners[t]!;
+    tris[o + 11] = partner < 0 ? NO_NEIGHBOUR : partner;
+  }
+  packed = { vertices, tris };
+  packedCache.set(proto, packed);
+  return packed;
+}
 
 const BOUNDARY_BITS = FLAG.boundary(0) | FLAG.boundary(1) | FLAG.boundary(2);
 const openCache = new WeakMap<Prototype, boolean>();
@@ -216,7 +296,11 @@ export class SceneStore {
   private f32 = new Float32Array(0);
   private u32 = new Uint32Array(this.f32.buffer);
   private dirtyAny = true;
-  private contactCache = new Map<string, Float32Array>();
+  private flattenStamp = 0;
+  private readonly local = mat4.create();
+  private readonly tmp = mat4.create();
+  private readonly scratch = mat4.create();
+  private readonly v3 = vec3.create();
   readonly motion = { reduced: false };
   version = 0;
 
@@ -236,6 +320,7 @@ export class SceneStore {
       geo: o.geo,
       style: o.style,
       contacts: o.contacts ?? true,
+      proto: null,
     });
   }
 
@@ -260,7 +345,7 @@ export class SceneStore {
       capacity: o.capacity,
       marks: o.marks ?? null,
       count: 0,
-      poses: new Float32Array(o.capacity * 4),
+      poses: new Float32Array(o.capacity * POSE_FLOATS),
       styleOf: new Uint16Array(o.capacity),
       poolDirty: true,
     });
@@ -290,6 +375,9 @@ export class SceneStore {
       motion: null,
       world: mat4.identity(),
       dirty: true,
+      parentNode: null,
+      stamp: 0,
+      spun: null,
     };
   }
 
@@ -345,12 +433,18 @@ export class SceneStore {
       id,
       set: (t) => {
         const n = get();
-        n.motion = transformMatrix(t, n.motion ?? undefined);
+        const m = transformMatrix(t, this.scratch);
+        if (n.motion && sameMatrix(n.motion, m)) return;
+        n.motion = mat4.copy(m, n.motion ?? undefined);
+        n.spun = null;
         touch(n);
       },
       spin: (axis, rad) => {
         const n = get();
+        const code = AXIS_CODE[axis];
+        if (n.spun && n.spun[0] === code && n.spun[1] === rad) return;
         n.motion = mat4.axisRotation(AXES[axis], rad, n.motion ?? undefined);
+        n.spun = [code, rad];
         touch(n);
       },
     };
@@ -384,16 +478,32 @@ export class SceneStore {
           touch(n);
         }
       },
-      pose: (i, p, yaw = 0) => {
+      pose: (i, p, yaw = 0, pitch = 0, roll = 0) => {
         const n = get();
         check(n, i);
-        n.poses.set([p[0], p[1], p[2], yaw], i * 4);
+        const q = n.poses;
+        const o = i * POSE_FLOATS;
+        // Compare at float32 precision (what the array stores).
+        const f = Math.fround;
+        if (
+          q[o] === f(p[0]) && q[o + 1] === f(p[1]) && q[o + 2] === f(p[2]) &&
+          q[o + 3] === f(yaw) && q[o + 4] === f(pitch) && q[o + 5] === f(roll)
+        ) {
+          return;
+        }
+        q[o] = p[0];
+        q[o + 1] = p[1];
+        q[o + 2] = p[2];
+        q[o + 3] = yaw;
+        q[o + 4] = pitch;
+        q[o + 5] = roll;
         touch(n);
       },
       style: (i, k) => {
         const n = get();
         check(n, i);
         if (!(k >= 0 && k < n.styles.length)) throw new Error(`pool "${id}": style ${k} unknown`);
+        if (n.styleOf[i] === k) return;
         n.styleOf[i] = k;
         touch(n);
       },
@@ -421,6 +531,13 @@ export class SceneStore {
   // ---- build -----------------------------------------------------------------------------
 
   build(): SceneBuild {
+    const timings: Record<string, number> = {};
+    let lapStart = now();
+    const lap = (phase: string) => {
+      const t = now();
+      timings[phase] = (timings[phase] ?? 0) + t - lapStart;
+      lapStart = t;
+    };
     const order = this.ordered();
     // Rest world matrices (without motion): bounds and contacts are taken at rest.
     const restWorld = new Map<string, Float32Array>();
@@ -440,6 +557,7 @@ export class SceneStore {
       instanceCount += p.capacity;
     }
 
+    lap('order');
     // Styles: parts share deduplicated styles; each pool gets a consecutive block, so an
     // instance's style is the pool's base + k.
     const styleWords: number[] = [];
@@ -474,11 +592,11 @@ export class SceneStore {
       for (const s of p.styles) styleWords.push(...resolveStyle(s, p.geo.kind));
     }
 
+    lap('styles');
     // Prototypes and their line sets.
     const lineSets: LineSetSpec[] = [];
     const lineSetOffset = new Map<string, number>();
-    const protoOf = (geo: GeoSpec): Prototype => {
-      const proto = buildGeo(geo);
+    const register = (proto: Prototype) => {
       if (!lineSetOffset.has(proto.key)) {
         lineSetOffset.set(proto.key, lineSets.length);
         lineSets.push(...proto.lineSets);
@@ -486,65 +604,49 @@ export class SceneStore {
       return proto;
     };
     const parts = statics.filter((n): n is PartNode => n.kind === 'part');
-    const draws: { proto: Prototype; slot: number }[] = parts.map((n) => ({ proto: protoOf(n.geo), slot: slot.get(n.id)! }));
+    const draws: { proto: Prototype; slot: number }[] = parts.map((n) => ({
+      proto: register((n.proto ??= buildGeo(n.geo))),
+      slot: slot.get(n.id)!,
+    }));
     // Static geometry in two runs, closed then open (open meshes are drawn without culling).
     const statics2 = [...draws.filter((x) => !isOpen(x.proto)), ...draws.filter((x) => isOpen(x.proto))];
-    const poolProtos = pools.map((p) => protoOf(p.geo));
+    const poolProtos = pools.map((p) => register(buildGeo(p.geo)));
     if (lineSets.length > FLAG.lineSetMask) throw new Error(`too many line sets (${lineSets.length} > 255)`);
 
-    // Geometry: the static batch, then one copy per pool.
+    lap('protos');
+    // Geometry: the static batch, then one copy per pool. Each prototype's block is packed once
+    // (cached); here it is copied and its indices rebased.
     const all = [...statics2, ...poolProtos.map((proto) => ({ proto, slot: 0 }))];
     const vertexCount = all.reduce((s, d) => s + d.proto.mesh.positions.length / 3, 0);
     const triCount = all.reduce((s, d) => s + triangleCountOf(d.proto.topology), 0);
     const vertices = new Float32Array(vertexCount * VERTEX_FLOATS);
     const tris = new ArrayBuffer(triCount * SIZES.tri);
     const tu = new Uint32Array(tris);
-    const tf = new Float32Array(tris);
     let v0 = 0;
     let t0 = 0;
     const batches: SceneBuild['batches'] = [];
     const staticRuns = { closed: 0, open: 0 };
+    const tagMask = FLAG.lineSetMask << FLAG.lineSetShift;
     all.forEach(({ proto, slot: s }, k) => {
-      const { mesh, topology } = proto;
-      const vc = mesh.positions.length / 3;
-      const tc = triangleCountOf(topology);
-      for (let v = 0; v < vc; v++) {
-        const o = (v0 + v) * VERTEX_FLOATS;
-        vertices[o] = mesh.positions[v * 3]!;
-        vertices[o + 1] = mesh.positions[v * 3 + 1]!;
-        vertices[o + 2] = mesh.positions[v * 3 + 2]!;
-        vertices[o + 3] = mesh.uvs[v * 2]!;
-        vertices[o + 4] = mesh.normals[v * 3]!;
-        vertices[o + 5] = mesh.normals[v * 3 + 1]!;
-        vertices[o + 6] = mesh.normals[v * 3 + 2]!;
-        vertices[o + 7] = mesh.uvs[v * 2 + 1]!;
-        vertices[o + 8] = mesh.tangents[v * 3]!;
-        vertices[o + 9] = mesh.tangents[v * 3 + 1]!;
-        vertices[o + 10] = mesh.tangents[v * 3 + 2]!;
-      }
+      const packed = packedOf(proto);
+      const vc = proto.mesh.positions.length / 3;
+      const tc = triangleCountOf(proto.topology);
+      vertices.set(packed.vertices, v0 * VERTEX_FLOATS);
+      tu.set(packed.tris, t0 * 12);
       const shift = lineSetOffset.get(proto.key)!;
       for (let t = 0; t < tc; t++) {
         const o = (t0 + t) * 12;
-        tu[o] = mesh.indices[t * 3]! + v0;
-        tu[o + 1] = mesh.indices[t * 3 + 1]! + v0;
-        tu[o + 2] = mesh.indices[t * 3 + 2]! + v0;
+        tu[o] = tu[o]! + v0;
+        tu[o + 1] = tu[o + 1]! + v0;
+        tu[o + 2] = tu[o + 2]! + v0;
         tu[o + 3] = s;
-        tf[o + 4] = topology.faceNormals[t * 3]!;
-        tf[o + 5] = topology.faceNormals[t * 3 + 1]!;
-        tf[o + 6] = topology.faceNormals[t * 3 + 2]!;
-        let flags = topology.flags[t]!;
+        const flags = tu[o + 7]!;
         const tag = (flags >>> FLAG.lineSetShift) & FLAG.lineSetMask;
-        if (tag > proto.lineSets.length) {
-          throw new Error(`geometry ${proto.key.slice(0, 60)}…: line set ${tag} unknown (${proto.lineSets.length} defined)`);
+        if (tag) tu[o + 7] = (flags & ~tagMask) | ((tag + shift) << FLAG.lineSetShift);
+        for (let i = 8; i < 12; i++) {
+          const a = tu[o + i]!;
+          if (a !== NO_NEIGHBOUR) tu[o + i] = a + t0;
         }
-        if (tag) flags = (flags & ~(FLAG.lineSetMask << FLAG.lineSetShift)) | ((tag + shift) << FLAG.lineSetShift);
-        tu[o + 7] = flags;
-        for (let i = 0; i < 3; i++) {
-          const a = topology.adj[t * 3 + i]!;
-          tu[o + 8 + i] = a === NO_NEIGHBOUR ? NO_NEIGHBOUR : a + t0;
-        }
-        const partner = mesh.partners[t]!;
-        tu[o + 11] = partner < 0 ? NO_NEIGHBOUR : partner + t0;
       }
       if (k >= draws.length) {
         const pool = pools[k - draws.length]!;
@@ -562,6 +664,7 @@ export class SceneStore {
       batches.unshift({ firstTri: 0, triCount: staticRuns.closed, firstInstance: 0, pool: null, open: false });
     }
 
+    lap('pack');
     // Marks: marks nodes, pool marks (per instance), contacts.
     const markWords: number[] = [];
     const pushMarks = (spec: MarksSpec, instance: number) => {
@@ -586,17 +689,24 @@ export class SceneStore {
       if (!p.marks) continue;
       for (let i = 0; i < p.capacity; i++) pushMarks(p.marks, poolBase.get(p.id)! + i);
     }
+    lap('marks');
     const contacts = this.contacts(parts, restWorld);
+    lap('contacts');
+    let contactCount = 0;
     for (const c of contacts) {
-      const n = parts.find((p) => p.id === c.id)!;
+      const n = c.node;
       const width = n.style.width ?? 0.6;
       const tone = SLOT[n.style.outline ?? 'mid'];
       const material = MATERIAL[n.style.material];
+      const instance = slot.get(n.id)!;
       const s = c.segments;
-      for (let k = 0; k < s.length; k += 6) {
-        markWords.push(s[k]!, s[k + 1]!, s[k + 2]!, width, s[k + 3]!, s[k + 4]!, s[k + 5]!, slot.get(n.id)!,
-          0, 0, 0, MARK.segment, 0, 0, material, tone);
+      const nm = c.normals;
+      for (let k = 0, j = 0; k < s.length; k += 6, j += 3) {
+        // The bigger part's face normal: the quad lies on that surface (see marksVertex).
+        markWords.push(s[k]!, s[k + 1]!, s[k + 2]!, width, s[k + 3]!, s[k + 4]!, s[k + 5]!, instance,
+          nm[j]!, nm[j + 1]!, nm[j + 2]!, MARK.contact, 0, 0, material, tone);
       }
+      contactCount += s.length / 6;
     }
     const markCount = markWords.length / 16;
     const marks = new ArrayBuffer(Math.max(1, markCount) * SIZES.mark);
@@ -604,47 +714,44 @@ export class SceneStore {
       const mf = new Float32Array(marks);
       const mu = new Uint32Array(marks);
       // Word layout: a(3) size b(3) instance normal(3) kind fade(2) material slot.
-      const isU32 = [7, 11, 14, 15];
-      markWords.forEach((w, i) => {
-        if (isU32.includes(i % 16)) mu[i] = w;
-        else mf[i] = w;
-      });
+      for (let i = 0; i < markWords.length; i++) {
+        const w = i % 16;
+        if (w === 7 || w === 11 || w === 14 || w === 15) mu[i] = markWords[i]!;
+        else mf[i] = markWords[i]!;
+      }
     }
+    lap('marks');
 
-    // Bounds: static parts at rest (pools excluded).
+    // Bounds and the fit hull: every static part's box corners at rest (pools excluded).
     const min: [number, number, number] = [Infinity, Infinity, Infinity];
     const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
     const p = vec3.create();
-    parts.forEach((n, k) => {
-      const { mesh } = draws[k]!.proto;
-      const m = restWorld.get(n.id)!;
-      for (let i = 0; i < mesh.positions.length; i += 3) {
-        vec3.transformMat4(mesh.positions.subarray(i, i + 3), m, p);
-        for (let c = 0; c < 3; c++) {
-          min[c] = Math.min(min[c]!, p[c]!);
-          max[c] = Math.max(max[c]!, p[c]!);
-        }
-      }
-    });
-    if (!parts.length) {
-      min.fill(-1);
-      max.fill(1);
-    }
-    // A tighter hull for fitting: every part's box corners, at rest.
+    const corner = vec3.create();
     const points = new Float32Array(parts.length * 24);
     parts.forEach((n, k) => {
       const { proto } = draws[k]!;
       const m = restWorld.get(n.id)!;
       let c = 0;
-      for (const x of [proto.min[0], proto.max[0]])
-        for (const y of [proto.min[1], proto.max[1]])
-          for (const z of [proto.min[2], proto.max[2]]) {
-            vec3.transformMat4([x, y, z], m, p);
+      for (let ix = 0; ix < 2; ix++)
+        for (let iy = 0; iy < 2; iy++)
+          for (let iz = 0; iz < 2; iz++) {
+            corner[0] = ix ? proto.max[0] : proto.min[0];
+            corner[1] = iy ? proto.max[1] : proto.min[1];
+            corner[2] = iz ? proto.max[2] : proto.min[2];
+            vec3.transformMat4(corner, m, p);
             points.set(p, k * 24 + c * 3);
+            for (let a = 0; a < 3; a++) {
+              if (p[a]! < min[a]!) min[a] = p[a]!;
+              if (p[a]! > max[a]!) max[a] = p[a]!;
+            }
             c++;
           }
     });
-
+    if (!parts.length) {
+      min.fill(-1);
+      max.fill(1);
+    }
+    lap('bounds');
     this.built = { version: this.version, order, slot, style, poolBase, instanceCount };
     this.f32 = new Float32Array(instanceCount * INSTANCE_FLOATS);
     this.u32 = new Uint32Array(this.f32.buffer);
@@ -682,8 +789,9 @@ export class SceneStore {
         triangles: triCount,
         instances: instanceCount,
         marks: markCount,
-        contacts: contacts.reduce((s, c) => s + c.segments.length / 6, 0),
+        contacts: contactCount,
       },
+      timings,
     };
   }
 
@@ -696,11 +804,13 @@ export class SceneStore {
       if (s === 2) return;
       if (s === 1) throw new Error(`parent cycle: ${[...path, n.id].join(' → ')}`);
       state.set(n.id, 1);
+      n.parentNode = null;
       if (n.parent !== null) {
         const parent = this.nodes.get(n.parent);
         if (!parent) throw new Error(`"${n.id}": unknown parent "${n.parent}"`);
         if (parent.kind !== 'group') throw new Error(`"${n.id}": parent "${n.parent}" is a ${parent.kind}`);
         visit(parent, [...path, n.id]);
+        n.parentNode = parent;
       }
       state.set(n.id, 2);
       out.push(n);
@@ -722,47 +832,65 @@ export class SceneStore {
 
   private contacts(parts: PartNode[], restWorld: Map<string, Float32Array>) {
     const eligible = parts.filter((n) => n.contacts);
+    const p = vec3.create();
+    const corner = vec3.create();
     const info = eligible.map((n) => {
-      const proto = buildGeo(n.geo);
+      const proto = (n.proto ??= buildGeo(n.geo));
       const m = restWorld.get(n.id)!;
       const lo: [number, number, number] = [Infinity, Infinity, Infinity];
       const hi: [number, number, number] = [-Infinity, -Infinity, -Infinity];
-      const p = vec3.create();
-      for (const x of [proto.min[0], proto.max[0]])
-        for (const y of [proto.min[1], proto.max[1]])
-          for (const z of [proto.min[2], proto.max[2]]) {
-            vec3.transformMat4([x, y, z], m, p);
+      for (let ix = 0; ix < 2; ix++)
+        for (let iy = 0; iy < 2; iy++)
+          for (let iz = 0; iz < 2; iz++) {
+            corner[0] = ix ? proto.max[0] : proto.min[0];
+            corner[1] = iy ? proto.max[1] : proto.min[1];
+            corner[2] = iz ? proto.max[2] : proto.min[2];
+            vec3.transformMat4(corner, m, p);
             for (let c = 0; c < 3; c++) {
-              lo[c] = Math.min(lo[c]!, p[c]!);
-              hi[c] = Math.max(hi[c]!, p[c]!);
+              if (p[c]! < lo[c]!) lo[c] = p[c]!;
+              if (p[c]! > hi[c]!) hi[c] = p[c]!;
             }
           }
       const size = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
       return { n, proto, m, lo, hi, size, mover: this.mover(n) };
     });
-    const out: { id: string; segments: Float32Array }[] = [];
+    const used = new Set<string>();
+    const out: { node: PartNode; segments: Float32Array; normals: Float32Array }[] = [];
     for (let i = 0; i < info.length; i++) {
+      const A = info[i]!;
       for (let j = i + 1; j < info.length; j++) {
-        const A = info[i]!;
         const B = info[j]!;
         if (A.mover !== B.mover) continue;
-        if ([0, 1, 2].some((c) => A.lo[c]! > B.hi[c]! + 1e-4 || B.lo[c]! > A.hi[c]! + 1e-4)) continue;
+        if (
+          A.lo[0] > B.hi[0] + 1e-4 || B.lo[0] > A.hi[0] + 1e-4 ||
+          A.lo[1] > B.hi[1] + 1e-4 || B.lo[1] > A.hi[1] + 1e-4 ||
+          A.lo[2] > B.hi[2] + 1e-4 || B.lo[2] > A.hi[2] + 1e-4
+        ) {
+          continue;
+        }
         // Marks go to the smaller part, in its model space.
         const [small, big] = A.size <= B.size ? [A, B] : [B, A];
-        const inv = mat4.inverse(small.m);
-        const rel = mat4.multiply(inv, big.m);
-        const key = `${small.proto.key}|${big.proto.key}|${Array.from(rel, (x) => Math.round(x * 1e5)).join(',')}`;
-        let segments = this.contactCache.get(key);
-        if (!segments) {
-          segments = contactSegments(
+        const rel = mat4.multiply(mat4.inverse(small.m), big.m);
+        let key = `${small.proto.id}|${big.proto.id}`;
+        for (let k = 0; k < 16; k++) key += `,${Math.round(rel[k]! * 1e5)}`;
+        used.add(key);
+        let hit = contactCache.get(key);
+        if (!hit) {
+          const normals: number[] = [];
+          const segments = contactSegments(
             { mesh: small.proto.mesh, model: mat4.identity() },
             { mesh: big.proto.mesh, model: rel },
+            1e-4,
+            normals,
           );
-          if (this.contactCache.size > 256) this.contactCache.clear();
-          this.contactCache.set(key, segments);
+          hit = { segments, normals: new Float32Array(normals) };
+          contactCache.set(key, hit);
         }
-        if (segments.length) out.push({ id: small.n.id, segments });
+        if (hit.segments.length) out.push({ node: small.n, ...hit });
       }
+    }
+    if (contactCache.size > CONTACT_CACHE_LIMIT) {
+      for (const key of contactCache.keys()) if (!used.has(key)) contactCache.delete(key);
     }
     return out;
   }
@@ -777,29 +905,35 @@ export class SceneStore {
     const b = this.built;
     if (!b || b.version !== this.version) throw new Error('flatten: scene changed, build() first');
     if (!this.dirtyAny) return { f32: this.f32, used: b.instanceCount, dirty: false };
-    const recomputed = new Set<string>();
-    const local = mat4.create();
-    const tmp = mat4.create();
+    // Nodes recomputed in this pass carry its stamp, so children see a changed parent.
+    const stamp = ++this.flattenStamp;
+    const { local, tmp, v3 } = this;
     for (const n of b.order) {
-      const parentChanged = n.parent !== null && recomputed.has(n.parent);
-      if (n.dirty || parentChanged) {
+      const parent = n.parentNode;
+      if (n.dirty || (parent !== null && parent.stamp === stamp)) {
         const m = n.motion ? mat4.multiply(n.rest, n.motion, local) : n.rest;
-        if (n.parent !== null) mat4.multiply(this.nodes.get(n.parent)!.world, m, n.world);
+        if (parent !== null) mat4.multiply(parent.world, m, n.world);
         else mat4.copy(m, n.world);
         n.dirty = false;
-        recomputed.add(n.id);
+        n.stamp = stamp;
         if (n.kind === 'part' || n.kind === 'marks') {
           const k = b.slot.get(n.id)!;
           this.writeInstance(k, n.world, n.kind === 'part' ? b.style.get(n.id)! : 0, INSTANCE.visible);
         }
       }
-      if (n.kind === 'pool' && (n.poolDirty || recomputed.has(n.id))) {
+      if (n.kind === 'pool' && (n.poolDirty || n.stamp === stamp)) {
         const base = b.poolBase.get(n.id)!;
         const styleBase = b.style.get(n.id)!;
+        const q = n.poses;
         for (let i = 0; i < n.capacity; i++) {
-          const o = i * 4;
-          mat4.translation([n.poses[o]!, n.poses[o + 1]!, n.poses[o + 2]!], tmp);
-          mat4.rotateZ(tmp, n.poses[o + 3]!, tmp);
+          const o = i * POSE_FLOATS;
+          v3[0] = q[o]!;
+          v3[1] = q[o + 1]!;
+          v3[2] = q[o + 2]!;
+          mat4.translation(v3, tmp);
+          if (q[o + 3] !== 0) mat4.rotateZ(tmp, q[o + 3]!, tmp);
+          if (q[o + 4] !== 0) mat4.rotateY(tmp, q[o + 4]!, tmp);
+          if (q[o + 5] !== 0) mat4.rotateX(tmp, q[o + 5]!, tmp);
           mat4.multiply(n.world, tmp, tmp);
           this.writeInstance(base + i, tmp, styleBase + n.styleOf[i]!, i < n.count ? INSTANCE.visible : 0);
         }
@@ -821,6 +955,11 @@ export class SceneStore {
   ids(): string[] {
     return [...this.nodes.keys()].sort();
   }
+}
+
+function sameMatrix(a: Float32Array, b: Float32Array): boolean {
+  for (let i = 0; i < 16; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 export function createSceneStore(): SceneStore {

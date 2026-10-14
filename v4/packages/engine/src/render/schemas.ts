@@ -68,8 +68,11 @@ export const LineSet = d.struct({
   fade: d.vec2f,
 });
 
-/** Mark kinds. */
-export const MARK = { dot: 0, segment: 1 } as const;
+/**
+ * Mark kinds. A contact is a segment on a crossing curve: its normal is the bigger part's face
+ * there (the quad lies on that surface), with no facing fade.
+ */
+export const MARK = { dot: 0, segment: 1, contact: 2 } as const;
 
 export const Mark = d.struct({
   /** Dot centre or segment start, in the instance's model space. */

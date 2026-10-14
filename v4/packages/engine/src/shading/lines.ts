@@ -54,18 +54,22 @@ export const tickCoverage = (dist: number, drawn: number, alpha: number) => {
 
 /**
  * Mode of edge `i` of a triangle: outline where it borders a back face or nothing, crease
- * where flagged, else none. Facing = face normal · direction toward the viewer; back faces
- * draw nothing (they are culled anyway).
+ * where flagged, else none. Facing = face normal · direction toward the viewer. A back face is
+ * only ever drawn as the inside of an open mesh (closed ones are culled); there the open rim
+ * (an edge with no neighbour) is an outline, so looking into an opening shows its whole rim.
  */
 export const edgeMode = (ownFacing: number, adjFacing: number, flags: number, i: number) => {
   'use gpu';
   let mode = d.u32(EDGE_NONE);
+  const boundary = flagBit(flags, d.u32(FLAG.boundaryBit) + d.u32(i)) === 1;
   if (ownFacing > 0) {
-    if (flagBit(flags, d.u32(FLAG.boundaryBit) + d.u32(i)) === 1 || adjFacing <= 0) {
+    if (boundary || adjFacing <= 0) {
       mode = d.u32(EDGE_OUTLINE);
     } else if (flagBit(flags, d.u32(FLAG.creaseBit) + d.u32(i)) === 1) {
       mode = d.u32(EDGE_CREASE);
     }
+  } else if (boundary) {
+    mode = d.u32(EDGE_OUTLINE);
   }
   return mode;
 };

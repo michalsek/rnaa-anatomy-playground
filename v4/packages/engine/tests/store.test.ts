@@ -63,4 +63,29 @@ describe('SceneStore', () => {
       pool.count = 5;
     }).toThrow(/exceeds capacity/);
   });
+
+  it('unchanged handle writes do not dirty the table; pose takes pitch and roll', () => {
+    const store = createSceneStore();
+    store.group('g', { moves: true });
+    store.pool('g.pool', { parent: 'g', geo, styles: [style, style], capacity: 2 });
+    store.build();
+    const group = store.group$('g');
+    const pool = store.pool$('g.pool');
+    pool.count = 1;
+    group.spin('z', 0.5);
+    pool.pose(0, [1, 2, 3], 0.1, Math.PI / 2, 0);
+    pool.style(0, 1);
+    expect(store.flatten().dirty).toBe(true);
+    group.spin('z', 0.5);
+    pool.pose(0, [1, 2, 3], 0.1, Math.PI / 2, 0);
+    pool.style(0, 1);
+    pool.count = 1;
+    expect(store.flatten().dirty).toBe(false);
+    group.spin('z', 0);
+    pool.pose(0, [0, 0, 0], 0, Math.PI / 2, 0);
+    const { f32 } = store.flatten();
+    // Pitch 90° about y turns the instance's +x down to −z.
+    const x = vec3.transformMat4([1, 0, 0], modelOf(f32, 0));
+    expect([...x].map((v) => Math.round(v * 1e5) / 1e5 + 0)).toEqual([0, 0, -1]);
+  });
 });

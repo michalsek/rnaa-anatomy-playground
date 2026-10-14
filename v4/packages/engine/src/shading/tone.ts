@@ -47,23 +47,10 @@ export const bandWeights = (score: number, fw: number) => {
 
 /**
  * The kit's plan rule (`iso-kit.mjs#extrude`), for upright prisms: tops and bottoms by the
- * normal's z, sides by the plan angle against the light's plan direction,
- * `lit = (n̂.xy · l̂.xy + 1) / 2` binned into 4 equal shades. Returns the class 0..4 (4 = top).
+ * normal's z (the fill shader picks `top` above n.z 0.5), sides by the plan angle against the
+ * light's plan direction, `lit = (n̂.xy · l̂.xy + 1) / 2`, binned into 4 equal shades by
+ * `planWeights`. This is the side score in 0..1.
  */
-export const planShade = (normal: d.v3f, light: d.v3f) => {
-  'use gpu';
-  const n = std.normalize(normal);
-  let shade = d.u32(0);
-  if (n.z > 0.5) {
-    shade = d.u32(TONE_TOP);
-  } else if (n.z >= -0.5) {
-    const lit = planLit(n, light);
-    shade = d.u32(std.clamp(std.floor(lit * 4), 0, 3));
-  }
-  return shade;
-};
-
-/** The plan rule's side score in 0..1. */
 export const planLit = (n: d.v3f, light: d.v3f) => {
   'use gpu';
   const h = n.xy;

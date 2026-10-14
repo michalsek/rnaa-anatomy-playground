@@ -58,6 +58,8 @@ export type GeoKind = GeoSpec['kind'];
 
 export interface Prototype {
   key: string;
+  /** Unique per cache entry (a rebuilt prototype gets a new one): a cheap key for pair caches. */
+  id: number;
   mesh: Mesh;
   topology: Topology;
   /** Line sets of this prototype; triangle tag k refers to lineSets[k − 1]. */
@@ -110,7 +112,8 @@ export function buildMesh(spec: GeoSpec): { mesh: Mesh; lineSets: LineSetSpec[] 
 
 /** Prototype cache, keyed by `geoKey`. CPU data only; bounded so edits don't leak forever. */
 const cache = new Map<string, Prototype>();
-const CACHE_LIMIT = 512;
+const CACHE_LIMIT = 1024;
+let nextId = 1;
 
 export function buildGeo(spec: GeoSpec): Prototype {
   const key = geoKey(spec);
@@ -124,7 +127,7 @@ export function buildGeo(spec: GeoSpec): Prototype {
     min[k] = Math.min(min[k]!, mesh.positions[i]!);
     max[k] = Math.max(max[k]!, mesh.positions[i]!);
   }
-  const proto: Prototype = { key, mesh, topology: buildTopology(mesh), lineSets, min, max };
+  const proto: Prototype = { key, id: nextId++, mesh, topology: buildTopology(mesh), lineSets, min, max };
   if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value!);
   cache.set(key, proto);
   return proto;

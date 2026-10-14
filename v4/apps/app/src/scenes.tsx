@@ -1,7 +1,8 @@
 import type { ComponentType } from 'react';
 import type { ViewPreset } from '@anatomy/engine';
-import { GALLERY_VIEWS, Gallery } from './gallery/Gallery.tsx';
-import { M1_VIEWS, M1Row } from './gallery/M1Row.tsx';
+import { Gallery } from './gallery/Gallery.tsx';
+import { M1Row } from './gallery/M1Row.tsx';
+import { GALLERY_VIEWS, M1_VIEWS } from './gallery/views.ts';
 
 export interface SceneEntry {
   name: string;

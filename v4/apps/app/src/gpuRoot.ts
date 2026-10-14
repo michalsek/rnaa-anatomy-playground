@@ -1,14 +1,20 @@
-// Root lifetime across Fast Refresh. A refresh re-runs every effect: the root's cleanup
-// destroys it, and in the same commit the stage's effect runs again with the old root still in
-// its props. Marking retired roots lets the stage skip them instead of building a shell on a
-// destroyed device (which can stall the browser's GPU process).
+// The TypeGPU root (and its device) lives in module state, not in a component. Fast Refresh
+// re-runs the effects of every edited component, App.tsx included; a root owned by an effect
+// would be destroyed and recreated by such an edit (and every scene rebuilt cold on the new
+// device). This module only re-evaluates on a full reload, which tears the runtime down anyway.
 import type { TgpuRoot } from 'typegpu';
+import { initGpu } from '@anatomy/engine';
 
-const retired = new WeakSet<TgpuRoot>();
+let shared: Promise<TgpuRoot> | null = null;
 
-export function retireRoot(root: TgpuRoot) {
-  retired.add(root);
-  root.destroy();
+/** The app's root, created on first use; a lost device makes the next call create a new one. */
+export function acquireRoot(): Promise<TgpuRoot> {
+  if (shared) return shared;
+  const pending = initGpu();
+  shared = pending;
+  const forget = () => {
+    if (shared === pending) shared = null;
+  };
+  pending.then((root) => void root.device.lost.then(forget), forget);
+  return pending;
 }
-
-export const isRetired = (root: TgpuRoot) => retired.has(root);
