@@ -39,6 +39,7 @@ import {
   sceneLayout,
   spriteLayout,
 } from './schemas.ts';
+import { createCameraEase } from '../camera/ease.ts';
 import { fillFragment, fillVertex, marksFragment, marksVertex, spriteFragment, spriteVertex } from './shaders.ts';
 
 const SAMPLES = 4;
@@ -84,8 +85,11 @@ export interface Renderer {
   resize(width: number, height: number, dpr: number): void;
   /** Fit the scene bounds into the current viewport, keeping the camera's yaw and elevation. */
   fit(): void;
-  /** Camera for a view preset (zoom relative to the fit at the preset's angles). */
-  setView(view: ViewPreset): void;
+  /**
+   * Camera for a view preset (zoom relative to the fit at the preset's angles); `ease`: settle
+   * there from the current camera (critically damped, `camera/ease.ts`) instead of cutting.
+   */
+  setView(view: ViewPreset, o?: { ease?: boolean }): void;
   /**
    * Where fits go (CSS px pads from the canvas edges, an optional aspect: `frameRect`). A preset
    * camera is refitted; the canvas keeps its size (overlays change the pads, never the canvas).
@@ -348,7 +352,14 @@ export function createRenderer(options: RendererOptions): Renderer {
   let frameSpec: FrameSpec = {};
   const fitZoomNow = () =>
     fitToBounds(bounds, viewport, { ...frameSpec, yaw: camera.yaw, elevation: camera.elevation }).zoom;
+  // Eased view changes: the goal is the preset's camera; `camera` moves toward it each frame.
+  const ease = createCameraEase();
+  let easing = false;
+  let easeLast = 0;
   function applyPreset() {
+    // A refit (resize, rebuild, new frame) cuts to the preset: no easing toward a stale goal.
+    easing = false;
+    ease.cancel();
     if (scene) bounds = scene.build.bounds;
     camera = preset
       ? viewCamera(bounds, viewport, preset, frameSpec)
@@ -396,6 +407,12 @@ export function createRenderer(options: RendererOptions): Renderer {
       resize(texture.width, texture.height, viewport.dpr);
     }
     const { color, depth } = ensureTargets(texture.width, texture.height);
+    if (easing) {
+      const t = now();
+      refZoom = ease.step(Math.min(0.1, Math.max(0, (t - easeLast) / 1000)), camera);
+      easeLast = t;
+      if (ease.done()) easing = false;
+    }
 
     // E8: upload only the instances this frame rewrote (moving slots are packed last).
     const fl0 = DEV ? now() : 0;
@@ -475,9 +492,18 @@ export function createRenderer(options: RendererOptions): Renderer {
       preset = null;
       applyPreset();
     },
-    setView: (view) => {
+    setView: (view, o) => {
+      const from = copyCamera(camera);
+      const fromRef = refZoom;
       preset = view;
       applyPreset();
+      if (o?.ease && scene) {
+        ease.to(from, fromRef, camera, refZoom);
+        camera = from;
+        refZoom = fromRef;
+        easing = true;
+        easeLast = now();
+      }
     },
     setFrame: (frame) => {
       frameSpec = { ...frame };
@@ -486,6 +512,8 @@ export function createRenderer(options: RendererOptions): Renderer {
     },
     getCamera: () => copyCamera(camera),
     setCamera: (state) => {
+      easing = false;
+      ease.cancel();
       camera = copyCamera(state);
       onPreset = false;
     },

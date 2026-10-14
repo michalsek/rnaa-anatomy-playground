@@ -1,11 +1,13 @@
 import type { ComponentType } from 'react';
-import type { ViewPreset } from '@anatomy/engine';
+import type { Material, ViewPreset } from '@anatomy/engine';
 import { Gallery } from './gallery/Gallery.tsx';
 import { M1Row } from './gallery/M1Row.tsx';
 import { GALLERY_VIEWS, M1_VIEWS } from './gallery/views.ts';
 import { CentrifugeScene, ConveyorScene, CrusherScene, FactoryScene, LineScene, OutputScene, PackerScene, ScannerScene } from './factory/Scenes.tsx';
 import { centrifugeLive, conveyorLive, crusherLive, factoryLive, lineLive, outputLive, packerLive, scannerLive } from './factory/live.ts';
-import { CONVEYOR_CARD, CONVEYOR_VIEWS, FACTORY_CARD, FACTORY_VIEWS, LINE_CARD, LINE_VIEWS, OUTPUT_CARD, OUTPUT_VIEWS, PACKER_CARD, PACKER_VIEWS } from './factory/views.ts';
+import { CAPTION, CARDS, LEGEND, PHASES, READOUTS } from './factory/cards.ts';
+import { FACTORY_VIEWS } from './factory/factoryViews.ts';
+import { CONVEYOR_CARD, CONVEYOR_VIEWS, LINE_CARD, LINE_VIEWS, OUTPUT_CARD, OUTPUT_VIEWS, PACKER_CARD, PACKER_VIEWS } from './factory/views.ts';
 import { CENTRIFUGE_CARD, CENTRIFUGE_VIEWS } from './machines/centrifuge/views.ts';
 import { CRUSHER_CARD, CRUSHER_VIEWS } from './machines/crusher/views.ts';
 import { SCANNER_CARD, SCANNER_VIEWS } from './machines/scanner/views.ts';
@@ -28,7 +30,15 @@ export interface SceneEntry {
   card: CardText;
   /** Dev-only hook object, exposed as `__v4.sim`. */
   dev?: object;
+  /** The card for a view (the text follows the view; default `card`). */
+  cardFor?: (view: string) => CardText;
+  /** A view became current (the readout follows its card). */
+  onView?: (view: string) => void;
+  /** The "i" sheet: the full caption and a legend. */
+  info?: { caption: string; legend: readonly { material: Material; label: string }[] };
 }
+
+const factoryKey = (view: string) => FACTORY_VIEWS.find((v) => v.name === view)?.card ?? 'factory';
 
 const M1Only = () => <M1Row />;
 
@@ -37,8 +47,16 @@ export const SCENES: SceneEntry[] = [
     name: 'factory',
     views: FACTORY_VIEWS,
     Content: FactoryScene,
-    card: { ...FACTORY_CARD, readout: factoryLive.readout },
+    card: { ...CARDS.factory, readout: factoryLive.readout },
     dev: factoryLive.dev,
+    cardFor: (view) => ({ ...CARDS[factoryKey(view)], readout: factoryLive.readout }),
+    info: { caption: CAPTION, legend: LEGEND },
+    onView: (view) => {
+      const k = factoryKey(view);
+      const ctl = factoryLive.ctl;
+      factoryLive.readout.setFormat((g) => READOUTS[k](g, ctl), PHASES[k]);
+      factoryLive.readout.flush(factoryLive.graph());
+    },
   },
   {
     name: 'line',

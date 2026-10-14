@@ -49,7 +49,8 @@ export interface Shell {
   /** The texture size the last frame drew into (DEV size probe). */
   texture(): { width: number; height: number };
   setTheme(theme: Theme): void;
-  setView(view: string | ViewPreset): void;
+  /** `ease`: settle into the view from the current camera (view chips, the tour). */
+  setView(view: string | ViewPreset, o?: { ease?: boolean }): void;
   /** Re-apply the current view (the scene's view list changed, e.g. a `views.ts` edit). */
   refreshView(): void;
   setPaused(paused: boolean): void;
@@ -103,10 +104,10 @@ export function createShell(
   });
   renderer.setFrame(controls.frame);
   let view = controls.view;
-  const applyView = () => {
+  const applyView = (o?: { ease?: boolean }) => {
     const list = views();
     const preset = typeof view === 'string' ? (list.find((v) => v.name === view) ?? list[0]) : view;
-    if (preset) renderer.setView(preset);
+    if (preset) renderer.setView(preset, o);
     else renderer.fit();
   };
   applyView();
@@ -178,11 +179,11 @@ export function createShell(
     },
     texture: () => renderer.perf().texture,
     setTheme: (next) => renderer.setTheme(next),
-    setView(next) {
+    setView(next, o) {
       view = next;
-      applyView();
+      applyView(o);
     },
-    refreshView: applyView,
+    refreshView: () => applyView(),
     setPaused(next) {
       paused = next;
     },

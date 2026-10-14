@@ -8,6 +8,7 @@ import { CARD, type DebugMode, type SceneStore, type Theme, type ViewPreset } fr
 import { Scene } from './src/blocks/Scene.tsx';
 import { acquireRoot } from './src/gpuRoot.ts';
 import { Card } from './src/overlay/Card.tsx';
+import { InfoSheet } from './src/overlay/InfoSheet.tsx';
 import { overlayLayout } from './src/overlay/layout.ts';
 import { SCENES } from './src/scenes.tsx';
 
@@ -40,6 +41,8 @@ function Main() {
   const [rec, setRec] = useState(false);
   // The chip bar's width (landscape: the card's top row keeps clear of it).
   const [chipsWidth, setChipsWidth] = useState(0);
+  // The "i" sheet (scenes with an `info` caption; never in bare mode).
+  const [sheet, setSheet] = useState(false);
   const layout = overlayLayout(win, insets, { bare, chrome, rec });
   const frameKey = JSON.stringify(layout.frame);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -83,6 +86,8 @@ function Main() {
       setChrome,
       /** Full-bleed: no card frame, texts or sheet (`bare` chip). */
       setBare: (on: boolean) => setBare(!!on),
+      /** Open or close the "i" sheet. */
+      setSheet: (on: boolean) => setSheet(!!on),
       /** Fit every view into a centred 16:9 rectangle (recordings). */
       record: (on: boolean) => setRec(!!on),
       /** The scene's own hook (the centrifuge: time control, see live.ts). */
@@ -113,6 +118,11 @@ function Main() {
   const narrow = layout.narrow;
   const viewIndex = typeof view === 'string' ? Math.max(0, scene.views.findIndex((v) => v.name === view)) : -1;
   const viewName = typeof view === 'string' ? (scene.views[viewIndex]?.name ?? 'fit') : view.name;
+  // One card whose text follows the view (the stage never changes with it).
+  const card = scene.cardFor ? scene.cardFor(viewName) : scene.card;
+  useEffect(() => {
+    scene.onView?.(viewName);
+  }, [scene, viewName]);
   return (
     <View style={[styles.fill, { backgroundColor: CARD[theme].page }]}>
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
@@ -121,7 +131,7 @@ function Main() {
         style={StyleSheet.absoluteFill}
         accessible={bare}
         accessibilityRole={bare ? 'image' : undefined}
-        accessibilityLabel={bare ? `${scene.card.title}. ${scene.card.label}` : undefined}
+        accessibilityLabel={bare ? `${card.title}. ${card.label}` : undefined}
       >
         {root && (
           <Scene key={scene.name} root={root} views={scene.views} controls={controls} storeRef={storeRef}>
@@ -132,11 +142,21 @@ function Main() {
       {layout.card && (
         <Card
           theme={theme}
-          text={scene.card}
+          text={card}
           edges={layout.card}
           bands={layout.bands}
           landscape={layout.landscape}
           reserveRight={layout.landscape && chrome ? chipsWidth : 0}
+        />
+      )}
+      {sheet && !bare && scene.info && (
+        <InfoSheet
+          theme={theme}
+          caption={scene.info.caption}
+          legend={scene.info.legend}
+          top={layout.chips.top + 48}
+          right={layout.chips.right + 4}
+          onClose={() => setSheet(false)}
         />
       )}
       {error !== null && (
@@ -184,6 +204,11 @@ function Main() {
         >
           {`dbg ${debug}`}
         </Chip>
+        {scene.info && !bare && (
+          <Chip compact={narrow} theme={theme} label={sheet ? 'Close the figure notes' : 'About this figure'} onPress={() => setSheet(!sheet)}>
+            i
+          </Chip>
+        )}
         <Chip
           compact={narrow}
           theme={theme}

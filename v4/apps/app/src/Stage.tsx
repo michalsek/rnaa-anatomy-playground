@@ -106,7 +106,8 @@ export function Stage({
   const { theme, view, paused, debug, frame } = controls;
   const frameKey = JSON.stringify(frame);
   useEffect(() => shellRef.current?.setTheme(theme), [theme]);
-  useEffect(() => shellRef.current?.setView(view), [view]);
+  // View changes ease (the first view of a shell cuts: it starts from it).
+  useEffect(() => shellRef.current?.setView(view, { ease: true }), [view]);
   useEffect(() => shellRef.current?.refreshView(), [views]);
   useEffect(() => shellRef.current?.setPaused(paused), [paused]);
   useEffect(() => shellRef.current?.setDebug(debug), [debug]);

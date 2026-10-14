@@ -17,14 +17,18 @@ export interface Readout<S> extends ReadoutSource {
   publish(s: S, now: number): void;
   /** Notify now (after a seek, or while paused). */
   flush(s: S): void;
+  /** Format with another function from now on (a view's card); call `flush` to show it at once. */
+  setFormat(format: (s: S) => string, phaseOf?: (s: S) => string): void;
 }
 
 export function createReadout<S>(
   minMs: number,
-  format: (s: S) => string,
-  phaseOf: (s: S) => string,
+  initialFormat: (s: S) => string,
+  initialPhase: (s: S) => string,
   initial: S,
 ): Readout<S> {
+  let format = initialFormat;
+  let phaseOf = initialPhase;
   const listeners = new Set<() => void>();
   let text = format(initial);
   let phase = phaseOf(initial);
@@ -53,6 +57,10 @@ export function createReadout<S>(
     },
     flush(s) {
       set(s, last);
+    },
+    setFormat(f, p) {
+      format = f;
+      if (p) phaseOf = p;
     },
   };
 }

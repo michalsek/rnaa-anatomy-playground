@@ -115,22 +115,3 @@ export const OUTPUT_CARD = {
   label: 'Each 512-frame device buffer rides a cradle up the elevator, is flung into the hopper and drops out of the spout into the speaker, whose cone pumps once per buffer.',
 } as const;
 
-/**
- * The factory (M10 step 3: the line's world boxes; step 5 makes them local per machine). `fit`
- * frames the case tray and the machines (the floating display may be cut at the top: user, §10);
- * `phone` the display and the dispenser under it; `case` the tray alone.
- */
-export const FACTORY_VIEWS: ViewPreset[] = [
-  at('fit', [[-180, -380, -8], [180, 380, 282]]),
-  at('phone', [[-260, -404, 437], [100, 356, 566]]),
-  at('case', [[-180, -380, -8], [180, 380, 36]]),
-  ...LINE_VIEWS.filter((v) => v.name !== 'fit'),
-];
-
-/** The factory card (v2 A: title L412, the caption's first sentence; the hint is the flow). */
-export const FACTORY_CARD = {
-  fig: 'Figure',
-  title: 'Inside a React Native app',
-  hint: 'calls → packets → rings → render loop → speaker',
-  label: 'How react-native-audio-api turns JavaScript calls into sound.',
-} as const;

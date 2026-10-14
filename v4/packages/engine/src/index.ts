@@ -39,3 +39,5 @@ export * from './sim/arm.ts';
 export * from './sim/packer.ts';
 export * from './sim/dispenser.ts';
 export * from './assembly/factory.ts';
+export * from './camera/ease.ts';
+export * from './assembly/origins.ts';

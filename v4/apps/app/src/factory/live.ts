@@ -202,19 +202,10 @@ export const packerLive = createLive(
 );
 
 /**
- * The factory's own readout (v2 A L379–383): the render loop's quanta, their rate here (speed-aware)
- * against the engine's 375/s, and the disposed count.
+ * The final factory: the phone's dispenser → … → the speaker, in the phone's tray. Its readout
+ * follows the view's card (`cards.ts` READOUTS, set by the scene's `onView`).
  */
-export function factoryText(g: FactoryGraph, speed: number, paused: boolean): string {
-  const q = g.audio.quanta();
-  const rate = paused ? 'paused' : `${(speed / q.period).toFixed(2)}/s here`;
-  return `${q.count.toLocaleString('en-US')} quanta · ${rate} (375/s real) · ${g.crusher.stats().count} disposed`;
-}
-
-/** The final factory: the phone's dispenser → … → the speaker, in the phone's tray. */
-let factoryCtl = { paused: false, speed: 1 };
 export const factoryLive: Live<FactoryGraph> = createLive(
   (seed) => createFactoryGraph(FACTORY_LAYOUT, { seed }),
-  (g) => factoryText(g, factoryCtl.speed, factoryCtl.paused),
+  () => '',
 );
-factoryCtl = factoryLive.ctl;
