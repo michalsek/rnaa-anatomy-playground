@@ -630,6 +630,20 @@ export class SceneStore {
       min.fill(-1);
       max.fill(1);
     }
+    // A tighter hull for fitting: every part's box corners, at rest.
+    const points = new Float32Array(parts.length * 24);
+    parts.forEach((n, k) => {
+      const { proto } = draws[k]!;
+      const m = restWorld.get(n.id)!;
+      let c = 0;
+      for (const x of [proto.min[0], proto.max[0]])
+        for (const y of [proto.min[1], proto.max[1]])
+          for (const z of [proto.min[2], proto.max[2]]) {
+            vec3.transformMat4([x, y, z], m, p);
+            points.set(p, k * 24 + c * 3);
+            c++;
+          }
+    });
 
     this.built = { version: this.version, order, slot, style, poolBase, instanceCount };
     this.f32 = new Float32Array(instanceCount * INSTANCE_FLOATS);
@@ -661,7 +675,7 @@ export class SceneStore {
       lineSets,
       marks,
       markCount,
-      bounds: { min, max },
+      bounds: { min, max, points },
       stats: {
         parts: parts.length,
         pools: pools.length,

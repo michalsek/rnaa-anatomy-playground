@@ -94,10 +94,19 @@ export function lightOf(state: Pick<CameraState, 'yaw' | 'elevation'>): [number,
 export interface Bounds {
   min: [number, number, number];
   max: [number, number, number];
+  /**
+   * Optional tighter hull (xyz triples, e.g. the corners of every part's box): fits use these
+   * points instead of the 8 corners of min/max.
+   */
+  points?: Float32Array;
 }
 
-function cornersOf({ min, max }: Bounds): [number, number, number][] {
+function cornersOf({ min, max, points }: Bounds): [number, number, number][] {
   const out: [number, number, number][] = [];
+  if (points && points.length >= 3) {
+    for (let i = 0; i + 2 < points.length; i += 3) out.push([points[i]!, points[i + 1]!, points[i + 2]!]);
+    return out;
+  }
   for (const x of [min[0], max[0]])
     for (const y of [min[1], max[1]]) for (const z of [min[2], max[2]]) out.push([x, y, z]);
   return out;
