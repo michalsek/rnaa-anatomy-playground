@@ -1,1 +1,0 @@
-stress10-svg-phone-r2: frame p50 83.4 p95 100.1 p99 116.6 ms, dropped 81.4% | rAF cb 43.33 · script 43.97 · style 13.43 · layout 4.44 · task 90.42 ms/f | trace main 90.58 (paint 24.85) raster 2.93 gpu 17.43 (raster 15.49, wait 0.81) ms/f | GPU util 46% (before 24%) | LoAF 90 | nodes 134417 | page-frames 100%

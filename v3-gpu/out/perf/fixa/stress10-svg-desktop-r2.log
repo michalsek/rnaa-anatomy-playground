@@ -1,1 +1,0 @@
-stress10-svg-desktop-r2: frame p50 16.7 p95 33.4 p99 50.0 ms, dropped 29.5% | rAF cb 11.18 · script 11.27 · style 3.70 · layout 1.42 · task 23.73 ms/f | trace main 23.62 (paint 6.28) raster 3.74 gpu 23.39 (raster 18.39, wait 4.35) ms/f | GPU util 68% (before 0%) | LoAF 4 | nodes 573627 | page-frames 100%

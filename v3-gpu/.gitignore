@@ -1,6 +1,12 @@
 node_modules/
-out/tmp/
-out/gate/*.html
-out/gpu/live-crops/
-out/gpu/live-dev.html
-out/gate/*.png
+
+# Generated outputs (export, build, gates, perf runs): regenerate with npm run package / gates / bench scripts.
+/out/
+
+# Bench pages: frozen copies of builds and stress pages written by bench/stress.mjs and bench/run-*-rows.mjs.
+# The bench scripts (bench/*.mjs) and preloads (bench/preload/*.js) stay tracked.
+/bench/**/*.html
+
+# Comparison shots and heatmaps written by tools/report-shots.mjs (report/README.md stays tracked).
+/report/*.png
+/report/shots.json

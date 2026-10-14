@@ -1,1 +1,0 @@
-centrifuge-svg-desktop-r1: frame p50 16.7 p95 16.8 p99 16.8 ms, dropped 0.0% | rAF cb 1.39 · script 1.40 · style 0.40 · layout 0.24 · task 3.13 ms/f | trace main 3.40 (paint 0.75) raster 0.53 gpu 3.04 (raster 2.62, wait 0.01) ms/f | GPU util 38% (before 23%) | LoAF 0 | nodes 8917 | page-frames 100%
