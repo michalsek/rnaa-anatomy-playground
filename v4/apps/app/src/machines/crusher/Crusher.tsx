@@ -6,7 +6,6 @@
  * and chips, the flakes, the needle and the lamp, then the squashed packet.
  */
 import {
-  CRUSHER_POOLS,
   type CrusherOutputs,
   type Crusher as CrusherSim,
   type GroupHandle,
@@ -181,16 +180,16 @@ export function Crusher(props: CrusherProps) {
       <Rollers />
       <Drive />
       <Chute />
-      <Bin plan={c.pilePlan} />
+      <Bin plan={c.pilePlan} chips={c.pools.chips} />
       <Control stand={stand} />
       <Instances
         id="flakes"
         geo={{ kind: 'box', size: FLAKE, center: [0, 0, FLAKE[2] / 2], r: 0.15 }}
         styles={[{ material: 'pkGarbage', outline: 'hi' }]}
-        capacity={CRUSHER_POOLS.flakes}
+        capacity={c.pools.flakes}
         scalable
       />
-      <PacketPool capacity={CRUSHER_POOLS.packets} scalable />
+      <PacketPool capacity={c.pools.packets} scalable />
     </Group>
   );
 }

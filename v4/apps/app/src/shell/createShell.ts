@@ -43,6 +43,8 @@ export interface ShellControls {
 
 export interface Shell {
   resize(cssWidth: number, cssHeight: number, dpr: number): void;
+  /** The texture size the last frame drew into (DEV size probe). */
+  texture(): { width: number; height: number };
   setTheme(theme: Theme): void;
   setView(view: string | ViewPreset): void;
   /** Re-apply the current view (the scene's view list changed, e.g. a `views.ts` edit). */
@@ -169,6 +171,7 @@ export function createShell(
       // The renderer refits a preset camera itself and leaves a user camera alone.
       renderer.resize(next.width, next.height, next.dpr);
     },
+    texture: () => renderer.perf().texture,
     setTheme: (next) => renderer.setTheme(next),
     setView(next) {
       view = next;

@@ -11,7 +11,8 @@ import { Box, Group, Lathe, Marks, useFrame, useNode } from '../../blocks/blocks
 import type { LiveHandle } from '../../factory/live.ts';
 import { PacketPool } from '../Packets.tsx';
 import { closed, ring, rod, turned } from '../kit.ts';
-import { usePacketPoses } from '../poses.ts';
+import { BeadPool } from '../Beads.tsx';
+import { useItemPoses } from '../poses.ts';
 import { type BeltKit, beltKit, slats } from './dims.ts';
 import { BeltBody, LabelPlate, Lamp, Motor, Nut } from './Parts.tsx';
 
@@ -21,11 +22,15 @@ interface TopProps {
   sim: () => Conveyor;
   /** Legs, feet and braces (v2 `legs`); off hangs the belt from its rails. */
   legs?: boolean;
+  /** It carries fluff beads (belt A), not packets. */
+  beads?: boolean;
+  /** Where the legs stand (a page's raised floor; default 0). */
+  floor?: number;
 }
 
-function Frame({ live, sim }: TopProps) {
+function Frame({ live, sim, beads = false }: TopProps) {
   const band = useNode<PartHandle>('body.band');
-  const packets = usePacketPoses('packets', sim);
+  const packets = useItemPoses(sim, beads ? { packets: null, beads: 'beads' } : {});
   useFrame((info) => {
     live.step(info);
     band().uShift = sim().uShift();
@@ -52,7 +57,7 @@ function Pillow({ f, id, s, side, cWebOut, zc }: { f: BeltKit; id: string; s: nu
 }
 
 export function Top(props: TopProps) {
-  const { id, sim, legs = true } = props;
+  const { id, sim, legs = true, floor = 0 } = props;
   const conveyor = sim();
   const D = conveyor.geometry;
   const { axis, dir, L, T, W, RD, BT, RW, zc } = D;
@@ -84,7 +89,7 @@ export function Top(props: TopProps) {
   const legAt = Array.from({ length: nLegs }, (_, i) => 6 + ((L - 12) * i) / (nLegs - 1));
   const cLeg0 = half + 2.0;
   const cLeg1 = half + 4.4;
-  const braceZ = [Math.max(4, zRail0 * 0.18), zRail0 * 0.62].filter((z, i, a) => (i === 0 ? z + 4 < zRail0 : z - a[0]! > 10));
+  const braceZ = [floor + Math.max(4, (zRail0 - floor) * 0.18), floor + (zRail0 - floor) * 0.62].filter((z, i, a) => (i === 0 ? z + 4 < zRail0 : z - a[0]! > 10));
   const coverDots = (() => {
     const F = f.alongC(sDrive, gbC1, zc);
     return { F, dots: Array.from({ length: 6 }, (_, k) => ({ at: [1.75 * Math.cos((k * Math.PI) / 3), 1.75 * Math.sin((k * Math.PI) / 3), 0.7] as const, size: 0.4, normal: [0, 0, 1] as const })) };
@@ -170,14 +175,14 @@ export function Top(props: TopProps) {
             const cm = side * ((cLeg0 + cLeg1) / 2);
             return (
               <Group key={tag} id={tag}>
-                <Box id="leg" material="steel" {...f.box([s - 1.2, s + 1.2], [side * cLeg0, side * cLeg1], [1.2, zRail0])} r={0.3} />
-                <Box id="foot" material="steel" outline="lo" {...f.box([s - 2.6, s + 2.6], [side * (cLeg0 - 1.4), side * (cLeg1 + 1.4)], [0, 1.2])} r={0.6} />
+                <Box id="leg" material="steel" {...f.box([s - 1.2, s + 1.2], [side * cLeg0, side * cLeg1], [floor + 1.2, zRail0])} r={0.3} />
+                <Box id="foot" material="steel" outline="lo" {...f.box([s - 2.6, s + 2.6], [side * (cLeg0 - 1.4), side * (cLeg1 + 1.4)], [floor, floor + 1.2])} r={0.6} />
                 {side > 0 && (
                   <Marks
                     id="screws"
                     material="steel"
-                    segments={[s - 1.9, s + 1.9].flatMap((ss) => closed(ring(f.w(ss, cm, 1.2), 0.6, 12), [0, 0, 1], 'lo'))}
-                    dots={[s - 1.9, s + 1.9].map((ss) => ({ at: f.w(ss, cm, 1.2), size: 0.35, normal: [0, 0, 1] as const }))}
+                    segments={[s - 1.9, s + 1.9].flatMap((ss) => closed(ring(f.w(ss, cm, floor + 1.2), 0.6, 12), [0, 0, 1], 'lo'))}
+                    dots={[s - 1.9, s + 1.9].map((ss) => ({ at: f.w(ss, cm, floor + 1.2), size: 0.35, normal: [0, 0, 1] as const }))}
                   />
                 )}
               </Group>
@@ -209,7 +214,7 @@ export function Top(props: TopProps) {
           len={Math.min(14, idlerStep * 1.6)}
         />
       )}
-      <PacketPool capacity={Math.ceil(L / D.spacing) + 4} />
+      {props.beads ? <BeadPool capacity={conveyor.pools.beads} /> : <PacketPool capacity={conveyor.pools.packets} />}
     </Group>
   );
 }

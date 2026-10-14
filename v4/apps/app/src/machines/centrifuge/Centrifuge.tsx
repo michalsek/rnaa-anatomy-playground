@@ -79,7 +79,7 @@ export function Centrifuge(props: CentrifugeProps) {
       <Instruments />
       <Coolant />
       <Cabinet />
-      <PacketPool capacity={CF.capacity} />
+      <PacketPool capacity={sim().pools.packets} />
     </Group>
   );
 }

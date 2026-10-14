@@ -17,6 +17,7 @@ import {
   type FrameInfo,
   type LineGraph,
   type OutputPageGraph,
+  type PackerPageGraph,
   type ScannerPageGraph,
   CENTRIFUGE_LAYOUT,
   LINE_LAYOUT,
@@ -25,6 +26,7 @@ import {
   createCrusherPage,
   createLine,
   createOutputPage,
+  createPackerPage,
   createScannerPage,
 } from '@anatomy/engine';
 import { type Readout, createReadout } from '../overlay/readout.ts';
@@ -115,13 +117,13 @@ function createLive<G extends Graph>(
   };
 }
 
-const mainOf = (g: Graph & { crusher?: Crusher | null; scanner?: unknown; elevator?: unknown }) =>
-  g.centrifuge ? 'centrifuge' : g.scanner ? 'scanner' : g.crusher ? 'crusher' : g.elevator ? 'elevator' : 'audio';
+const mainOf = (g: Graph & { crusher?: Crusher | null; scanner?: unknown; elevator?: unknown; packer?: unknown }) =>
+  g.centrifuge ? 'centrifuge' : g.scanner ? 'scanner' : g.crusher ? 'crusher' : g.elevator ? 'elevator' : g.packer ? 'packer' : 'audio';
 
 /** A machine's dev summary (`Machine.status`), with the sim time. */
 function describe(g: Graph, id: string): unknown {
   const m = g.factory.get(id);
-  return { t: g.factory.clock.t, ...m.status?.() };
+  return { t: g.factory.clock.t, ...m.status() };
 }
 
 const disposed = (c: Crusher) => {
@@ -146,7 +148,8 @@ export const lineLive = createLive(
     const out = g.crusher ? `${g.crusher.stats().count} disposed` : `${g.audio.stats.dropped} out`;
     const audio = g.scanner ? ` · ${g.scanner.stats.sent} audio` : '';
     const heard = g.speaker ? ` · ${g.speaker.stats.heard} heard` : '';
-    return `held ${g.centrifuge.tray.held()}/10 · ${g.centrifuge.controller.phase} · q ${q.count}${audio}${heard} · ${out}`;
+    const packed = g.packer ? `${g.packer.stats.packets} packed · ` : '';
+    return `${packed}held ${g.centrifuge.tray.held()}/10 · ${g.centrifuge.controller.phase} · q ${q.count}${audio}${heard} · ${out}`;
   },
 );
 
@@ -185,5 +188,12 @@ export const scannerLive = createLive(
 export const outputLive = createLive(
   (seed) => createOutputPage({ seed }),
   (g: OutputPageGraph) => `packets lifted ${g.elevator.stats.lifted} · ${g.speaker.stats.heard} heard · boot ${g.elevator.stats.queue}`,
+  () => 'running',
+);
+
+/** v2's packer page: the readout as v2's (`beads 3 · packets 0 · next graph`). */
+export const packerLive = createLive(
+  (seed) => createPackerPage({ seed }),
+  (g: PackerPageGraph) => `beads ${g.packer.stats.beads} · packets ${g.packer.stats.packets} · next ${g.packer.next()}`,
   () => 'running',
 );

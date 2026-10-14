@@ -8,6 +8,14 @@ const at = (name: string, frame: ViewPreset['frame'], yaw = 45): ViewPreset => (
 
 export const LINE_VIEWS: ViewPreset[] = [
   at('fit', undefined),
+  /** v2 `z-dispenser-A`: the bead source's hopper over belt A. */
+  at('dispenser-A', [[-8, -205, 220], [60, -175, 275]]),
+  /** v2 `z-A-packer`: belt A's head, the transfer plate, the gutter and the picker. */
+  at('A-packer', [[35, -215, 195], [105, -168, 258]]),
+  /** The packer: deck, lane, both arms, magazine and cabinet. */
+  at('packer', [[68, -224, 176], [132, -162, 258]]),
+  /** v2 `z-packer-B`: the lane's nose over belt B's tail. */
+  at('packer-B', [[85, -185, 185], [118, -140, 225]]),
   /** v2 `z-centrifuge-audio`: the centrifuge over the audio belt. */
   at('centrifuge-audio', [[40, 20, 40], [140, 150, 205]]),
   at('funnel', [[85, 5, 168], [115, 60, 208]]),
@@ -42,9 +50,31 @@ export const LINE_VIEWS: ViewPreset[] = [
 
 export const LINE_CARD = {
   fig: 'Line',
-  title: 'Centrifuge → render loop → read arm → speaker',
-  hint: 'rings → one per quantum → read → elevator → speaker',
-  label: 'Packets ride belt B into the centrifuge, which drains them one per render quantum onto the audio belt; the read arm reads each quantum and sends one audio packet per four down belt D to the elevator, which lifts it to the speaker; spent packets ride belt C to the crusher.',
+  title: 'Packer → centrifuge → render loop → speaker',
+  hint: 'beads → packets → rings → quantum → read → speaker',
+  label: 'Beads ride belt A into the packer, which boxes three into each packet onto belt B; the centrifuge drains them one per render quantum onto the audio belt; the read arm reads each quantum and sends one audio packet per four down belt D to the elevator, which lifts it to the speaker; spent packets ride belt C to the crusher.',
+} as const;
+
+/** The packer scene (packer at the origin, belt A along +x into its gutter, belt B along +y). */
+export const PACKER_VIEWS: ViewPreset[] = [
+  at('fit', undefined),
+  /** Belt A's head, the transfer plate, the gutter, the picker (v2 `z-A-packer`). */
+  at('gutter', [[-65, -25, 195], [5, 22, 258]]),
+  /** The lane: S0 erecting, S1 filling, S2 folding and taping. */
+  at('lane', [[-14, -26, 194], [26, 32, 232]]),
+  /** The magazine, pusher and erector over S0. */
+  at('magazine', [[-12, -30, 194], [14, -2, 224]]),
+  /** The folder at S2. */
+  at('folder', [[-8, 6, 196], [30, 30, 236]]),
+  /** The lane nose over belt B (v2 `z-packer-B`). */
+  at('nose', [[-15, 5, 185], [18, 50, 225]]),
+];
+
+export const PACKER_CARD = {
+  fig: 'Part',
+  title: 'Packer',
+  hint: 'fluff in from belt A · packets out onto belt B',
+  label: 'Beads roll off belt A into a three-pocket gutter; the picker lifts all three into an open carton, the folder closes and tapes it, and the walking beam pushes the packet onto belt B.',
 } as const;
 
 export const CONVEYOR_VIEWS: ViewPreset[] = [

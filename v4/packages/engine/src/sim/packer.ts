@@ -75,7 +75,8 @@ export const PK = {
   /**
    * Folder: on the front-right tab, level with S2; tool length; its home, raised over the lane's
    * +x edge at S2 (v4: v2's home [23, 14, 229] sat over the turret's axis, so the approach and
-   * the return slewed the turret 138° in 0.3 s, up to 29 rad/s; from here it turns ≈ 20°).
+   * the return slewed the turret 138° in 0.3 s, up to 29 rad/s; from here it turns ≈ 20°; tucked
+   * upright over [16, 17] it stood across S1 on screen).
    */
   folder: {
     arm: { S: [21, 18.5, 211.5], yokeZ: 206, yokeR: 4.6, L1: 16, L2: 15, off: 3.1, side: -1, r1: 2, r2: 1.8 } as ArmSpec,

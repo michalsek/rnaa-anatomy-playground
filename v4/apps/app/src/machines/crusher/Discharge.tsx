@@ -5,7 +5,7 @@
  * mat, walls, the hazard band on its front (E6 stripes), the handle, the pile (a scalable slab)
  * and the chips on it.
  */
-import { CRUSHER_POOLS, type LineSetSpec } from '@anatomy/engine';
+import type { LineSetSpec } from '@anatomy/engine';
 import { Box, Extrude, Group, Halo, Instances, Lathe, Marks } from '../../blocks/blocks.tsx';
 import { FX, corners, dots, faceScrews, plateX, slot, turned } from '../kit.ts';
 import { CHIP, CR, chuteTop } from './dims.ts';
@@ -50,7 +50,8 @@ export function Chute() {
   );
 }
 
-export function Bin({ plan }: { plan: { x0: number; x1: number; y0: number; y1: number; z: number } }) {
+/** `chips`: the chips pool's size (the sim's `pools.chips`). */
+export function Bin({ plan, chips }: { plan: { x0: number; x1: number; y0: number; y1: number; z: number }; chips: number }) {
   const wz = B.floorZ + 0.8;
   const grate = Array.from({ length: 7 }, (_, i) => slot([-4.8 + i * 1.6, 51, 0.4], [0, 1, 0], [1, 0, 0], 6.6, 0.4, [0, 0, 1])).flat();
   const cx = (plan.x0 + plan.x1) / 2;
@@ -89,7 +90,7 @@ export function Bin({ plan }: { plan: { x0: number; x1: number; y0: number; y1: 
           scalable
           position={[cx, cy, plan.z]}
         />
-        <Instances id="chips" geo={{ kind: 'box', size: CHIP, center: [0, 0, CHIP[2] / 2], r: 0.2 }} styles={[{ material: 'pkGarbage', outline: 'lo' }]} capacity={CRUSHER_POOLS.chips} scalable />
+        <Instances id="chips" geo={{ kind: 'box', size: CHIP, center: [0, 0, CHIP[2] / 2], r: 0.2 }} styles={[{ material: 'pkGarbage', outline: 'lo' }]} capacity={chips} scalable />
       </Group>
     </>
   );

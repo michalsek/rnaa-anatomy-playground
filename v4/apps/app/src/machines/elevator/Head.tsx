@@ -110,7 +110,7 @@ function Discharge({ g }: { g: ElevatorGeometry }) {
       <TopOpening id="mouth" x0={H.x0 + 1.4} x1={H.x1 - 1.4} y0={H.y0 + 1.4} y1={H.y1 - 1.4} z={rim} />
       <Marks id="mouth-screws" material="steel" {...screws(mouthScrews, rim, 0.4, 0.26)} />
       <Box id="ductFlange" material="steel" {...corners([-7.5, H.y0 - 1, d.z0 - 1.5], [7.5, H.y0, d.z1 + 1.5])} r={0.4} />
-      <Box id="duct" material="steel" {...corners([-6, d.y0, d.z0], [6, d.y1, d.z1])} r={0.5} />
+      <Box id="duct" material="steel" {...corners([-EL.ductHalf, d.y0, d.z0], [EL.ductHalf, d.y1, d.z1])} r={0.5} />
       <Lathe id="spout" material="steel" profile={disc(EL.spoutR, g.zh - 6, d.z0)} seams={[g.zh - 1]} steps={48} position={[sx, sy, 0]} />
       <Lathe id="spoutFlange" material="steel" outline="lo" profile={disc(8, g.ports.out[2], g.zh - 6)} steps={48} position={[sx, sy, 0]} />
     </Group>

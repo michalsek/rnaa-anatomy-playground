@@ -85,22 +85,21 @@ export function Stage({
     }
     shellRef.current = shell;
     const ctx = context;
-    if (__DEV__ && ctx) {
-      // Rotation diagnosis (M7 review): JS window and stage sizes against the canvas and the
-      // texture the context hands out.
-      (globalThis as { __v4sizes?: () => object }).__v4sizes = () => {
-        const tex = ctx.getCurrentTexture();
-        return {
-          window: Dimensions.get('window'),
-          stage: layoutRef.current,
-          canvas: { width: ctx.canvas.width, height: ctx.canvas.height },
-          texture: { width: tex.width, height: tex.height },
-        };
-      };
-    }
+    const probe = globalThis as { __v4sizes?: () => object };
+    const sizes = () => ({
+      window: Dimensions.get('window'),
+      stage: layoutRef.current,
+      canvas: { width: ctx.canvas.width, height: ctx.canvas.height },
+      // What the shell's last frame drew into (asking the context here would hand out a texture
+      // outside the frame loop).
+      texture: shell.texture(),
+    });
+    // Rotation diagnosis (M7 review): JS window and stage sizes against the canvas and the texture.
+    if (__DEV__) probe.__v4sizes = sizes;
     return () => {
       shell.stop();
       if (shellRef.current === shell) shellRef.current = null;
+      if (probe.__v4sizes === sizes) delete probe.__v4sizes;
     };
   }, [root, hasLayout, store]);
 

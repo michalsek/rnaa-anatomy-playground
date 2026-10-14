@@ -296,16 +296,16 @@ export function Loop(props: LoopProps) {
         id="cleats"
         geo={{ kind: 'box', size: cleatSize, r: 0.2, center: [0, 0, CH / 2] }}
         styles={[{ material: 'steel', outline: 'lo' }]}
-        capacity={D.nCleats}
+        capacity={loop.pools.cleats}
       />
       <Instances
         id="straps"
         geo={{ kind: 'box', size: strapSize, r: 0.1, center: [0, 0, 0.5] }}
         styles={[{ material: 'steel', outline: 'lo' }]}
-        capacity={2 * D.nCleats}
+        capacity={loop.pools.bails}
         scalable
       />
-      <PacketPool capacity={D.nCleats + 4} />
+      <PacketPool capacity={loop.pools.packets} />
     </Group>
   );
 }

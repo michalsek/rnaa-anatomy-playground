@@ -11,25 +11,26 @@
  * belt D, the elevator and the speaker.
  * Stand-ins: the hopper hides where a source makes packets; a crate hides where a sink takes them.
  */
-import type { Conveyor, ConveyorPageGraph, CrusherPageGraph, LineGraph, OutputPageGraph, ScannerPageGraph, Sink, Source } from '@anatomy/engine';
+import type { Conveyor, ConveyorPageGraph, CrusherPageGraph, LineGraph, OutputPageGraph, PackerPageGraph, ScannerPageGraph, Sink, V3 } from '@anatomy/engine';
 import { Box, Group, Lathe, useFrame } from '../blocks/blocks.tsx';
 import { PacketPool } from '../machines/Packets.tsx';
 import { Centrifuge } from '../machines/centrifuge/Centrifuge.tsx';
 import { Crusher } from '../machines/crusher/Crusher.tsx';
 import { Elevator } from '../machines/elevator/Elevator.tsx';
+import { Packer } from '../machines/packer/Packer.tsx';
 import { Speaker } from '../machines/speaker/Speaker.tsx';
 import { Scanner } from '../machines/scanner/Scanner.tsx';
 import { Loop } from '../machines/conveyor/Loop.tsx';
 import { Top } from '../machines/conveyor/Top.tsx';
 import { corners, rod } from '../machines/kit.ts';
 import { usePacketPoses } from '../machines/poses.ts';
-import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, lineLive, outputLive, scannerLive } from './live.ts';
+import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, lineLive, outputLive, packerLive, scannerLive } from './live.ts';
 
 /**
  * A closed hopper over the source's point (v2 conveyor page's demo hopper), on two posts either
  * side of it along `across` (across the belt below it).
  */
-function Hopper({ source, legs, across = 'x' }: { source: Source; legs: boolean; across?: 'x' | 'y' }) {
+function Hopper({ source, legs, across = 'x', floor = 0 }: { source: { origin: V3; from: V3 }; legs: boolean; across?: 'x' | 'y'; floor?: number }) {
   const [x, y, z] = source.from;
   const z0 = z - 6;
   const z1 = z + 12;
@@ -39,8 +40,8 @@ function Hopper({ source, legs, across = 'x' }: { source: Source; legs: boolean;
       <Box id="lip" material="steel" outline="lo" {...corners([-7.9, -7.4, z1], [7.9, 7.4, z1 + 1.2])} r={1} />
       {[-1, 1].map((side) => (
         <Group key={side} id={`post${side > 0 ? 1 : 0}`} position={[side * 18.5, 0, 0]}>
-          {legs && <Lathe id="post" material="steel" profile={rod(1.0, 1.2, z1 - 4)} steps={16} />}
-          {legs && <Box id="foot" material="steel" outline="lo" {...corners([-3, -3, 0], [3, 3, 1.2])} r={0.8} />}
+          {legs && <Lathe id="post" material="steel" profile={rod(1.0, floor + 1.2, z1 - 4)} steps={16} />}
+          {legs && <Box id="foot" material="steel" outline="lo" {...corners([-3, -3, floor], [3, 3, floor + 1.2])} r={0.8} />}
           <Box id="arm" material="steel" outline="lo" {...corners([side > 0 ? -12 : 1, -1, z1 - 6], [side > 0 ? -1 : 12, 1, z1 - 4])} r={0.3} />
         </Group>
       ))}
@@ -75,7 +76,7 @@ function SinkBin({
     <Group id={id} position={[...origin]} contacts={false}>
       <BinFrame live={live} sim={sim} />
       <Box id="crate" material="steel" {...corners(crate[0], crate[1])} r={0.8} seams={[crate[1][2] - 2.5]} />
-      <PacketPool capacity={8} />
+      <PacketPool capacity={sim().pools.packets} />
     </Group>
   );
 }
@@ -93,8 +94,9 @@ function LineOf({ live }: { live: Live<LineGraph> }) {
   const [dx] = g.audio.geometry.ports.drop;
   return (
     <>
+      {g.beadSource && <InputPath live={live} />}
       <Top id="beltB" live={live} sim={() => live.graph().beltB} />
-      <Hopper source={g.source} legs />
+      {g.source && <Hopper source={g.source} legs />}
       <Centrifuge live={live} sim={() => live.graph().centrifuge} />
       <Loop id="audio" live={live} sim={() => live.graph().audio} />
       {g.beltC && <Top id="beltC" live={live} sim={() => live.graph().beltC!} />}
@@ -104,6 +106,18 @@ function LineOf({ live }: { live: Live<LineGraph> }) {
       {g.beltD && <Top id="beltD" live={live} sim={() => live.graph().beltD!} />}
       {g.elevator && <Elevator live={live} sim={() => live.graph().elevator!} />}
       {g.speaker && <Speaker live={live} sim={() => live.graph().speaker!} />}
+    </>
+  );
+}
+
+/** The input path: the bead source's hopper (the dispenser stand-in), belt A, the packer. */
+function InputPath({ live, floor = 0 }: { live: Live<LineGraph> | Live<PackerPageGraph>; floor?: number }) {
+  const g = live.graph();
+  return (
+    <>
+      <Hopper source={g.beadSource!} legs across="y" floor={floor} />
+      <Top id="beltA" live={live} sim={() => live.graph().beltA!} beads floor={floor} />
+      <Packer live={live} sim={() => live.graph().packer!} floor={floor} />
     </>
   );
 }
@@ -173,6 +187,24 @@ export function OutputScene() {
       <Top id="beltD" live={live} sim={() => live.graph().beltD} />
       <Elevator live={live} sim={() => live.graph().elevator} />
       <Speaker live={live} sim={() => live.graph().speaker} />
+    </>
+  );
+}
+
+/**
+ * v2's packer page: the bead source over belt A, the packer, a short belt B tipping into a crate,
+ * on v2's raised floor (`PACKER_FLOOR`: the stand's shelf stays readable).
+ */
+export function PackerScene() {
+  const live: Live<PackerPageGraph> = packerLive;
+  const g = live.graph();
+  const floor = g.sink.floorZ ?? 0;
+  const [, oy] = g.beltB.geometry.ports.out;
+  return (
+    <>
+      <InputPath live={live} floor={floor} />
+      <Top id="beltB" live={live} sim={() => live.graph().beltB} floor={floor} />
+      <SinkBin live={live} sim={() => live.graph().sink} crate={[[-11, oy - 8, floor], [11, oy + 13, floor + 12]]} />
     </>
   );
 }
