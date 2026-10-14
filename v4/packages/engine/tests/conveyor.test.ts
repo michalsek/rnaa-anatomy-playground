@@ -228,7 +228,8 @@ describe('line graph', () => {
     const b = at('beltB', g.beltB.origin);
     const c = at('centrifuge', g.centrifuge.origin);
     const a = at('audio', g.audio.origin);
-    const s = at('sink', g.sink.origin);
+    const cc = at('beltC', g.beltC!.origin);
+    const cr = at('crusher', g.crusher!.origin);
     for (let i = 0; i < 120 * 120; i++) {
       f.run(H);
       expect(f.ledger.created).toBe(f.alive() + f.ledger.consumed);
@@ -248,12 +249,13 @@ describe('line graph', () => {
       g.beltB.poses((_, item, x, y, z) => b(item.id, x, y, z));
       g.centrifuge.poses((_, item, x, y, z) => c(item.id, x, y, z));
       g.audio.poses((_, item, x, y, z) => a(item.id, x, y, z));
-      g.sink.poses((_, item, x, y, z) => s(item.id, x, y, z));
+      g.beltC!.poses((_, item, x, y, z) => cc(item.id, x, y, z));
+      g.crusher!.poses((_, item, x, y, z) => cr(item.id, x, y, z));
       for (const [id, [m, x, y, z]] of seen) {
         const p = last.get(id);
         if (p) {
-          // A hanging parcel's pose origin is its top (upside down); the sink's is its bottom.
-          const flip = owner.get(id) === 'audio' && m === 'sink' ? 7 : 0;
+          // A hanging parcel's pose origin is its top (upside down); belt C's is its bottom.
+          const flip = owner.get(id) === 'audio' && m === 'beltC' ? 7 : 0;
           const d = Math.hypot(x - p[0], y - p[1], z + flip - p[2]);
           if (owner.get(id) !== m) {
             handOffs++;
@@ -266,7 +268,8 @@ describe('line graph', () => {
       }
     }
     expect(landed).toBeGreaterThan(10);
-    expect(g.sink.taken).toBeGreaterThan(5);
+    expect(audio.stats.dropped).toBeGreaterThan(5);
+    expect(g.crusher!.stats().count).toBeGreaterThan(3);
     expect(centrifuge.state.log.map((x) => x.phase)).toContain('in sync');
     // In sync, the lock lands parcels within a few units of their cleat (no long bends).
     expect(worstBend).toBeLessThan(4);
@@ -276,7 +279,7 @@ describe('line graph', () => {
     expect(handOffs).toBeGreaterThan(20);
     expect(worst).toBeLessThan(3);
     expect(worstHand).toBeLessThan(2.5);
-    process.stdout.write(`line: ${landed} landed, worst bend ${worstBend.toFixed(2)}; hand-offs ${handOffs}, worst step ${worst.toFixed(2)}, at a hand-off ${worstHand.toFixed(2)}; log\n${centrifuge.state.log.map((x) => `${x.t.toFixed(2)} ${x.phase}`).join("\n")}\n`);
+    process.stdout.write(`line: ${landed} landed, ${g.crusher!.stats().count} crushed, worst bend ${worstBend.toFixed(2)}; hand-offs ${handOffs}, worst step ${worst.toFixed(2)}, at a hand-off ${worstHand.toFixed(2)}; log\n${centrifuge.state.log.map((x) => `${x.t.toFixed(2)} ${x.phase}`).join("\n")}\n`);
   });
 
   it('the centrifuge scene layout runs the cycle', () => {

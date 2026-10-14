@@ -15,4 +15,8 @@ export const RATES = {
   loopSpeed: 32,
   /** Top belts, world units/s (v2 default: 14). */
   beltSpeed: 14,
+  /** The crusher's drawer dumps after this many packets' flakes (v2: 10). */
+  binDump: 10,
+  /** The crusher scene's feed: one garbage packet every `crusherFeed` s (v2's standalone page: 2.4). */
+  crusherFeed: 2.4,
 } as const;

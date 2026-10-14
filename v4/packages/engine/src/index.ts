@@ -31,3 +31,4 @@ export * from './sim/loop.ts';
 export * from './geo/band.ts';
 export * from './sim/math.ts';
 export * from './geo/helix.ts';
+export * from './sim/crusher.ts';

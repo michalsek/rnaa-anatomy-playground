@@ -4,15 +4,18 @@
  *
  * - `centrifuge`: the centrifuge on its own, between a short belt B (fed by a source) and a short
  *   audio loop (drained by a sink); the centrifuge's frame is the world.
- * - `line`: source → belt B → centrifuge → audio loop → sink, at the final layout's positions
- *   (notes/M5-M11-plan.md §2.1, from v2 `assembly/build.mjs`).
+ * - `line`: source → belt B → centrifuge → audio loop → belt C → crusher, at the final layout's
+ *   positions (notes/M5-M11-plan.md §2.1, from v2 `assembly/build.mjs`);
+ * - `crusher`: v2's crusher page: a source drops garbage onto a short belt C that feeds the crusher.
  */
 import { type Factory, createFactory } from './clock.ts';
 import { type Conveyor, createConveyor } from './conveyor.ts';
 import { CF, type Centrifuge, createCentrifuge } from './centrifuge/index.ts';
+import { type Crusher, createCrusher } from './crusher.ts';
 import { type Loop, createLoop, syncToLoop } from './loop.ts';
 import type { V3 } from './ports.ts';
 import { type Sink, createSink } from './sink.ts';
+import { RATES } from './rates.ts';
 import { type Source, createSource } from './source.ts';
 
 export interface LineGraph {
@@ -21,13 +24,18 @@ export interface LineGraph {
   beltB: Conveyor;
   centrifuge: Centrifuge;
   audio: Loop;
-  sink: Sink;
+  /** The garbage path (the line's layout), or a sink under the loop's drop (the centrifuge's). */
+  beltC: Conveyor | null;
+  crusher: Crusher | null;
+  sink: Sink | null;
 }
 
 export interface LineLayout {
   centrifuge: V3;
   beltB: { origin: V3; length: number; inAt: number };
   audio: { origin: V3; length: number; inAt: number; readAt: number };
+  /** Belt C and the crusher; without them a sink takes the garbage. */
+  garbage?: { beltC: { origin: V3; length: number; inAt: number }; crusher: V3 };
 }
 
 const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -35,6 +43,8 @@ const HAND = CF.spout.hand;
 /** Belt B's surface (v2 A: the funnel takes packets 6 above it) and the audio loop's. */
 const TOP_B = 192;
 const TOP_AUDIO = 92;
+/** Belt C's surface: the crusher's feed height (v2 crusher `local.drop` z 40). */
+const TOP_C = 40;
 
 /** The final layout (§2.1): world positions, from v2 A's own derivations. */
 export const LINE_LAYOUT: LineLayout = (() => {
@@ -42,12 +52,17 @@ export const LINE_LAYOUT: LineLayout = (() => {
   const beltBOrigin: V3 = [100, -190 + 32, 0];
   const out = add(centri, HAND);
   const audioHead = -90;
+  const beltC: V3 = [audioHead, out[1] - 22, 0];
+  const lengthC = 110;
   return {
     centrifuge: centri,
     // Head drum and rails stop before the funnel lip (v2 A: CENTRI.y − 49).
     beltB: { origin: beltBOrigin, length: centri[1] - 49 - beltBOrigin[1], inAt: 2 },
     // Tail drum 12 past the spout's hand-on point; parcels land under it; read point at the scanner.
     audio: { origin: [audioHead, out[1], 0], length: out[0] + 12 - audioHead, inAt: out[0] - audioHead, readAt: 30 - audioHead },
+    // Belt C runs under the loop's head drum (garbage lands 22 along it); it and its rails end
+    // before the hopper's back lip (v2 A: the crusher 30 past belt C's end).
+    garbage: { beltC: { origin: beltC, length: lengthC, inAt: 22 }, crusher: [audioHead, beltC[1] + lengthC + 30, 0] },
   };
 })();
 
@@ -76,12 +91,21 @@ export function createLine(layout: LineLayout = LINE_LAYOUT, o: { seed?: number 
     createCentrifuge(clock, { id: 'centrifuge', origin: layout.centrifuge, sync: syncToLoop(audio, add(layout.centrifuge, HAND), CF.spout.v) }),
   );
   factory.add(audio);
-  const sink = factory.add(createSink(clock, ledger, { id: 'sink', origin: a.origin, floorZ: 0 }));
   factory.link(source, 'out', beltB);
   factory.link(beltB, 'out', centrifuge);
   factory.link(centrifuge, 'out', audio);
-  factory.link(audio, 'drop', sink);
-  return { factory, source, beltB, centrifuge, audio, sink };
+  const gb = layout.garbage;
+  if (!gb) {
+    const sink = factory.add(createSink(clock, ledger, { id: 'sink', origin: a.origin, floorZ: 0 }));
+    factory.link(audio, 'drop', sink);
+    return { factory, source, beltB, centrifuge, audio, beltC: null, crusher: null, sink };
+  }
+  const c = gb.beltC;
+  const beltC = factory.add(createConveyor(clock, { id: 'beltC', origin: c.origin, axis: 'y', dir: 1, length: c.length, top: TOP_C, inAt: c.inAt, tip: false }));
+  const crusher = factory.add(createCrusher(clock, ledger, { id: 'crusher', origin: gb.crusher }));
+  factory.link(audio, 'drop', beltC);
+  factory.link(beltC, 'out', crusher);
+  return { factory, source, beltB, centrifuge, audio, beltC, crusher, sink: null };
 }
 
 export interface ConveyorPageGraph {
@@ -124,4 +148,31 @@ export function createConveyorPage(o: { seed?: number } = {}): ConveyorPageGraph
   factory.link(audio, 'drop', beltC);
   factory.link(beltC, 'out', sink);
   return { factory, source, beltB, audio, beltC, sink };
+}
+
+export interface CrusherPageGraph {
+  factory: Factory;
+  source: Source;
+  beltC: Conveyor;
+  crusher: Crusher;
+}
+
+/**
+ * v2's crusher page (`parts/crusher/build.mjs`): a spent packet every RATES.crusherFeed s drops
+ * onto a short belt C, which hands it over the hopper's back lip; the crusher at the origin.
+ */
+export function createCrusherPage(o: { seed?: number } = {}): CrusherPageGraph {
+  const factory = createFactory();
+  const { clock, ledger } = factory;
+  const length = 50;
+  // Belt C ends where the line's does: 30 before the crusher's centre.
+  const cOrigin: V3 = [0, -30 - length, 0];
+  const source = factory.add(
+    createSource(clock, ledger, { id: 'source', origin: cOrigin, from: [0, 8, TOP_C + 24], every: RATES.crusherFeed, delay: 0.6, burst: 1, rest: 0, kinds: ['garbage'], seed: o.seed ?? 0 }),
+  );
+  const beltC = factory.add(createConveyor(clock, { id: 'beltC', origin: cOrigin, axis: 'y', dir: 1, length, top: TOP_C, inAt: 8, tip: false }));
+  const crusher = factory.add(createCrusher(clock, ledger, { id: 'crusher', origin: [0, 0, 0] }));
+  factory.link(source, 'out', beltC);
+  factory.link(beltC, 'out', crusher);
+  return { factory, source, beltC, crusher };
 }
