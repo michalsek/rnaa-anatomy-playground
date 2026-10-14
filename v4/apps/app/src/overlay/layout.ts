@@ -35,6 +35,11 @@ export interface OverlayLayout {
   narrow: boolean;
   /** The card's edges from the window (null in bare mode). */
   card: Edges | null;
+  /**
+   * The card's header and footer bands (heights inside its frame): painted in the card's colour,
+   * so whatever reaches past the fit (the floating display) ends cleanly under the texts and chips.
+   */
+  bands: { top: number; bottom: number };
   /** The chip bar's top and right from the window. */
   chips: { top: number; right: number };
   /** The camera's frame: pads from the canvas (= window) edges, the aspect. */
@@ -62,7 +67,7 @@ export function overlayLayout(win: { width: number; height: number }, insets: Ed
       b: insets.bottom + BARE_MARGIN,
       l: insets.left + BARE_MARGIN,
     };
-    return { landscape, narrow, card: null, chips: { top: insets.top + 4, right: insets.right + side - 4 }, frame: { pad, aspect } };
+    return { landscape, narrow, card: null, bands: { top: 0, bottom: 0 }, chips: { top: insets.top + 4, right: insets.right + side - 4 }, frame: { pad, aspect } };
   }
   const card: Edges = {
     top: insets.top + (chipsAbove ? CHIP_ROW + 8 : side),
@@ -70,12 +75,14 @@ export function overlayLayout(win: { width: number; height: number }, insets: Ed
     bottom: insets.bottom + side,
     left: insets.left + side,
   };
+  // Landscape: the chips (44 pt, 2 below the frame) sit in the header band.
+  const bands = { top: landscape && m.chrome ? CHIP_ROW + 4 : CARD_TEXT.top, bottom: landscape ? CARD_TEXT.bottom : CARD_TEXT.bottomTwo };
   const pad: Pad = {
-    t: card.top + CARD_TEXT.top,
+    t: card.top + bands.top + 4,
     r: card.right + CARD_TEXT.side,
-    b: card.bottom + (landscape ? CARD_TEXT.bottom : CARD_TEXT.bottomTwo),
+    b: card.bottom + bands.bottom + 4,
     l: card.left + CARD_TEXT.side,
   };
   const chips = landscape ? { top: card.top + 2, right: card.right + 4 } : { top: insets.top + 4, right: insets.right + side - 4 };
-  return { landscape, narrow, card, chips, frame: { pad, aspect } };
+  return { landscape, narrow, card, bands, chips, frame: { pad, aspect } };
 }

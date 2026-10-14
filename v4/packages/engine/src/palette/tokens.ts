@@ -35,6 +35,8 @@ export const MATERIALS = [
   // M5 (E5): the other packet kinds, the React-blue fluff bead, the speaker's mint, the
   // crusher's amber lamp, rubber (V-belts, mats, the speaker surround).
   'pkAudio', 'pkGarbage', 'fluff', 'mint', 'amber', 'rubber',
+  // M10: the phone's display (the near-black screen and its glass edge), the screen's React logo.
+  'screen', 'logo',
 ] as const;
 export type Material = (typeof MATERIALS)[number];
 export const MATERIAL = Object.fromEntries(MATERIALS.map((name, index) => [name, index])) as {
@@ -123,6 +125,16 @@ const amber: Record<Theme, MaterialTokens> = {
   light: solid('#fff1cf', '#f5a623', ['#d97a06', '#e5890f', '#ec9818', '#f2a01f'], ['#5a3a05', '#8a5a0a', '#b8770e', '#e0a34a']),
   dark: solid('#fff6e0', '#ffbe5c', ['#f0961a', '#f5a42e', '#f9b142', '#fcb94f'], ['#5a3a05', '#8a5a0a', '#b8770e', '#e0a34a']),
 };
+/**
+ * The phone's screen (v2 phone.mjs: `#0a0b0e` under the glass, its edge `#16171b`), the same in
+ * both themes; its faint lines are the glass's (`iso-line` faint over the dark).
+ */
+const screen = solid('#0a0b0e', '#16171b', ['#0d0e11', '#101114', '#131418', '#16171b'], ['#5c6068', '#3a3d44', '#2a2c31', '#24262b'], '#5c6068');
+/** The screen's React logo (v2 `--fx-react`), lines in its own colour (the art has no strokes). */
+const logo: Record<Theme, MaterialTokens> = {
+  light: solid('#2fb8e6', '#2fb8e6', ['#2fb8e6', '#2fb8e6', '#2fb8e6', '#2fb8e6'], ['#2fb8e6', '#2fb8e6', '#2fb8e6', '#2fb8e6']),
+  dark: solid('#61dafb', '#61dafb', ['#61dafb', '#61dafb', '#61dafb', '#61dafb'], ['#61dafb', '#61dafb', '#61dafb', '#61dafb']),
+};
 /** Rubber: near black, the same in both themes (like graphite). */
 const rubber = solid('#2e3035', '#25272b', ['#141518', '#191a1d', '#1e2023', '#232529'], ['#c8cbd1', '#6c7076', '#45484e', '#33363b'], '#c8cbd1');
 
@@ -169,6 +181,8 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
     mint,
     amber: amber.light,
     rubber,
+    screen,
+    logo: logo.light,
   },
   dark: {
     steel: {
@@ -214,6 +228,8 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
     mint,
     amber: amber.dark,
     rubber,
+    screen,
+    logo: logo.dark,
   },
 };
 
@@ -237,6 +253,8 @@ export const FX_NAMES = [
   'halo', 'glow', 'glowSoft', 'void0', 'void1', 'void2', 'strobe',
   // M5 (E5): glow colours per lamp (the scanner's mint, the crusher's amber).
   'mint', 'mintSoft', 'amber', 'amberSoft',
+  // M10: the phone's screen (edge and the glow under the logo), the logo's glow.
+  'screenEdge', 'screenGlow', 'react',
 ] as const;
 export type FxName = (typeof FX_NAMES)[number];
 export const FX = Object.fromEntries(FX_NAMES.map((name, index) => [name, index])) as {
@@ -256,6 +274,9 @@ export const FX_TOKENS: Record<Theme, Record<FxName, Rgba>> = {
     mintSoft: ['#bff2d6', 1],
     amber: ['#f5a623', 1],
     amberSoft: ['#fff1cf', 1],
+    screenEdge: ['#0a0b0e', 1],
+    screenGlow: ['#0f2732', 1],
+    react: ['#2fb8e6', 1],
   },
   dark: {
     halo: ['#050505', 0.9],
@@ -269,6 +290,9 @@ export const FX_TOKENS: Record<Theme, Record<FxName, Rgba>> = {
     mintSoft: ['#2f8a5a', 1],
     amber: ['#ffbe5c', 1],
     amberSoft: ['#8a5a0a', 1],
+    screenEdge: ['#0a0b0e', 1],
+    screenGlow: ['#0f2732', 1],
+    react: ['#61dafb', 1],
   },
 };
 

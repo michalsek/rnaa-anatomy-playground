@@ -134,6 +134,7 @@ function Main() {
           theme={theme}
           text={scene.card}
           edges={layout.card}
+          bands={layout.bands}
           landscape={layout.landscape}
           reserveRight={layout.landscape && chrome ? chipsWidth : 0}
         />

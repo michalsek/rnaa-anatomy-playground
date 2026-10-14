@@ -11,20 +11,21 @@
  * belt D, the elevator and the speaker.
  * Stand-ins: the hopper hides where a source makes packets; a crate hides where a sink takes them.
  */
-import type { Conveyor, ConveyorPageGraph, CrusherPageGraph, LineGraph, OutputPageGraph, PackerPageGraph, ScannerPageGraph, Sink, V3 } from '@anatomy/engine';
+import { type Conveyor, type ConveyorPageGraph, type CrusherPageGraph, FACTORY_LAYOUT, type FactoryGraph, type LineGraph, type OutputPageGraph, type PackerPageGraph, type ScannerPageGraph, type Sink, type V3 } from '@anatomy/engine';
 import { Box, Group, Lathe, useFrame } from '../blocks/blocks.tsx';
 import { PacketPool } from '../machines/Packets.tsx';
 import { Centrifuge } from '../machines/centrifuge/Centrifuge.tsx';
 import { Crusher } from '../machines/crusher/Crusher.tsx';
 import { Elevator } from '../machines/elevator/Elevator.tsx';
 import { Packer } from '../machines/packer/Packer.tsx';
+import { Phone } from '../machines/phone/Phone.tsx';
 import { Speaker } from '../machines/speaker/Speaker.tsx';
 import { Scanner } from '../machines/scanner/Scanner.tsx';
 import { Loop } from '../machines/conveyor/Loop.tsx';
 import { Top } from '../machines/conveyor/Top.tsx';
 import { corners, rod } from '../machines/kit.ts';
 import { usePacketPoses } from '../machines/poses.ts';
-import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, lineLive, outputLive, packerLive, scannerLive } from './live.ts';
+import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, factoryLive, lineLive, outputLive, packerLive, scannerLive } from './live.ts';
 
 /**
  * A closed hopper over the source's point (v2 conveyor page's demo hopper), on two posts either
@@ -205,6 +206,32 @@ export function PackerScene() {
       <InputPath live={live} floor={floor} />
       <Top id="beltB" live={live} sim={() => live.graph().beltB} floor={floor} />
       <SinkBin live={live} sim={() => live.graph().sink} crate={[[-11, oy - 8, floor], [11, oy + 13, floor + 12]]} />
+    </>
+  );
+}
+
+/**
+ * The final factory (M10): the phone (case, display, the dispenser over belt A) and every machine
+ * at the line's layout, stands per `FACTORY_LAYOUT.stands`.
+ */
+export function FactoryScene() {
+  const live: Live<FactoryGraph> = factoryLive;
+  const st = FACTORY_LAYOUT.stands;
+  const g = () => live.graph();
+  return (
+    <>
+      <Phone live={live} sim={() => g().dispenser} reads={() => g().scanner.stats.delivered} />
+      <Top id="beltA" live={live} sim={() => g().beltA} beads legs={st.beltA} />
+      <Packer live={live} sim={() => g().packer} stand={st.packer} />
+      <Top id="beltB" live={live} sim={() => g().beltB} legs={st.beltB} />
+      <Centrifuge live={live} sim={() => g().centrifuge} stand={st.centrifuge} />
+      <Loop id="audio" live={live} sim={() => g().audio} legs={st.audio} />
+      <Top id="beltC" live={live} sim={() => g().beltC} legs={st.beltC} />
+      <Crusher live={live} sim={() => g().crusher} stand={st.crusher} />
+      <Scanner live={live} sim={() => g().scanner} stand={st.scanner} />
+      <Top id="beltD" live={live} sim={() => g().beltD} legs={st.beltD} />
+      <Elevator live={live} sim={() => g().elevator} stand={st.elevator} />
+      <Speaker live={live} sim={() => g().speaker} stand={st.speaker} />
     </>
   );
 }

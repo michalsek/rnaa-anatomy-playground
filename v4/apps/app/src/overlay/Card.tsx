@@ -22,12 +22,15 @@ export function Card({
   theme,
   text,
   edges,
+  bands,
   landscape,
   reserveRight = 0,
 }: {
   theme: Theme;
   text: CardText;
   edges: Edges;
+  /** Header and footer band heights inside the frame (the card's colour, under the texts). */
+  bands: { top: number; bottom: number };
   landscape: boolean;
   /** Landscape: room the chips take at the card's top-right (the top row stops short of it). */
   reserveRight?: number;
@@ -49,6 +52,8 @@ export function Card({
         accessibilityLabel={`${text.title}. ${text.label}`}
         style={[styles.card, edges, { borderColor: ink.frame }]}
       >
+        <View style={[styles.band, { top: 0, height: bands.top, backgroundColor: ink.card }]} />
+        <View style={[styles.band, { bottom: 0, height: bands.bottom, backgroundColor: ink.card }]} />
         <View style={[styles.topRow, { right: 20 + reserveRight }]}>
           <Text numberOfLines={1} style={[corner, styles.inline, styles.keep, { color: ink.text }]}>
             {text.fig}
@@ -105,6 +110,7 @@ function LiveReadout({ source, style }: { source: ReadoutSource; style: StylePro
 const styles = StyleSheet.create({
   strip: { position: 'absolute' },
   card: { position: 'absolute', borderWidth: 1 },
+  band: { position: 'absolute', left: 0, right: 0 },
   corner: { position: 'absolute', fontSize: 10.5, lineHeight: 10.5 * 1.15, letterSpacing: 0.42 },
   // The title keeps the top-right corner when there is room (portrait), ellipsized when not.
   title: { marginLeft: 'auto' },
@@ -115,7 +121,8 @@ const styles = StyleSheet.create({
   // Hint left, readout right; in portrait a readout that doesn't fit wraps to the line below.
   row: { position: 'absolute', left: 20, right: 20, bottom: BOTTOM, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', columnGap: 24, rowGap: ROW_GAP },
   rowOne: { flexWrap: 'nowrap' },
-  hint: { position: 'relative', letterSpacing: 1.05, flexShrink: 1, maxWidth: '100%' },
+  // The hint gives way first (the readout carries the numbers).
+  hint: { position: 'relative', letterSpacing: 1.05, flexShrink: 4, maxWidth: '100%' },
   readout: { position: 'relative', marginLeft: 'auto', fontVariant: ['tabular-nums'], flexShrink: 1, maxWidth: '100%' },
   // Visually hidden but still read by assistive tech.
   offscreen: { position: 'absolute', width: 1, height: 1, overflow: 'hidden', opacity: 0, left: 0, bottom: 0 },
