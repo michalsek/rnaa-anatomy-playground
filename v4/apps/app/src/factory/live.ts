@@ -73,7 +73,7 @@ function createLive<G extends Graph>(
         if (!(t >= 0 && t <= 3600)) throw new Error(`seek ${t}: use 0–3600 s`);
         restart(t);
         ctl.paused = true;
-        return describe(g, g.factory.machines[0]!.id);
+        return describe(g, g.centrifuge ? 'centrifuge' : 'audio');
       },
       pause() {
         ctl.paused = true;

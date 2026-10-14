@@ -11,8 +11,8 @@ export const LINE_VIEWS: ViewPreset[] = [
   /** v2 `z-centrifuge-audio`: the centrifuge over the audio belt. */
   at('centrifuge-audio', [[40, 20, 40], [140, 150, 205]]),
   at('funnel', [[85, 5, 168], [115, 60, 208]]),
-  at('release', [[70, 92, 60], [125, 142, 135]]),
-  at('read', [[0, 100, 35], [60, 140, 100]]),
+  at('release', [[76, 100, 88], [118, 138, 128]]),
+  at('read', [[12, 108, 42], [48, 132, 82]]),
   at('head', [[-118, 98, 25], [-62, 142, 112]]),
 ];
 
