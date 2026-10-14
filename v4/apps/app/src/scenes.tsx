@@ -8,6 +8,7 @@ import { centrifugeLive, conveyorLive, crusherLive, factoryLive, lineLive, outpu
 import { CAPTION, CARDS, LEGEND, PHASES, READOUTS } from './factory/cards.ts';
 import { FACTORY_VIEWS } from './factory/factoryViews.ts';
 import { revealCtl } from './factory/revealCtl.ts';
+import { tourCtl } from './factory/tour.ts';
 import { standsStore } from './factory/stands.ts';
 import { CONVEYOR_CARD, CONVEYOR_VIEWS, LINE_CARD, LINE_VIEWS, OUTPUT_CARD, OUTPUT_VIEWS, PACKER_CARD, PACKER_VIEWS } from './factory/views.ts';
 import { CENTRIFUGE_CARD, CENTRIFUGE_VIEWS } from './machines/centrifuge/views.ts';
@@ -50,6 +51,8 @@ export interface SceneEntry {
     subscribe(cb: () => void): () => void;
     getSnapshot(): string;
   };
+  /** The scripted camera tour (the `tour` chip, `__v4.tour`). */
+  tour?: { play(): void; stop(): void; register(fn: ((view: string) => void) | null): void; readonly active: boolean; state(): object; subscribe(cb: () => void): () => void; getSnapshot(): string };
   /** The "i" sheet: the full caption and a legend. */
   info?: { caption: string; legend: readonly { material: Material; label: string }[] };
 }
@@ -66,6 +69,7 @@ export const SCENES: SceneEntry[] = [
     card: { ...CARDS.factory, readout: factoryLive.readout },
     dev: { ...factoryLive.dev, stands: standsStore.set },
     reveal: revealCtl,
+    tour: tourCtl,
     cardFor: (view) => ({ ...CARDS[factoryKey(view)], readout: factoryLive.readout }),
     info: { caption: CAPTION, legend: LEGEND },
     onView: (view) => {

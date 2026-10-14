@@ -71,9 +71,12 @@ function Main() {
       },
       store: () => storeRef.current,
       /** An ad-hoc camera: `__v4.look({ focus: [x, y, z], zoom: 4 })` (angles in degrees). */
-      look: (p: Partial<ViewPreset>) =>
-        setView({ name: 'look', yaw: 45, elevation: 30, zoom: 1, ...p }),
+      look: (p: Partial<ViewPreset>) => {
+        scene.tour?.stop();
+        setView({ name: 'look', yaw: 45, elevation: 30, zoom: 1, ...p });
+      },
       setView: (name: string) => {
+        scene.tour?.stop();
         if (!scene.views.some((v) => v.name === name)) {
           throw new Error(`unknown view ${JSON.stringify(name)}; known: ${scene.views.map((v) => v.name).join(', ')}`);
         }
@@ -92,8 +95,10 @@ function Main() {
       record: (on: boolean) => setRec(!!on),
       /** The scene's own hook (the centrifuge: time control, see live.ts). */
       sim: scene.dev,
-      /** The factory's reveal: seek(0–1), play(), skip(), restart(), state(). */
+      /** The factory's reveal: seek(0–1), reveal(), conceal(), play(), skip(), restart(), state(). */
       reveal: scene.reveal,
+      /** The camera tour: play(), stop(), state(). */
+      tour: scene.tour,
     };
     return () => {
       delete g.__v4;
@@ -125,6 +130,11 @@ function Main() {
   useEffect(() => {
     scene.onView?.(viewName);
   }, [scene, viewName]);
+  // The tour drives the view (eased) without stopping itself.
+  useEffect(() => {
+    scene.tour?.register((name) => setView(name));
+    return () => scene.tour?.register(null);
+  }, [scene]);
   return (
     <View style={[styles.fill, { backgroundColor: CARD[theme].page }]}>
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
@@ -175,6 +185,7 @@ function Main() {
           theme={theme}
           label={`Scene: ${scene.name}. Next scene`}
           onPress={() => {
+            scene.tour?.stop();
             const next = (sceneIndex + 1) % SCENES.length;
             setSceneIndex(next);
             setView(SCENES[next]!.views[0]?.name ?? 'fit');
@@ -186,7 +197,10 @@ function Main() {
           compact={narrow}
           theme={theme}
           label={`View: ${viewName}. Next view`}
-          onPress={() => setView(scene.views[(viewIndex + 1) % scene.views.length]?.name ?? 'fit')}
+          onPress={() => {
+            scene.tour?.stop();
+            setView(scene.views[(viewIndex + 1) % scene.views.length]?.name ?? 'fit');
+          }}
         >
           {viewName}
         </Chip>
@@ -207,6 +221,7 @@ function Main() {
           {`dbg ${debug}`}
         </Chip>
         {scene.reveal && <RevealChip reveal={scene.reveal} compact={narrow} theme={theme} />}
+        {scene.tour && <TourChip tour={scene.tour} compact={narrow} theme={theme} />}
         {scene.info && !bare && (
           <Chip compact={narrow} theme={theme} label={sheet ? 'Close the figure notes' : 'About this figure'} onPress={() => setSheet(!sheet)}>
             i
@@ -234,6 +249,16 @@ function Main() {
 }
 
 declare const __DEV__: boolean;
+
+/** Play or stop the camera tour. */
+function TourChip({ tour, compact, theme }: { tour: NonNullable<SceneEntry['tour']>; compact: boolean; theme: Theme }) {
+  useSyncExternalStore(tour.subscribe, tour.getSnapshot, tour.getSnapshot);
+  return (
+    <Chip compact={compact} theme={theme} label={tour.active ? 'Stop the tour' : 'Play the tour'} onPress={() => (tour.active ? tour.stop() : tour.play())}>
+      {tour.active ? 'stop' : 'tour'}
+    </Chip>
+  );
+}
 
 /** Open or close the phone (the factory's reveal and conceal); follows the reveal's state. */
 function RevealChip({ reveal, compact, theme }: { reveal: NonNullable<SceneEntry['reveal']>; compact: boolean; theme: Theme }) {

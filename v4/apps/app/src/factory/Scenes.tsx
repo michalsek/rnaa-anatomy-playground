@@ -27,6 +27,7 @@ import { Top } from '../machines/conveyor/Top.tsx';
 import { corners, rod } from '../machines/kit.ts';
 import { usePacketPoses } from '../machines/poses.ts';
 import { RevealDriver } from './RevealDriver.tsx';
+import { TourDriver } from './TourDriver.tsx';
 import { standsStore } from './stands.ts';
 import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, factoryLive, lineLive, outputLive, packerLive, scannerLive } from './live.ts';
 
@@ -224,6 +225,7 @@ export function FactoryScene() {
   return (
     <>
       <RevealDriver />
+      <TourDriver />
       <Phone reveal live={live} sim={() => g().dispenser} reads={() => g().scanner.stats.delivered} />
       <Top id="beltA" reveal live={live} sim={() => g().beltA} beads legs={st.beltA} />
       <Packer reveal live={live} sim={() => g().packer} stand={st.packer} />
