@@ -14,9 +14,11 @@ import {
   type LineSetSpec,
   type MarksSpec,
   type Material,
+  type PartHandle,
   type Plan,
   type PoolHandle,
   type ProfilePoint,
+  type BandSpec,
   type SegmentSpec,
   type SpriteHandle,
   type SpriteSpec,
@@ -49,6 +51,10 @@ interface PartProps extends Placement, StyleProps {
   id: string;
   /** Contact lines with other parts (default: the enclosing group's `contacts`, else true). */
   contacts?: boolean;
+  /** Gets a PartHandle (`useNode`): its blend and line-set shift change per frame. */
+  live?: boolean;
+  /** The style a live part blends toward (E2). */
+  blend?: StyleProps;
 }
 
 const transformOf = ({ position, rotation, scale }: Placement): Transform => ({
@@ -74,15 +80,17 @@ function usePart(props: PartProps, geo: GeoSpec) {
   const transform = transformOf(props);
   const style = styleOf(props);
   const contacts = props.contacts ?? groupContacts;
+  const live = props.live ?? false;
+  const blend = props.blend ? styleOf(props.blend) : null;
   const gk = geoKey(geo);
-  const sk = stableKey(style);
+  const sk = stableKey({ style, blend });
   const tk = stableKey(transform);
   useLayoutEffect(() => {
-    const token = store.part(full, { ...parentOf(path), geo, style, transform, contacts });
+    const token = store.part(full, { ...parentOf(path), geo, style, transform, contacts, live, ...(blend && { blend }) });
     return () => store.remove(full, token);
     // The keys stand for geo, style and transform.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, full, path, gk, sk, tk, contacts]);
+  }, [store, full, path, gk, sk, tk, contacts, live]);
   return null;
 }
 
@@ -191,6 +199,28 @@ export function Belt(props: PartProps & { a: Vec3; ra: number; b: Vec3; rb: numb
   return usePart(props, { kind: 'belt', a, ra, b, rb, radius });
 }
 
+/**
+ * A conveyor belt band round two drums (E1): `lines.outer` / `lines.inner` are the slats; give it
+ * `live` and set `uShift` per frame to scroll them.
+ */
+export function Band(
+  props: PartProps & BandSpec & { lines?: { outer?: LineSetSpec; inner?: LineSetSpec } },
+) {
+  const { axis, dir, L, R, thickness, across, zc, steps, lines } = props;
+  return usePart(props, {
+    kind: 'band',
+    axis,
+    dir,
+    L,
+    R,
+    thickness,
+    across,
+    zc,
+    ...(steps !== undefined && { steps }),
+    ...(lines && { lines }),
+  });
+}
+
 // ---- pools and marks -------------------------------------------------------------------------
 
 export function Instances({
@@ -199,8 +229,17 @@ export function Instances({
   styles,
   capacity,
   marks,
+  scalable = false,
   ...placement
-}: Placement & { id: string; geo: GeoSpec; styles: StyleProps[]; capacity: number; marks?: MarksSpec }) {
+}: Placement & {
+  id: string;
+  geo: GeoSpec;
+  styles: StyleProps[];
+  capacity: number;
+  marks?: MarksSpec;
+  /** E3: instances take an axis-aligned scale (`PoolHandle.scale`). */
+  scalable?: boolean;
+}) {
   const { store, path } = useScene();
   const full = joinId(path, id);
   const transform = transformOf(placement);
@@ -213,11 +252,12 @@ export function Instances({
       styles: resolved,
       capacity,
       transform,
+      scalable,
       ...(marks && { marks }),
     });
     return () => store.remove(full, token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, full, path, keys, capacity]);
+  }, [store, full, path, keys, capacity, scalable]);
   return null;
 }
 
@@ -325,8 +365,11 @@ export function useFrame(cb: (f: FrameInfo) => void): void {
   useEffect(() => store.onFrame((f) => ref.current(f)), [store]);
 }
 
-/** A lazy getter for a moving group, pool or sprite below the current group; resolves on first call. */
-export function useNode<H extends GroupHandle | PoolHandle | SpriteHandle>(relId: string): () => H {
+/**
+ * A lazy getter for a moving group, live part, pool or sprite below the current group; resolves
+ * on first call.
+ */
+export function useNode<H extends GroupHandle | PartHandle | PoolHandle | SpriteHandle>(relId: string): () => H {
   const { store, path } = useScene();
   const full = joinId(path, relId);
   return useMemo(() => {

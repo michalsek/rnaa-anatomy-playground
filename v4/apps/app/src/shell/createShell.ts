@@ -12,6 +12,10 @@ import {
 
 /** Longest scene step per frame, in seconds. */
 const MAX_DT = 0.1;
+/** Frames kept for the DEV perf summary (`__v4perf()`). */
+const PERF_N = 300;
+
+declare const __DEV__: boolean;
 
 export interface CanvasLike {
   width: number;
@@ -107,14 +111,23 @@ export function createShell(
   let last = performance.now();
   let time = 0;
   let raf = 0;
+  // DEV perf: rAF gaps and the tick (sims + pose writes) per frame, the last PERF_N frames.
+  const gaps = new Float32Array(PERF_N);
+  const ticks = new Float32Array(PERF_N);
+  let frames = 0;
   const loop = (now: number) => {
     if (stopped) return;
     const dt = Math.min(Math.max(0, (now - last) / 1000), MAX_DT);
+    const gap = now - last;
     last = now;
     try {
       // Tick every frame (dt 0 while paused), so poses written while paused (a seek) render.
       if (!paused) time += dt;
+      const t0 = performance.now();
       store.tick(time, paused ? 0 : dt);
+      const k = frames++ % PERF_N;
+      gaps[k] = gap;
+      ticks[k] = performance.now() - t0;
       renderer.frame();
     } catch (err) {
       fatal(err);
@@ -123,6 +136,32 @@ export function createShell(
     raf = requestAnimationFrame(loop);
   };
   raf = requestAnimationFrame(loop);
+  if (__DEV__) {
+    /** `__v4perf()`: fps and the max rAF gap, tick (sims + writes), flatten (+ upload), frame CPU. */
+    (globalThis as { __v4perf?: () => unknown }).__v4perf = () => {
+      const n = Math.min(frames, PERF_N);
+      const q = (a: Float32Array) => {
+        const v = Array.from(a.subarray(0, n)).sort((x, y) => x - y);
+        return { median: +(v[Math.floor(n / 2)] ?? 0).toFixed(2), p95: +(v[Math.floor(n * 0.95)] ?? 0).toFixed(2), max: +(v[n - 1] ?? 0).toFixed(2) };
+      };
+      const g = q(gaps);
+      const r = renderer.perf();
+      let total = 0;
+      for (let i = 0; i < n; i++) total += gaps[i]!;
+      return {
+        frames: n,
+        fps: +(n / (total / 1000)).toFixed(1),
+        gapMs: g,
+        over25: Array.from(gaps.subarray(0, n)).filter((x) => x > 25).length,
+        tickMs: q(ticks),
+        flattenMs: r.flattenMs,
+        frameMs: r.frameMs,
+        kbPerFrame: +(r.bytesPerFrame / 1024).toFixed(1),
+        buildMs: +r.buildMs.toFixed(1),
+        build: r.build,
+      };
+    };
+  }
 
   return {
     resize(cssWidth, cssHeight, dpr) {

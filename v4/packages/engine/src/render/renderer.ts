@@ -30,6 +30,8 @@ import {
   LINE_KIND,
   LineSet,
   Mark,
+  INSTANCE_FLOATS,
+  SIZES,
   Sprite,
   Style,
   assertLayouts,
@@ -89,10 +91,30 @@ export interface Renderer {
   setCamera(state: CameraState): void;
   setDebug(mode: DebugMode): void;
   setTheme(theme: Theme): void;
+  /**
+   * DEV: per-frame CPU cost of the last frames (ms): `flatten` (+ upload) and `frame` (the
+   * whole call), the bytes uploaded per frame, and the last build's stats.
+   */
+  perf(): RendererPerf;
   /** Render one frame. Plain function: no React, no DOM. */
   frame(): void;
   destroy(): void;
 }
+
+export interface RendererPerf {
+  frames: number;
+  flattenMs: { median: number; p95: number };
+  frameMs: { median: number; p95: number };
+  bytesPerFrame: number;
+  build: SceneBuild['stats'] | null;
+  buildMs: number;
+}
+
+const PERF_N = 600;
+const quantiles = (a: Float32Array, n: number) => {
+  const v = Array.from(a.subarray(0, n)).sort((x, y) => x - y);
+  return { median: v[Math.floor(n / 2)] ?? 0, p95: v[Math.floor(n * 0.95)] ?? 0 };
+};
 
 function lineSetData(s: LineSetSpec) {
   return {
@@ -212,6 +234,12 @@ export function createRenderer(options: RendererOptions): Renderer {
   const makeInstances = (count: number) =>
     root.createBuffer(d.arrayOf(Instance, Math.max(1, count))).$usage('storage');
   let scene: SceneGpu | null = null;
+  // DEV perf ring.
+  const flattenRing = new Float32Array(PERF_N);
+  const frameRing = new Float32Array(PERF_N);
+  let perfFrames = 0;
+  let uploaded = 0;
+  let buildMs = 0;
 
   const rebuild = () => {
     const t0 = now();
@@ -260,6 +288,7 @@ export function createRenderer(options: RendererOptions): Renderer {
       spriteScreen: spriteScreen.with(spriteGroup),
     };
     if (boundsChanged && onPreset) applyPreset();
+    buildMs = now() - t0;
     if (DEV) {
       const s = build.stats;
       const phases = Object.entries({ ...build.timings, upload: now() - t1 })
@@ -347,6 +376,7 @@ export function createRenderer(options: RendererOptions): Renderer {
   });
 
   const frame = () => {
+    const f0 = DEV ? now() : 0;
     if (!scene || scene.version !== store.version) rebuild();
     const s = scene!;
     // A hidden or collapsed canvas has no pixels (the web host sizes it from its own layout);
@@ -359,10 +389,15 @@ export function createRenderer(options: RendererOptions): Renderer {
     }
     const { color, depth } = ensureTargets(texture.width, texture.height);
 
+    // E8: upload only the instances this frame rewrote (moving slots are packed last).
+    const fl0 = DEV ? now() : 0;
     const flat = store.flatten();
-    if (flat.dirty && flat.used) {
-      s.instances.write(flat.f32.buffer as ArrayBuffer);
+    if (flat.dirty && flat.hi > flat.lo) {
+      const lo = flat.lo * INSTANCE_FLOATS;
+      device.queue.writeBuffer(s.instances.buffer, lo * 4, flat.f32, lo, (flat.hi - flat.lo) * INSTANCE_FLOATS);
+      if (DEV) uploaded += (flat.hi - flat.lo) * SIZES.instance;
     }
+    const f1 = DEV ? now() : 0;
     const sprites = store.sprites();
     if (sprites.dirty && sprites.count) s.sprites.write(sprites.buffer);
 
@@ -419,6 +454,11 @@ export function createRenderer(options: RendererOptions): Renderer {
     pass.end();
     device.queue.submit([encoder.finish()]);
     context.present?.();
+    if (DEV) {
+      const k = perfFrames++ % PERF_N;
+      flattenRing[k] = f1 - fl0;
+      frameRing[k] = now() - f0;
+    }
   };
 
   return {
@@ -441,6 +481,17 @@ export function createRenderer(options: RendererOptions): Renderer {
     },
     setTheme,
     frame,
+    perf() {
+      const n = Math.min(perfFrames, PERF_N);
+      return {
+        frames: perfFrames,
+        flattenMs: quantiles(flattenRing, n),
+        frameMs: quantiles(frameRing, n),
+        bytesPerFrame: perfFrames ? uploaded / perfFrames : 0,
+        build: scene?.build.stats ?? null,
+        buildMs,
+      };
+    },
     destroy() {
       targets?.color.destroy();
       targets?.depth.destroy();

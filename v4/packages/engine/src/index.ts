@@ -26,3 +26,6 @@ export * from './sim/ports.ts';
 export * from './sim/rates.ts';
 export * from './sim/sink.ts';
 export * from './sim/source.ts';
+export * from './sim/graphs.ts';
+export * from './sim/loop.ts';
+export * from './geo/band.ts';

@@ -104,14 +104,16 @@ export const fillVertex = tgpu.vertexFn({
     bary: d.interpolate('linear', d.vec3f),
     heights: d.interpolate('flat', d.vec3f),
     modes: d.interpolate('flat', d.vec3u),
-    style: d.interpolate('flat', d.u32),
+    /** The instance's style and its blend style (E2). */
+    style: d.interpolate('flat', d.vec2u),
     rule: d.interpolate('flat', d.u32),
     flags: d.interpolate('flat', d.u32),
     extraA: d.interpolate('flat', d.vec3f),
     extraB: d.interpolate('flat', d.vec3f),
     extraModes: d.interpolate('flat', d.vec2u),
     tangent: d.vec3f,
-    facingGrad: d.interpolate('flat', d.f32),
+    /** The facing gradient, and the blend toward the second style (E2). */
+    facingGrad: d.interpolate('flat', d.vec2f),
   },
 })((input) => {
   'use gpu';
@@ -241,24 +243,35 @@ export const fillVertex = tgpu.vertexFn({
   return {
     clip: std.select(HIDDEN, clip, visible),
     normal: std.mul(inst.model, d.vec4f(normal, 0)).xyz,
-    uv: std.select(uv, d.vec2f(gradientT, 0), rule === TONE_RULE.gradient),
+    // E1: the instance's line-set shift scrolls u (slats on a running belt).
+    uv: std.select(std.sub(uv, d.vec2f(inst.uShift, 0)), d.vec2f(gradientT, 0), rule === TONE_RULE.gradient),
     bary,
     heights: d.vec3f(altitude(p0, p1, p2), altitude(p1, p2, p0), altitude(p2, p0, p1)),
     modes,
-    style: inst.style,
+    style: d.vec2u(inst.style, inst.style2),
     rule,
     flags: tri.flags,
     extraA,
     extraB,
     extraModes,
     tangent: std.mul(inst.model, d.vec4f(tangent, 0)).xyz,
-    facingGrad,
+    facingGrad: d.vec2f(facingGrad, inst.mix),
   };
 });
 
 const tone = (material: number, slot: number) => {
   'use gpu';
   return d.vec4f(L.$.palette[d.u32(material) * SLOT_COUNT + d.u32(slot)]);
+};
+
+/** Palette slot of material m blended toward material m2 by k (E2). */
+const toneMix = (m: number, m2: number, k: number, slot: number) => {
+  'use gpu';
+  let c = tone(m, slot);
+  if (k > 0) {
+    c = std.mix(c, tone(m2, slot), k);
+  }
+  return c;
 };
 
 /** FX colour i (rgba), stored after every material's slots. */
@@ -293,21 +306,25 @@ export const fillFragment = tgpu.fragmentFn({
     bary: d.interpolate('linear', d.vec3f),
     heights: d.interpolate('flat', d.vec3f),
     modes: d.interpolate('flat', d.vec3u),
-    style: d.interpolate('flat', d.u32),
+    style: d.interpolate('flat', d.vec2u),
     rule: d.interpolate('flat', d.u32),
     flags: d.interpolate('flat', d.u32),
     extraA: d.interpolate('flat', d.vec3f),
     extraB: d.interpolate('flat', d.vec3f),
     extraModes: d.interpolate('flat', d.vec2u),
     tangent: d.vec3f,
-    facingGrad: d.interpolate('flat', d.f32),
+    facingGrad: d.interpolate('flat', d.vec2f),
   },
   out: d.vec4f,
 })((input) => {
   'use gpu';
   const frame = L.$.frame;
-  const st = L.$.styles[input.style];
+  const st = L.$.styles[input.style.x];
   const m = st.material;
+  // E2: every palette lookup blends toward the second style's material (the fill and its lines,
+  // like an opacity cross-fade of two renders, since the shading is linear in the palette).
+  const m2 = L.$.styles[input.style.y].material;
+  const k = input.facingGrad.y;
 
   // Every derivative first, in uniform control flow.
   const n = std.normalize(input.normal);
@@ -332,7 +349,7 @@ export const fillFragment = tgpu.fragmentFn({
   const x = input.uv.x * lineSet.count - lineSet.phase;
   const xGrad = std.length(d.vec2f(std.dpdx(x), std.dpdy(x)));
 
-  let color = tone(m, SLOT.s0);
+  let color = toneMix(m, m2, k, SLOT.s0);
   if (input.rule === TONE_RULE.gradient) {
     const g = L.$.gradients[st.gradient];
     const t = std.clamp(input.uv.x, 0, 1);
@@ -342,26 +359,26 @@ export const fillFragment = tgpu.fragmentFn({
     color = d.vec4f(std.add(color.xyz, d.vec3f((ign(input.pixel.xy) - 0.5) / 255)), 1);
   } else if (input.rule === TONE_RULE.plan) {
     if (n.z > 0.5) {
-      color = tone(m, SLOT.top);
+      color = toneMix(m, m2, k, SLOT.top);
     } else if (n.z >= -0.5) {
       const pw = planWeights(lit, fwLit);
-      color = std.mix(color, tone(m, SLOT.s1), pw.x);
-      color = std.mix(color, tone(m, SLOT.s2), pw.y);
-      color = std.mix(color, tone(m, SLOT.s3), pw.z);
+      color = std.mix(color, toneMix(m, m2, k, SLOT.s1), pw.x);
+      color = std.mix(color, toneMix(m, m2, k, SLOT.s2), pw.y);
+      color = std.mix(color, toneMix(m, m2, k, SLOT.s3), pw.z);
     }
   } else {
     // Bands.
     const w = bandWeights(score, fw);
-    color = std.mix(color, tone(m, SLOT.s1), w.x);
-    color = std.mix(color, tone(m, SLOT.s2), w.y);
-    color = std.mix(color, tone(m, SLOT.s3), w.z);
-    color = std.mix(color, tone(m, SLOT.top), w.w);
+    color = std.mix(color, toneMix(m, m2, k, SLOT.s1), w.x);
+    color = std.mix(color, toneMix(m, m2, k, SLOT.s2), w.y);
+    color = std.mix(color, toneMix(m, m2, k, SLOT.s3), w.z);
+    color = std.mix(color, toneMix(m, m2, k, SLOT.top), w.w);
     if (input.rule === TONE_RULE.tube) {
       // Seen nearly end-on the stripes have no direction; hand over to the bands there.
       const stripes = tubeStripes(sAcross, tw, fwS);
-      let tubeColor = tone(m, SLOT.s2);
-      tubeColor = std.mix(tubeColor, tone(m, SLOT.top), stripes.x);
-      tubeColor = std.mix(tubeColor, tone(m, SLOT.s0), stripes.y);
+      let tubeColor = toneMix(m, m2, k, SLOT.s2);
+      tubeColor = std.mix(tubeColor, toneMix(m, m2, k, SLOT.top), stripes.x);
+      tubeColor = std.mix(tubeColor, toneMix(m, m2, k, SLOT.s0), stripes.y);
       color = std.mix(color, tubeColor, std.smoothstep(0.25, 0.45, axisLen));
     }
   }
@@ -374,7 +391,7 @@ export const fillFragment = tgpu.fragmentFn({
   // outlines of its open rim (no creases, ticks or contours).
   const inside = !input.front;
   if (inside) {
-    color = std.select(tone(m, SLOT.s0), d.vec4f(frame.paper), debug === 1);
+    color = std.select(toneMix(m, m2, k, SLOT.s0), d.vec4f(frame.paper), debug === 1);
   }
 
   if (debug !== 2) {
@@ -409,7 +426,7 @@ export const fillFragment = tgpu.fragmentFn({
           alpha = alpha * std.smoothstep(lineSet.fade.x, lineSet.fade.y, facing);
         }
         const ink = std.select(
-          tone(m, std.select(lineSet.minorSlot, lineSet.majorSlot, major)),
+          toneMix(m, m2, k, std.select(lineSet.minorSlot, lineSet.majorSlot, major)),
           GREEN,
           debug === 1,
         );
@@ -461,20 +478,20 @@ export const fillFragment = tgpu.fragmentFn({
     // the faint streaks noted in M1.
     let contour = d.f32(0);
     if (flagBit(input.flags, FLAG.smoothBit) === 1 && !inside) {
-      contour = edgeCoverage((0.5 * facing) / std.max(input.facingGrad, 1e-6), line.x, line.y);
+      contour = edgeCoverage((0.5 * facing) / std.max(input.facingGrad.x, 1e-6), line.x, line.y);
     }
 
     const gain = frame.lineGain;
     color = std.mix(
       color,
-      std.select(tone(m, st.creaseSlot), BLUE, debug === 1),
+      std.select(toneMix(m, m2, k, st.creaseSlot), BLUE, debug === 1),
       std.min(crease * gain, 1),
     );
     if (debug === 1) {
       color = std.mix(color, MAGENTA, contour);
       color = std.mix(color, RED, outline);
     } else {
-      color = std.mix(color, tone(m, st.outlineSlot), std.min(std.max(outline, contour) * gain, 1));
+      color = std.mix(color, toneMix(m, m2, k, st.outlineSlot), std.min(std.max(outline, contour) * gain, 1));
     }
   }
   return d.vec4f(color.xyz, 1);
@@ -585,9 +602,11 @@ export const marksVertex = tgpu.vertexFn({
   const visible = (inst.flags & INSTANCE.visible) !== 0 && frame.debug !== 2 && alpha > 0;
 
   const slot = std.select(mark.slot, d.u32(SLOT.dot), isDot);
-  // Pool marks inherit their instance's style material.
-  const material = std.select(mark.material, L.$.styles[inst.style].material, mark.material === 0xffff);
-  let color = tone(material, slot);
+  // Pool marks inherit their instance's style material (and its blend, E2).
+  const inherit = mark.material === 0xffff;
+  const material = std.select(mark.material, L.$.styles[inst.style].material, inherit);
+  const material2 = std.select(mark.material, L.$.styles[inst.style2].material, inherit);
+  let color = toneMix(material, material2, std.select(d.f32(0), inst.mix, inherit), slot);
   if (frame.debug === 1) {
     color = d.vec4f(CYAN);
   }

@@ -4,7 +4,7 @@ import { createSceneStore } from '../src/scene/store.ts';
 
 const geo = { kind: 'box', size: [1, 1, 1] } as const;
 const style = { material: 'steel' } as const;
-const modelOf = (f32: Float32Array, k: number) => f32.subarray(k * 20, k * 20 + 16);
+const modelOf = (f32: Float32Array, k: number) => f32.subarray(k * 24, k * 24 + 16);
 
 describe('SceneStore', () => {
   it('nested spin: vane world = rotor world · vane local', () => {
@@ -112,5 +112,72 @@ describe('SceneStore', () => {
     store.remove('g.pool', token);
     store.pool('g.pool', { parent: 'g', geo, styles: [style], capacity: 5 });
     expect(pool.capacity).toBe(5);
+  });
+
+  it('E8: moving statics take the last slots; a frame rewrites only the moving range', () => {
+    const store = createSceneStore();
+    store.group('m');
+    store.group('m.rotor', { parent: 'm', moves: true });
+    for (const id of ['a', 'b', 'c']) store.part(`m.${id}`, { parent: 'm', geo, style });
+    store.part('m.rotor.vane', { parent: 'm.rotor', geo, style });
+    store.part('m.band', { parent: 'm', geo, style, live: true });
+    store.pool('m.pool', { parent: 'm', geo, styles: [style], capacity: 3 });
+    const b = store.build();
+    expect(b.instanceCount).toBe(5 + 3);
+    store.flatten();
+    store.group$('m.rotor').spin('z', 1);
+    let r = store.flatten();
+    // The vane is a moving static: slot 4 (after a, b, c and the live band).
+    expect([r.lo, r.hi]).toEqual([4, 5]);
+    store.part$('m.band').uShift = 0.25;
+    r = store.flatten();
+    expect([r.lo, r.hi]).toEqual([3, 4]);
+    expect(r.f32[3 * 24 + 20]).toBeCloseTo(0.25, 6);
+    const pool = store.pool$('m.pool');
+    pool.count = 2;
+    r = store.flatten();
+    expect([r.lo, r.hi]).toEqual([5, 7]);
+    pool.count = 0;
+    r = store.flatten();
+    // The two that were visible are hidden; the third was never shown.
+    expect([r.lo, r.hi]).toEqual([5, 7]);
+    expect(store.flatten().dirty).toBe(false);
+  });
+
+  it('E2/E1/E3: part blend and shift, pool blend, shift and axis scale', () => {
+    const store = createSceneStore();
+    store.part('p', { geo, style, live: true, blend: { material: 'pkGarbage' } });
+    store.part('q', { geo, style });
+    store.pool('pool', { geo, styles: [style, { material: 'pkGarbage' }], capacity: 2, scalable: true });
+    expect(() => store.part('r', { geo, style, blend: style })).toThrow(/blend needs live/);
+    const b = store.build();
+    expect(() => store.node('q')).toThrow(/not declared live/);
+    const p = store.part$('p');
+    p.mix = 0.5;
+    expect(() => {
+      p.mix = 2;
+    }).toThrow(/outside/);
+    const pool = store.pool$('pool');
+    pool.count = 1;
+    pool.blend(0, 1, 0.75);
+    pool.shift(0, 0.125);
+    pool.scale(0, 1, 1, 3);
+    const { f32 } = store.flatten();
+    const u32 = new Uint32Array(f32.buffer);
+    // q (static) first, then p (live).
+    const slotP = 1;
+    expect(u32[slotP * 24 + 18]).not.toBe(u32[slotP * 24 + 16]);
+    expect(f32[slotP * 24 + 19]).toBeCloseTo(0.5, 6);
+    const k = b.instanceCount - 2;
+    expect(u32[k * 24 + 18]).toBe(u32[k * 24 + 16] + 1);
+    expect(f32[k * 24 + 19]).toBeCloseTo(0.75, 6);
+    expect(f32[k * 24 + 20]).toBeCloseTo(0.125, 6);
+    // Scale z by 3: the instance's +z axis is 3 long.
+    const z = vec3.transformMat4Upper3x3([0, 0, 1], modelOf(f32, k));
+    expect(z[2]).toBeCloseTo(3, 6);
+    const store2 = createSceneStore();
+    store2.pool('pool', { geo, styles: [style], capacity: 1 });
+    store2.build();
+    expect(() => store2.pool$('pool').scale(0, 1, 1, 2)).toThrow(/not scalable/);
   });
 });

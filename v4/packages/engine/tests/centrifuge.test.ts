@@ -80,7 +80,7 @@ describe('centrifuge between real belts (checkpoint A rig)', () => {
     // Releases reach the receiver and leave it.
     expect(r.sink.taken).toBeGreaterThan(0);
     // The timeline for notes/M5.md.
-    console.log(log.map((x) => `${x.t.toFixed(2)} ${x.phase}`).join('\n'));
+    process.stdout.write(`${log.map((x) => `${x.t.toFixed(2)} ${x.phase}`).join("\n")}\n`);
   });
 
   it('conserves packets: created = alive + consumed, held ≤ 10, tray ≤ its pool', () => {

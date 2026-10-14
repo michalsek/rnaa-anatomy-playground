@@ -7,18 +7,26 @@
  *   marks     needle on a moving group, polyline rules, dots on a box top
  *   contact   post through ring, ribs sunk into a drum, saddle pad on a cylinder, flush control
  *   fx        halo under a box, glow on a lit lens, gradient void in a lip, strobe sectors
+ *   belt      M5: scrolling slats on a band (E1), cleats pitched round a stadium (E3 path),
+ *             a packet blending control → garbage (E2), a packet squashed by axis scale (E3)
  */
 import {
+  type GeoSpec,
   type GroupHandle,
+  type PartHandle,
   type PoolHandle,
   type SpriteHandle,
   type ProfilePoint,
   type Vec3,
   boltCircle,
+  pathPoint,
   polyline,
   sphereProfile,
+  stadium,
+  tilt,
 } from '@anatomy/engine';
 import {
+  Band,
   Belt,
   Box,
   Extrude,
@@ -32,6 +40,7 @@ import {
   useFrame,
   useNode,
 } from '../blocks/blocks.tsx';
+import { useState } from 'react';
 import { M1Row } from './M1Row.tsx';
 import { cell, lift, local } from './views.ts';
 
@@ -383,6 +392,73 @@ function Effects() {
   );
 }
 
+// ---- row: belt (M5: E1–E3) ---------------------------------------------------------------------
+
+const BAND = { axis: 'x', dir: 1, L: 12, R: 2.4, thickness: 0.5, across: 5, zc: 2.4 } as const;
+const BAND_TOTAL = 2 * BAND.L + 2 * Math.PI * BAND.R;
+const LOOP = stadium({ L: BAND.L, R: BAND.R, zc: BAND.zc, dir: 1 });
+const CLEATS = 6;
+const SLATS = { count: Math.round(BAND_TOTAL / 1.2), phase: 0, first: 0, last: Math.round(BAND_TOTAL / 1.2) - 1, majorEvery: 0, minor: 'lo', major: 'lo', width: 0.5, majorWidth: 0.5, fade: [0.02, 0.12] } as const;
+
+function BeltRow() {
+  const band = useNode<PartHandle>('belt.band.belt');
+  const cleats = useNode<PoolHandle>('belt.loop.cleats');
+  const blended = useNode<PoolHandle>('belt.blend.packet');
+  const squashed = useNode<PoolHandle>('belt.squash.packet');
+  const [q] = useState(pathPoint);
+  useFrame(({ t }) => {
+    // E1: the slats run at 4 units/s.
+    const u = (t * 4) / BAND_TOTAL;
+    band().uShift = u - Math.floor(u);
+    // E3: cleats ride the stadium, pitched to its normal round the drums.
+    const pool = cleats();
+    pool.count = CLEATS;
+    for (let k = 0; k < CLEATS; k++) {
+      LOOP.at((k * LOOP.total) / CLEATS + t * 4, LOOP.R, q);
+      pool.pose(k, q.s - LOOP.L / 2, 0, q.z, 0, tilt('x', q.ns, q.nz), 0);
+    }
+    // E2: control → garbage and back.
+    const mix = 0.5 - 0.5 * Math.cos(t * 1.2);
+    const b = blended();
+    b.count = 1;
+    b.pose(0, 0, 0, 0.6, 0);
+    b.style(0, 0);
+    b.blend(0, 1, mix);
+    // E3: squash (axis scale, normals stay right on the box faces).
+    const sq = squashed();
+    sq.count = 1;
+    sq.pose(0, 0, 0, 0.6, 0);
+    sq.scale(0, 1 + 0.25 * mix, 1 + 0.25 * mix, 1 - 0.5 * mix);
+  });
+  const packetGeo: GeoSpec = { kind: 'box', size: [5, 4, 3.5], r: 0.4, center: [0, 0, 1.75], seams: [1.9] };
+  const packetStyles = [{ material: 'pkControl', outline: 'hi' }, { material: 'pkGarbage', outline: 'hi' }] as const;
+  return (
+    <Group id="belt" position={cell('belt', 2)}>
+      <Group id="band" position={local('belt', 0)}>
+        <Band id="belt" live material="steel" {...BAND} position={[-BAND.L / 2, 0, 0]} lines={{ outer: SLATS }} />
+        {[0, BAND.L].map((s, i) => (
+          <Lathe key={i} id={`drum${i}`} material="steel" outline="lo" profile={[[0, -2.6], [BAND.R - BAND.thickness, -2.6], [BAND.R - BAND.thickness, 2.6], [0, 2.6]]} steps={24} rotation={[-90, 0, 0]} position={[s - BAND.L / 2, 0, BAND.zc]} />
+        ))}
+      </Group>
+      <Group id="loop" position={local('belt', 1)}>
+        <Band id="belt" material="steel" {...BAND} position={[-BAND.L / 2, 0, 0]} />
+        {[0, BAND.L].map((s, i) => (
+          <Lathe key={i} id={`drum${i}`} material="graphite" profile={[[0, -2.6], [BAND.R - BAND.thickness, -2.6], [BAND.R - BAND.thickness, 2.6], [0, 2.6]]} steps={24} rotation={[-90, 0, 0]} position={[s - BAND.L / 2, 0, BAND.zc]} />
+        ))}
+        <Instances id="cleats" geo={{ kind: 'box', size: [0.8, 4.4, 0.7], r: 0.15, center: [0, 0, 0.35] }} styles={[{ material: 'steel', outline: 'lo' }]} capacity={CLEATS} />
+      </Group>
+      <Group id="blend" position={local('belt', 2)}>
+        <Box id="plate" material="steel" size={[8, 8, 0.6]} center={[0, 0, 0.3]} />
+        <Instances id="packet" geo={packetGeo} styles={[...packetStyles]} capacity={1} marks={{ material: 'pkControl', segments: [{ a: [-2.5, 0, 3.5], b: [2.5, 0, 3.5], tone: 'lo', normal: [0, 0, 1] }] }} />
+      </Group>
+      <Group id="squash" position={local('belt', 3)}>
+        <Box id="plate" material="steel" size={[8, 8, 0.6]} center={[0, 0, 0.3]} />
+        <Instances id="packet" geo={packetGeo} styles={[...packetStyles]} capacity={1} scalable />
+      </Group>
+    </Group>
+  );
+}
+
 export function Gallery() {
   return (
     <>
@@ -393,6 +469,7 @@ export function Gallery() {
       <MarksRow />
       <Contacts />
       <Effects />
+      <BeltRow />
     </>
   );
 }

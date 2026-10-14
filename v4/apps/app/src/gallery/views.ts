@@ -54,7 +54,7 @@ const RIGHT: Vec3 = [Math.SQRT1_2, -Math.SQRT1_2, 0];
 const FRONT: Vec3 = [Math.SQRT1_2, Math.SQRT1_2, 0];
 const CELL = 24;
 /** Row depth (toward the viewer); rows are spaced by the height of the row in front. */
-const ROW_AT = { m1: 0, ext: 44, lathe: 76, inst: 108, marks: 140, contact: 172, fx: 204 } as const;
+const ROW_AT = { m1: 0, ext: 44, lathe: 76, inst: 108, marks: 140, contact: 172, fx: 204, belt: 236 } as const;
 export type Row = keyof typeof ROW_AT;
 
 export const cell = (row: Row, col: number): [number, number, number] => {
@@ -102,6 +102,8 @@ export const GALLERY_VIEWS: ViewPreset[] = [
   pairView('contact', 2),
   pairView('fx', 0),
   pairView('fx', 2),
+  pairView('belt', 0),
+  pairView('belt', 2),
   // Close-ups (zoom relative to the whole gallery's fit).
   { name: 'close cage', yaw: 45, elevation: 30, zoom: 10, focus: at('contact', 0, [0, 0, 5]) },
   { name: 'close ribs', yaw: 45, elevation: 30, zoom: 10, focus: at('contact', 1, [3, 3, 3]) },

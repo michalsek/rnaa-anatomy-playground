@@ -30,7 +30,12 @@ export const SLOT = Object.fromEntries(SLOTS.map((name, index) => [name, index])
 export type MaterialTokens = Record<Slot, string>;
 
 /** Appended only: existing indices stay put (styles store the index). */
-export const MATERIALS = ['steel', 'graphite', 'react', 'lit', 'pkControl', 'pkGraph', 'pkData'] as const;
+export const MATERIALS = [
+  'steel', 'graphite', 'react', 'lit', 'pkControl', 'pkGraph', 'pkData',
+  // M5 (E5): the other packet kinds, the React-blue fluff bead, the speaker's mint, the
+  // crusher's amber lamp, rubber (V-belts, mats, the speaker surround).
+  'pkAudio', 'pkGarbage', 'fluff', 'mint', 'amber', 'rubber',
+] as const;
 export type Material = (typeof MATERIALS)[number];
 export const MATERIAL = Object.fromEntries(MATERIALS.map((name, index) => [name, index])) as {
   [K in Material]: number;
@@ -92,6 +97,34 @@ const packet = (top: string, face: string, s: [string, string, string, string]):
 const pkControl = packet('#5aa9e6', '#4b98d6', ['#2f6fa6', '#3a7fb8', '#4689c4', '#5294cf']);
 const pkGraph = packet('#f0be5e', '#e4ad48', ['#b07a1f', '#c08a2b', '#cc9636', '#d8a241']);
 const pkData = packet('#ffffff', '#f3f4f6', ['#c9ccd2', '#d4d7dc', '#dfe1e5', '#e9eaed']);
+const pkAudio = packet('#9fe8bd', '#86dcaa', ['#4fa676', '#5db585', '#6cc293', '#7acea0']);
+const pkGarbage = packet('#a4a7ad', '#969aa0', ['#6c7076', '#777b81', '#82868c', '#8d9197']);
+
+/** A coloured solid with its own inks (`hi` edges, `mid`, `lo` ribs, `faint` creases). */
+const solid = (
+  top: string,
+  face: string,
+  s: [string, string, string, string],
+  ink: [hi: string, mid: string, lo: string, faint: string],
+  dot = ink[0],
+): MaterialTokens => ({
+  paper: face, face, top, s0: s[0], s1: s[1], s2: s[2], s3: s[3],
+  hi: ink[0], mid: ink[1], lo: ink[2], faint: ink[3], lit: ink[0], dot,
+});
+/** v2 `.fx-fluff` (fill `--fx-react`, stroke #1c5f78). */
+const fluff: Record<Theme, MaterialTokens> = {
+  light: solid('#6fd0f0', '#2fb8e6', ['#1c86ad', '#2196c0', '#26a6d3', '#2bb0de'], ['#1c5f78', '#1c5f78', '#2a7f9c', '#5cc4e6']),
+  dark: solid('#9fe8fd', '#61dafb', ['#2f9ec4', '#3cafd6', '#4ac0e6', '#56cdf1'], ['#1c5f78', '#1c5f78', '#2a7f9c', '#3a98b8']),
+};
+/** The audio mint (`--pk-audio-*`) as a machine material (the speaker's cone and cap). */
+const mint = solid('#9fe8bd', '#86dcaa', ['#4fa676', '#5db585', '#6cc293', '#7acea0'], ['#1e5a3c', '#2f7d55', '#4fa676', '#6cc293']);
+/** The crusher's amber lamp (`--cr-lamp`, core, rim). */
+const amber: Record<Theme, MaterialTokens> = {
+  light: solid('#fff1cf', '#f5a623', ['#d97a06', '#e5890f', '#ec9818', '#f2a01f'], ['#5a3a05', '#8a5a0a', '#b8770e', '#e0a34a']),
+  dark: solid('#fff6e0', '#ffbe5c', ['#f0961a', '#f5a42e', '#f9b142', '#fcb94f'], ['#5a3a05', '#8a5a0a', '#b8770e', '#e0a34a']),
+};
+/** Rubber: near black, the same in both themes (like graphite). */
+const rubber = solid('#2e3035', '#25272b', ['#141518', '#191a1d', '#1e2023', '#232529'], ['#c8cbd1', '#6c7076', '#45484e', '#33363b'], '#c8cbd1');
 
 export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
   light: {
@@ -130,6 +163,12 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
     pkControl,
     pkGraph,
     pkData,
+    pkAudio,
+    pkGarbage,
+    fluff: fluff.light,
+    mint,
+    amber: amber.light,
+    rubber,
   },
   dark: {
     steel: {
@@ -169,6 +208,12 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
     pkControl,
     pkGraph,
     pkData,
+    pkAudio,
+    pkGarbage,
+    fluff: fluff.dark,
+    mint,
+    amber: amber.dark,
+    rubber,
   },
 };
 
@@ -188,7 +233,11 @@ export function hexToRgb(hex: string): [number, number, number] {
  * `MATERIALS × SLOTS + i`. From the v2 centrifuge (`.cf-*`) and the kit's halo
  * (`--anatomy-halo`, `--anatomy-halo-opacity`).
  */
-export const FX_NAMES = ['halo', 'glow', 'glowSoft', 'void0', 'void1', 'void2', 'strobe'] as const;
+export const FX_NAMES = [
+  'halo', 'glow', 'glowSoft', 'void0', 'void1', 'void2', 'strobe',
+  // M5 (E5): glow colours per lamp (the scanner's mint, the crusher's amber).
+  'mint', 'mintSoft', 'amber', 'amberSoft',
+] as const;
 export type FxName = (typeof FX_NAMES)[number];
 export const FX = Object.fromEntries(FX_NAMES.map((name, index) => [name, index])) as {
   [K in FxName]: number;
@@ -203,6 +252,10 @@ export const FX_TOKENS: Record<Theme, Record<FxName, Rgba>> = {
     void1: ['#7d8188', 1],
     void2: ['#4a4d53', 1],
     strobe: ['#7d8188', 1],
+    mint: ['#4fd18b', 1],
+    mintSoft: ['#bff2d6', 1],
+    amber: ['#f5a623', 1],
+    amberSoft: ['#fff1cf', 1],
   },
   dark: {
     halo: ['#050505', 0.9],
@@ -212,6 +265,10 @@ export const FX_TOKENS: Record<Theme, Record<FxName, Rgba>> = {
     void1: ['#1a1c20', 1],
     void2: ['#0b0c0e', 1],
     strobe: ['#8b8f97', 1],
+    mint: ['#9fffd0', 1],
+    mintSoft: ['#2f8a5a', 1],
+    amber: ['#ffbe5c', 1],
+    amberSoft: ['#8a5a0a', 1],
   },
 };
 

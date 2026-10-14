@@ -4,6 +4,7 @@
  * many parts or pool instances is built once.
  */
 import type { FxName, Slot } from '../palette/tokens.ts';
+import { type BandSpec, band } from './band.ts';
 import { belt } from './belt.ts';
 import { box } from './box.ts';
 import { type Plan, extrude } from './extrude.ts';
@@ -60,7 +61,8 @@ export type GeoSpec =
       caps?: readonly [boolean, boolean];
       closed?: boolean;
     }
-  | { kind: 'belt'; a: Vec3; ra: number; b: Vec3; rb: number; radius: number };
+  | { kind: 'belt'; a: Vec3; ra: number; b: Vec3; rb: number; radius: number }
+  | ({ kind: 'band'; lines?: { outer?: LineSetSpec; inner?: LineSetSpec } } & BandSpec);
 
 export type GeoKind = GeoSpec['kind'];
 
@@ -116,6 +118,13 @@ export function buildMesh(spec: GeoSpec): { mesh: Mesh; lineSets: LineSetSpec[] 
       return { mesh: tube(spec), lineSets: [] };
     case 'belt':
       return { mesh: belt(spec), lineSets: [] };
+    case 'band': {
+      const { kind: _kind, lines, ...rest } = spec;
+      const sets: LineSetSpec[] = [];
+      const outer = lines?.outer ? sets.push(lines.outer) : 0;
+      const inner = lines?.inner ? sets.push(lines.inner) : 0;
+      return { mesh: band(rest, { outer, inner }), lineSets: sets };
+    }
   }
 }
 

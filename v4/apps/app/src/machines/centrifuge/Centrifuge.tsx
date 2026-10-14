@@ -1,20 +1,25 @@
 /**
- * The centrifuge (v2 `parts/centrifuge`): an open-top basket centrifuge on a four-legged stand,
- * driven from above, with the stub feeder above and the audio belt below. M4: animated by the
- * engine sim (`live.ts`) through one `useFrame` that writes the moving groups, the lamp glows and
- * the two pools (packets, slats). No React state per frame and no per-frame allocation.
+ * The centrifuge (v2 `parts/centrifuge`): an open-top basket centrifuge on a four-legged stand
+ * (`stand`, default on), driven from above. Its sim (`Centrifuge` in the scene's graph, M5: between
+ * a real belt B and the real audio loop) moves it through one `useFrame` that writes the moving
+ * groups, the lamp glows and the packet pool. No React state per frame, no per-frame allocation.
  */
 import {
   CF,
+  type Centrifuge as CentrifugeSim,
   type GroupHandle,
-  type Kind,
+  type Item,
   type Outputs,
   type PoolHandle,
   type SpriteHandle,
   type Status,
+  packetStyle,
 } from '@anatomy/engine';
 import { useState } from 'react';
-import { Group, Instances, useFrame, useNode } from '../../blocks/blocks.tsx';
+import { Group, useFrame, useNode } from '../../blocks/blocks.tsx';
+import type { LiveHandle } from '../../factory/live.ts';
+import { PacketPool } from '../Packets.tsx';
+import type { V3 } from '../kit.ts';
 import { Bowl } from './Bowl.tsx';
 import { Cabinet } from './Cabinet.tsx';
 import { Cage } from './Cage.tsx';
@@ -24,9 +29,7 @@ import { Instruments } from './Instruments.tsx';
 import { Intake } from './Intake.tsx';
 import { Rotor } from './Rotor.tsx';
 import { Stand } from './Stand.tsx';
-import { AudioBelt, Feeder } from './Stubs.tsx';
-import { DEG, Z } from './dims.ts';
-import { ctl, readout, sim } from './live.ts';
+import { DEG } from './dims.ts';
 
 const TAU = Math.PI * 2;
 /** The needle is drawn on the sync tick (70% of the 270° sweep from −135°). */
@@ -34,59 +37,45 @@ const SYNC_DEG = -135 + 270 * 0.7;
 const mod = (a: number, n: number) => ((a % n) + n) % n;
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
-function Packets() {
-  return (
-    <Instances
-      id="packets"
-      geo={{ kind: 'box', size: [10, 8, Z.packet], r: 0.6, center: [0, 0, Z.packet / 2], seams: [Z.packet * 0.55] }}
-      styles={[
-        { material: 'pkControl', outline: 'hi' },
-        { material: 'pkGraph', outline: 'hi' },
-        { material: 'pkData', outline: 'hi' },
-      ]}
-      capacity={CF.capacity}
-      marks={{ material: 'pkControl', segments: [{ a: [-5, 0, Z.packet], b: [5, 0, Z.packet], tone: 'lo', normal: [0, 0, 1] }] }}
-    />
-  );
+interface CentrifugeProps {
+  live: LiveHandle;
+  sim: () => CentrifugeSim;
+  /** The four-legged stand (v2 `stand`). */
+  stand?: boolean;
 }
 
-/** The one frame hook: step the sim, then write its outputs into the scene. */
-function useCentrifugeFrame() {
-  const rotor = useNode<GroupHandle>('centrifuge.rotor');
-  const motor = useNode<GroupHandle>('centrifuge.drive.motorPulley');
-  const gate = useNode<GroupHandle>('centrifuge.bowl.gate');
-  const crank = useNode<GroupHandle>('centrifuge.instruments.crank-mount.crank');
-  const needle = useNode<GroupHandle>('centrifuge.instruments.tach.needle');
-  const glow = useNode<SpriteHandle>('centrifuge.instruments.lamp.glow');
-  const glowSoft = useNode<SpriteHandle>('centrifuge.instruments.lamp.glowSoft');
-  const packets = useNode<PoolHandle>('centrifuge.packets');
-  const slats = useNode<PoolHandle>('stubBelt.slats');
+/** The one frame hook: step the sim (once per frame), then write its outputs into the scene. */
+function useCentrifugeFrame(live: LiveHandle, sim: () => CentrifugeSim) {
+  const rotor = useNode<GroupHandle>('rotor');
+  const motor = useNode<GroupHandle>('drive.motorPulley');
+  const gate = useNode<GroupHandle>('bowl.gate');
+  const crank = useNode<GroupHandle>('instruments.crank-mount.crank');
+  const needle = useNode<GroupHandle>('instruments.tach.needle');
+  const glow = useNode<SpriteHandle>('instruments.lamp.glow');
+  const glowSoft = useNode<SpriteHandle>('instruments.lamp.glowSoft');
+  const packets = useNode<PoolHandle>('packets');
   // Scratch objects and callbacks, made once per mount.
   const [scratch] = useState(() => {
     const o: Outputs = { rotor: 0, motor: 0, open: 0, share: 0, lamp: 0 };
-    const status = sim.status();
     let pk: PoolHandle | null = null;
-    let sl: PoolHandle | null = null;
-    const posePacket = (i: number, kind: Kind, x: number, y: number, z: number, yaw: number) => {
+    const posePacket = (i: number, item: Item, x: number, y: number, z: number, yaw: number) => {
       pk!.pose(i, x, y, z, yaw);
-      pk!.style(i, kind);
+      pk!.style(i, packetStyle(item.kind));
     };
-    const poseSlat = (j: number, x: number) => sl!.pose(j, x, CF.belt.y, CF.belt.top - 0.6);
     return {
       o,
-      status,
+      status: {} as Status,
       posePacket,
-      poseSlat,
-      bind(p: PoolHandle, s: PoolHandle) {
+      bind(p: PoolHandle) {
         pk = p;
-        sl = s;
       },
     };
   });
-  useFrame(({ dt }) => {
+  useFrame((info) => {
+    live.step(info);
+    const c = sim();
     const { o } = scratch;
-    sim.advance(ctl.paused ? 0 : dt, ctl.speed);
-    sim.outputs(o);
+    c.outputs(o);
     // Wrap the angles only here: the sim keeps A unwrapped for its pocket crossings.
     rotor().spin('z', mod(o.rotor - CF.restAngle, TAU));
     motor().spin('z', mod(o.motor, TAU));
@@ -96,32 +85,32 @@ function useCentrifugeFrame() {
     glow().level = o.lamp;
     glowSoft().level = o.lamp;
     const pk = packets();
-    const sl = slats();
-    scratch.bind(pk, sl);
-    pk.count = sim.packets(scratch.posePacket);
-    sl.count = sim.slats(scratch.poseSlat);
-    readout.publish(sim.status(scratch.status as Status), performance.now());
+    scratch.bind(pk);
+    pk.count = c.poses(scratch.posePacket);
   });
 }
 
-export function Centrifuge() {
-  useCentrifugeFrame();
+function Frame({ live, sim }: CentrifugeProps) {
+  useCentrifugeFrame(live, sim);
+  return null;
+}
+
+export function Centrifuge(props: CentrifugeProps) {
+  const { sim, stand = true } = props;
+  const origin: V3 = [...sim().origin];
   return (
-    <>
-      <Group id="centrifuge" contacts={false}>
-        <Stand />
-        <Bowl />
-        <Rotor />
-        <Cage />
-        <Drive />
-        <Intake />
-        <Instruments />
-        <Coolant />
-        <Cabinet />
-        <Packets />
-      </Group>
-      <Feeder />
-      <AudioBelt />
-    </>
+    <Group id="centrifuge" position={origin} contacts={false}>
+      <Frame {...props} />
+      {stand && <Stand />}
+      <Bowl />
+      <Rotor />
+      <Cage />
+      <Drive />
+      <Intake />
+      <Instruments />
+      <Coolant />
+      <Cabinet />
+      <PacketPool capacity={CF.capacity} />
+    </Group>
   );
 }

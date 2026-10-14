@@ -125,6 +125,15 @@ export interface GroupHandle {
   translate(x: number, y: number, z: number): void;
 }
 
+/** A handle on a part declared `live`: per-instance shading that changes per frame. */
+export interface PartHandle {
+  readonly id: string;
+  /** E2: blend toward the part's `blend` style, 0..1 (the fill and its lines). */
+  mix: number;
+  /** E1: shift of the part's UV line sets, in u (scrolling slats). */
+  uShift: number;
+}
+
 export interface PoolHandle {
   readonly id: string;
   /** Read live: a re-registered pool may have another capacity. */
@@ -141,6 +150,22 @@ export interface PoolHandle {
   pose(i: number, x: number, y: number, z: number, yaw?: number, pitch?: number, roll?: number): void;
   /** Instance style: an index into the pool's `styles`. */
   style(i: number, k: number): void;
+  /** E2: blend instance i toward style `k2` (an index into `styles`) by `mix` (0..1). */
+  blend(i: number, k2: number, mix: number): void;
+  /** E1: shift instance i's UV line sets by `u`. */
+  shift(i: number, u: number): void;
+  /** E3 (pools declared `scalable`): an axis-aligned scale in the instance's own frame. */
+  scale(i: number, sx: number, sy: number, sz: number): void;
+}
+
+export interface FlattenResult {
+  f32: Float32Array;
+  /** Instances in the table. */
+  used: number;
+  dirty: boolean;
+  /** Instances rewritten by this flatten: lo..hi−1 (empty when not dirty). */
+  lo: number;
+  hi: number;
 }
 
 export interface SceneBuild {
@@ -206,6 +231,12 @@ interface PartNode extends NodeBase {
   geo: GeoSpec;
   style: StyleSpec;
   contacts: boolean;
+  /** Has a PartHandle (its instance is rewritten when mix or uShift change). */
+  live: boolean;
+  /** The style a live part blends toward. */
+  blend: StyleSpec | null;
+  mix: number;
+  uShift: number;
   /** The prototype, resolved once (a node's geo never changes; edits re-register). */
   proto: Prototype | null;
 }
@@ -216,9 +247,15 @@ interface PoolNode extends NodeBase {
   capacity: number;
   marks: MarksSpec | null;
   count: number;
-  /** x, y, z, yaw, pitch, roll per instance. */
+  scalable: boolean;
+  /** x, y, z, yaw, pitch, roll, sx, sy, sz per instance. */
   poses: Float32Array;
   styleOf: Uint16Array;
+  style2Of: Uint16Array;
+  mixOf: Float32Array;
+  shiftOf: Float32Array;
+  /** Instances written with the visible flag at the last flatten (the rest are already hidden). */
+  written: number;
   poolDirty: boolean;
 }
 interface MarksNode extends NodeBase {
@@ -238,6 +275,7 @@ const DEFAULT_TONE: Record<GeoKind, ToneRule> = {
   lathe: 'bands',
   tube: 'tube',
   belt: 'tube',
+  band: 'bands',
 };
 const DEFAULT_FADE = [0.04, 0.42] as const;
 /** Mark material: use the instance's style material (pool marks). */
@@ -262,7 +300,7 @@ export function transformMatrix(t: Transform | undefined, out = mat4.identity())
 
 const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] } as const;
 const AXIS_CODE = { x: 0, y: 1, z: 2 } as const;
-const POSE_FLOATS = 6;
+const POSE_FLOATS = 9;
 
 /**
  * Contact segments per (small prototype, big prototype, relative placement), shared by every
@@ -347,6 +385,8 @@ interface Built {
   slot: Map<string, number>;
   /** Style index per part; style base per pool. */
   style: Map<string, number>;
+  /** Blend style index per part (its own style when it has none). */
+  style2: Map<string, number>;
   poolBase: Map<string, number>;
   instanceCount: number;
 }
@@ -364,6 +404,10 @@ export class SceneStore {
   private spriteTable = new ArrayBuffer(SIZES.sprite);
   private spritesDirty = true;
   private spriteSlots: number[] = [];
+  /** The instance range written by the current flatten. */
+  private lo = Infinity;
+  private hi = 0;
+  private readonly flat: FlattenResult = { f32: this.f32, used: 0, dirty: false, lo: 0, hi: 0 };
   private readonly local = mat4.create();
   private readonly tmp = mat4.create();
   private readonly scratch = mat4.create();
@@ -378,14 +422,29 @@ export class SceneStore {
 
   part(
     id: string,
-    o: { parent?: string; geo: GeoSpec; style: StyleSpec; transform?: Transform; contacts?: boolean },
+    o: {
+      parent?: string;
+      geo: GeoSpec;
+      style: StyleSpec;
+      transform?: Transform;
+      contacts?: boolean;
+      /** A PartHandle can change its blend and line-set shift per frame. */
+      live?: boolean;
+      /** The style the part blends toward (with `live`). */
+      blend?: StyleSpec;
+    },
   ): Token {
+    if (o.blend && !o.live) throw new Error(`part "${id}": blend needs live`);
     return this.add({
       ...this.base('part', id, o.parent, o.transform),
       kind: 'part',
       geo: o.geo,
       style: o.style,
       contacts: o.contacts ?? true,
+      live: o.live ?? false,
+      blend: o.blend ?? null,
+      mix: 0,
+      uShift: 0,
       proto: null,
     });
   }
@@ -399,10 +458,14 @@ export class SceneStore {
       capacity: number;
       marks?: MarksSpec;
       transform?: Transform;
+      /** E3: instances may take an axis-aligned scale. */
+      scalable?: boolean;
     },
   ): Token {
     if (!(o.capacity > 0) || !Number.isInteger(o.capacity)) throw new Error(`pool "${id}": bad capacity ${o.capacity}`);
     if (!o.styles.length) throw new Error(`pool "${id}": needs at least one style`);
+    const poses = new Float32Array(o.capacity * POSE_FLOATS);
+    for (let i = 0; i < o.capacity; i++) poses.fill(1, i * POSE_FLOATS + 6, i * POSE_FLOATS + 9);
     return this.add({
       ...this.base('pool', id, o.parent, o.transform),
       kind: 'pool',
@@ -411,8 +474,13 @@ export class SceneStore {
       capacity: o.capacity,
       marks: o.marks ?? null,
       count: 0,
-      poses: new Float32Array(o.capacity * POSE_FLOATS),
+      scalable: o.scalable ?? false,
+      poses,
       styleOf: new Uint16Array(o.capacity),
+      style2Of: new Uint16Array(o.capacity),
+      mixOf: new Float32Array(o.capacity),
+      shiftOf: new Float32Array(o.capacity),
+      written: 0,
       poolDirty: true,
     });
   }
@@ -469,8 +537,8 @@ export class SceneStore {
 
   // ---- handles ---------------------------------------------------------------------------
 
-  /** A handle on a moving group or a pool. Throws for unknown ids. */
-  node(id: string): GroupHandle | PoolHandle | SpriteHandle {
+  /** A handle on a moving group, a live part, a pool or a sprite. Throws for unknown ids. */
+  node(id: string): GroupHandle | PartHandle | PoolHandle | SpriteHandle {
     const node = this.lookup(id);
     if (node.kind === 'pool') return this.poolHandle(id);
     if (node.kind === 'sprite') return this.spriteHandle(id);
@@ -478,7 +546,50 @@ export class SceneStore {
       if (!node.moves) throw new Error(`group "${id}" is not declared with moves`);
       return this.groupHandle(id);
     }
-    throw new Error(`"${id}" is a ${node.kind}; only moving groups, pools and sprites have handles`);
+    if (node.kind === 'part') {
+      if (!node.live) throw new Error(`part "${id}" is not declared live`);
+      return this.partHandle(id);
+    }
+    throw new Error(`"${id}" is a ${node.kind}; only moving groups, live parts, pools and sprites have handles`);
+  }
+
+  part$(id: string): PartHandle {
+    const h = this.node(id);
+    if (!('uShift' in h)) throw new Error(`"${id}" is not a part`);
+    return h;
+  }
+
+  private partHandle(id: string): PartHandle {
+    const get = () => this.lookup(id) as PartNode;
+    const store = this;
+    const touch = (n: PartNode) => {
+      n.dirty = true;
+      store.dirtyAny = true;
+    };
+    return {
+      id,
+      get mix() {
+        return get().mix;
+      },
+      set mix(value: number) {
+        const n = get();
+        if (!(value >= 0 && value <= 1)) throw new Error(`part "${id}": mix ${value} outside 0..1`);
+        if (!n.blend && value !== 0) throw new Error(`part "${id}": no blend style`);
+        if (n.mix === Math.fround(value)) return;
+        n.mix = Math.fround(value);
+        touch(n);
+      },
+      get uShift() {
+        return get().uShift;
+      },
+      set uShift(value: number) {
+        const n = get();
+        if (!Number.isFinite(value)) throw new Error(`part "${id}": bad uShift ${value}`);
+        if (n.uShift === Math.fround(value)) return;
+        n.uShift = Math.fround(value);
+        touch(n);
+      },
+    };
   }
 
   group$(id: string): GroupHandle {
@@ -576,11 +687,14 @@ export class SceneStore {
       n.poolDirty = true;
       this.dirtyAny = true;
     };
-    const write = (i: number, x: number, y: number, z: number, yaw: number, pitch: number, roll: number) => {
-      const n = get();
+    const check = (n: PoolNode, i: number) => {
       if (!(i >= 0 && i < n.capacity) || !Number.isInteger(i)) {
         throw new Error(`pool "${id}": instance ${i} out of range (capacity ${n.capacity})`);
       }
+    };
+    const write = (i: number, x: number, y: number, z: number, yaw: number, pitch: number, roll: number) => {
+      const n = get();
+      check(n, i);
       const q = n.poses;
       const o = i * POSE_FLOATS;
       // Compare at float32 precision (what the array stores).
@@ -626,12 +740,43 @@ export class SceneStore {
       pose,
       style: (i, k) => {
         const n = get();
-        if (!(i >= 0 && i < n.capacity) || !Number.isInteger(i)) {
-          throw new Error(`pool "${id}": instance ${i} out of range (capacity ${n.capacity})`);
-        }
+        check(n, i);
         if (!(k >= 0 && k < n.styles.length)) throw new Error(`pool "${id}": style ${k} unknown`);
         if (n.styleOf[i] === k) return;
         n.styleOf[i] = k;
+        touch(n);
+      },
+      blend: (i, k2, mix) => {
+        const n = get();
+        check(n, i);
+        if (!(k2 >= 0 && k2 < n.styles.length)) throw new Error(`pool "${id}": style ${k2} unknown`);
+        if (!(mix >= 0 && mix <= 1)) throw new Error(`pool "${id}": mix ${mix} outside 0..1`);
+        const m = Math.fround(mix);
+        if (n.style2Of[i] === k2 && n.mixOf[i] === m) return;
+        n.style2Of[i] = k2;
+        n.mixOf[i] = m;
+        touch(n);
+      },
+      shift: (i, u) => {
+        const n = get();
+        check(n, i);
+        const v = Math.fround(u);
+        if (n.shiftOf[i] === v) return;
+        n.shiftOf[i] = v;
+        touch(n);
+      },
+      scale: (i, sx, sy, sz) => {
+        const n = get();
+        check(n, i);
+        if (!n.scalable) throw new Error(`pool "${id}" is not scalable`);
+        if (!(sx > 0 && sy > 0 && sz > 0)) throw new Error(`pool "${id}": bad scale ${sx}, ${sy}, ${sz}`);
+        const q = n.poses;
+        const o = i * POSE_FLOATS + 6;
+        const f = Math.fround;
+        if (q[o] === f(sx) && q[o + 1] === f(sy) && q[o + 2] === f(sz)) return;
+        q[o] = sx;
+        q[o + 1] = sy;
+        q[o + 2] = sz;
         touch(n);
       },
     };
@@ -676,7 +821,15 @@ export class SceneStore {
     const statics = order.filter(
       (n): n is PartNode | MarksNode | SpriteNode => n.kind === 'part' || n.kind === 'marks' || n.kind === 'sprite',
     );
-    statics.sort((a, b) => (a.id < b.id ? -1 : 1));
+    // E8: statics that move (under a moving group, or live parts) take the last static slots,
+    // just before the pools, so a frame's rewritten instances form one short range at the end.
+    const moving = new Map(statics.map((n) => [n.id, (n.kind === 'part' && n.live) || this.mover(n) !== null]));
+    statics.sort((a, b) => {
+      const ma = moving.get(a.id)!;
+      const mb = moving.get(b.id)!;
+      if (ma !== mb) return ma ? 1 : -1;
+      return a.id < b.id ? -1 : 1;
+    });
     const pools = order.filter((n): n is PoolNode => n.kind === 'pool').sort((a, b) => (a.id < b.id ? -1 : 1));
     const slot = new Map(statics.map((n, k) => [n.id, k]));
     const poolBase = new Map<string, number>();
@@ -725,6 +878,24 @@ export class SceneStore {
         styleWords.push(...words);
       }
       style.set(n.id, index);
+    }
+    // A live part's blend style (deduplicated like the part styles).
+    const style2 = new Map<string, number>();
+    for (const n of statics) {
+      if (n.kind !== 'part') continue;
+      if (!n.blend) {
+        style2.set(n.id, style.get(n.id)!);
+        continue;
+      }
+      const words = resolveStyle(n.blend, n.geo.kind);
+      const key = words.join(',');
+      let index = styleIndex.get(key);
+      if (index === undefined) {
+        index = styleWords.length / 8;
+        styleIndex.set(key, index);
+        styleWords.push(...words);
+      }
+      style2.set(n.id, index);
     }
     for (const p of pools) {
       style.set(p.id, styleWords.length / 8);
@@ -900,12 +1071,15 @@ export class SceneStore {
       max.fill(1);
     }
     lap('bounds');
-    this.built = { version: this.version, order, slot, style, poolBase, instanceCount };
+    this.built = { version: this.version, order, slot, style, style2, poolBase, instanceCount };
     this.f32 = new Float32Array(instanceCount * INSTANCE_FLOATS);
     this.u32 = new Uint32Array(this.f32.buffer);
     for (const n of order) {
       n.dirty = true;
-      if (n.kind === 'pool') n.poolDirty = true;
+      if (n.kind === 'pool') {
+        n.poolDirty = true;
+        n.written = 0;
+      }
     }
     this.dirtyAny = true;
 
@@ -1080,13 +1254,22 @@ export class SceneStore {
   // ---- per-frame instance table ------------------------------------------------------------
 
   /**
-   * The instance table (20 floats per instance) after applying motions and pool poses.
-   * `dirty` says whether anything changed since the last call. Call `build()` first.
+   * The instance table (24 floats per instance) after applying motions and pool poses.
+   * `dirty` says whether anything changed since the last call; `lo`..`hi` (instances, end
+   * exclusive) is the range rewritten by this call (E8: upload only that). Call `build()` first.
    */
-  flatten(): { f32: Float32Array; used: number; dirty: boolean } {
+  flatten(): FlattenResult {
     const b = this.built;
+    const r = this.flat;
     if (!b || b.version !== this.version) throw new Error('flatten: scene changed, build() first');
-    if (!this.dirtyAny) return { f32: this.f32, used: b.instanceCount, dirty: false };
+    r.f32 = this.f32;
+    r.used = b.instanceCount;
+    r.dirty = false;
+    r.lo = 0;
+    r.hi = 0;
+    if (!this.dirtyAny) return r;
+    this.lo = Infinity;
+    this.hi = 0;
     // Nodes recomputed in this pass carry its stamp, so children see a changed parent.
     const stamp = ++this.flattenStamp;
     const { local, tmp, v3 } = this;
@@ -1098,16 +1281,20 @@ export class SceneStore {
         else mat4.copy(m, n.world);
         n.dirty = false;
         n.stamp = stamp;
-        if (n.kind === 'part' || n.kind === 'marks' || n.kind === 'sprite') {
+        if (n.kind === 'part') {
           const k = b.slot.get(n.id)!;
-          this.writeInstance(k, n.world, n.kind === 'part' ? b.style.get(n.id)! : 0, INSTANCE.visible);
+          this.writeInstance(k, n.world, b.style.get(n.id)!, INSTANCE.visible, b.style2.get(n.id)!, n.mix, n.uShift);
+        } else if (n.kind === 'marks' || n.kind === 'sprite') {
+          this.writeInstance(b.slot.get(n.id)!, n.world, 0, INSTANCE.visible, 0, 0, 0);
         }
       }
       if (n.kind === 'pool' && (n.poolDirty || n.stamp === stamp)) {
         const base = b.poolBase.get(n.id)!;
         const styleBase = b.style.get(n.id)!;
         const q = n.poses;
-        for (let i = 0; i < n.capacity; i++) {
+        // Instances past both this count and the last one are already hidden.
+        const end = Math.max(n.count, n.written);
+        for (let i = 0; i < end; i++) {
           const o = i * POSE_FLOATS;
           v3[0] = q[o]!;
           v3[1] = q[o + 1]!;
@@ -1116,14 +1303,32 @@ export class SceneStore {
           if (q[o + 3] !== 0) mat4.rotateZ(tmp, q[o + 3]!, tmp);
           if (q[o + 4] !== 0) mat4.rotateY(tmp, q[o + 4]!, tmp);
           if (q[o + 5] !== 0) mat4.rotateX(tmp, q[o + 5]!, tmp);
+          if (n.scalable && (q[o + 6] !== 1 || q[o + 7] !== 1 || q[o + 8] !== 1)) {
+            v3[0] = q[o + 6]!;
+            v3[1] = q[o + 7]!;
+            v3[2] = q[o + 8]!;
+            mat4.scale(tmp, v3, tmp);
+          }
           mat4.multiply(n.world, tmp, tmp);
-          this.writeInstance(base + i, tmp, styleBase + n.styleOf[i]!, i < n.count ? INSTANCE.visible : 0);
+          this.writeInstance(
+            base + i,
+            tmp,
+            styleBase + n.styleOf[i]!,
+            i < n.count ? INSTANCE.visible : 0,
+            styleBase + n.style2Of[i]!,
+            n.mixOf[i]!,
+            n.shiftOf[i]!,
+          );
         }
+        n.written = n.count;
         n.poolDirty = false;
       }
     }
     this.dirtyAny = false;
-    return { f32: this.f32, used: b.instanceCount, dirty: true };
+    r.dirty = true;
+    r.lo = this.hi > 0 ? this.lo : 0;
+    r.hi = this.hi;
+    return r;
   }
 
   /** The sprite table (16 words per sprite, in draw order); `dirty` after a build or a level change. */
@@ -1160,11 +1365,24 @@ export class SceneStore {
     return { buffer: this.spriteTable, count, dirty: true };
   }
 
-  private writeInstance(k: number, model: Float32Array, style: number, flags: number) {
+  private writeInstance(
+    k: number,
+    model: Float32Array,
+    style: number,
+    flags: number,
+    style2: number,
+    mix: number,
+    uShift: number,
+  ) {
     const o = k * INSTANCE_FLOATS;
     this.f32.set(model, o);
     this.u32[o + 16] = style;
     this.u32[o + 17] = flags;
+    this.u32[o + 18] = style2;
+    this.f32[o + 19] = mix;
+    this.f32[o + 20] = uShift;
+    if (k < this.lo) this.lo = k;
+    if (k + 1 > this.hi) this.hi = k + 1;
   }
 
   /** Ids currently registered (for messages and dev hooks). */

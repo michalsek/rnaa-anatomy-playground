@@ -13,7 +13,7 @@ export const CENTRIFUGE_VIEWS: ViewPreset[] = [
   { name: 'funnel', yaw: 45, elevation: 30, zoom: 1, frame: [[-13, -36, 164], [13, -10, 187]] },
 ];
 
-/** The overlay card (v2 `build.mjs` page options); the live readout comes from `live.ts`. */
+/** The overlay card (v2 `build.mjs` page options); the live readout comes from `factory/live.ts`. */
 export const CENTRIFUGE_CARD = {
   fig: 'Part',
   title: 'Centrifuge',

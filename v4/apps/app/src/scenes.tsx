@@ -3,8 +3,9 @@ import type { ViewPreset } from '@anatomy/engine';
 import { Gallery } from './gallery/Gallery.tsx';
 import { M1Row } from './gallery/M1Row.tsx';
 import { GALLERY_VIEWS, M1_VIEWS } from './gallery/views.ts';
-import { Centrifuge } from './machines/centrifuge/Centrifuge.tsx';
-import * as centrifugeLive from './machines/centrifuge/live.ts';
+import { CentrifugeScene, ConveyorScene, LineScene } from './factory/Scenes.tsx';
+import { centrifugeLive, conveyorLive, lineLive } from './factory/live.ts';
+import { CONVEYOR_CARD, CONVEYOR_VIEWS, LINE_CARD, LINE_VIEWS } from './factory/views.ts';
 import { CENTRIFUGE_CARD, CENTRIFUGE_VIEWS } from './machines/centrifuge/views.ts';
 import type { ReadoutSource } from './overlay/readout.ts';
 
@@ -31,11 +32,25 @@ const M1Only = () => <M1Row />;
 
 export const SCENES: SceneEntry[] = [
   {
+    name: 'line',
+    views: LINE_VIEWS,
+    Content: LineScene,
+    card: { ...LINE_CARD, readout: lineLive.readout },
+    dev: lineLive.dev,
+  },
+  {
     name: 'centrifuge',
     views: CENTRIFUGE_VIEWS,
-    Content: Centrifuge,
+    Content: CentrifugeScene,
     card: { ...CENTRIFUGE_CARD, readout: centrifugeLive.readout },
     dev: centrifugeLive.dev,
+  },
+  {
+    name: 'conveyor',
+    views: CONVEYOR_VIEWS,
+    Content: ConveyorScene,
+    card: { ...CONVEYOR_CARD, readout: conveyorLive.readout },
+    dev: conveyorLive.dev,
   },
   {
     name: 'gallery',

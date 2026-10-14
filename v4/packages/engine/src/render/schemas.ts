@@ -32,13 +32,24 @@ export const GpuTri = d.struct({
 export const INSTANCE = { visible: 1 } as const;
 
 export const Instance = d.struct({
-  /** Rotation, translation and uniform scale only (normals are transformed by it). */
+  /**
+   * Rotation, translation and uniform scale; pools declared `scalable` add an axis-aligned
+   * scale in the instance's own frame (normals are transformed by the model and renormalised,
+   * exact for box faces).
+   */
   model: d.mat4x4f,
   style: d.u32,
   flags: d.u32,
-  _pad: d.vec2u,
-}); // 80 B
-export const INSTANCE_FLOATS = 20;
+  /** E2: the second style the fill (and pool marks) blend toward, by `mix` (0 = `style` only). */
+  style2: d.u32,
+  mix: d.f32,
+  /** E1: shift of the UV line sets, in u (0..1 around the surface): scrolling slats, chains. */
+  uShift: d.f32,
+  _p0: d.f32,
+  _p1: d.f32,
+  _p2: d.f32,
+}); // 96 B
+export const INSTANCE_FLOATS = 24;
 
 /** Tone rules. `gradient`: a 3-stop FX gradient along a model-space line (the funnel void). */
 export const TONE_RULE = { bands: 0, plan: 1, tube: 2, gradient: 3 } as const;
@@ -176,7 +187,7 @@ export const spriteLayout = tgpu.bindGroupLayout({
 });
 
 /** Byte sizes the CPU packers assume; checked against TypeGPU's layout once. */
-export const SIZES = { vertex: 48, tri: 48, instance: 80, style: 32, mark: 64, gradient: 48, sprite: 64 } as const;
+export const SIZES = { vertex: 48, tri: 48, instance: 96, style: 32, mark: 64, gradient: 48, sprite: 64 } as const;
 
 export function assertLayouts() {
   const actual = {
