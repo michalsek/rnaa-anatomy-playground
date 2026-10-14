@@ -7,9 +7,13 @@ export interface TubeSpec {
   sides?: number;
   /** Fillet radius at the corners (default 3 × radius). */
   bend?: number;
-  /** Close the start / end with flat caps. */
+  /** Close the start / end with flat caps (ignored for a closed loop). */
   caps?: readonly [boolean, boolean];
-  part: number;
+  /**
+   * The path is a loop (the last point connects back to the first, every corner is filleted)
+   * with no caps and no seam. Planar loops only, so the frames close up without a twist.
+   */
+  closed?: boolean;
 }
 
 type V = [number, number, number];
@@ -27,19 +31,28 @@ const unit = (a: Vec3): V => scale(a, 1 / (Math.hypot(a[0], a[1], a[2]) || 1));
 /** Samples per 90° of fillet arc (8 left visible kinks in the bands and contour). */
 const ARC_SAMPLES = 16;
 
-/** The filleted centreline: points with unit tangents. */
-function centreline(path: readonly Vec3[], bend: number) {
+/**
+ * The filleted centreline: points with unit tangents. With `bend` 0 every path point is kept
+ * as it is, with the mean of its two segment directions as tangent (for densely sampled
+ * curves such as a belt).
+ */
+function centreline(path: readonly Vec3[], bend: number, closed: boolean) {
   const out: { p: V; t: V }[] = [];
-  const first = unit(sub(path[1]!, path[0]!));
-  out.push({ p: [...path[0]!], t: first });
-  for (let i = 1; i < path.length - 1; i++) {
-    const a = path[i - 1]!;
+  const n = path.length;
+  if (!closed) out.push({ p: [...path[0]!], t: unit(sub(path[1]!, path[0]!)) });
+  const first = closed ? 0 : 1;
+  const last = closed ? n : n - 1;
+  for (let i = first; i < last; i++) {
+    const a = path[(i + n - 1) % n]!;
     const p = path[i]!;
-    const b = path[i + 1]!;
+    const b = path[(i + 1) % n]!;
     const d1 = unit(sub(p, a));
     const d2 = unit(sub(b, p));
     const angle = Math.acos(Math.max(-1, Math.min(1, dot(d1, d2))));
-    if (angle < 1e-6) continue;
+    if (bend <= 0 || angle < 1e-6) {
+      if (closed || angle >= 1e-6 || bend <= 0) out.push({ p: [...p], t: unit(add(d1, d2)) });
+      continue;
+    }
     // Tangent length of the fillet, clamped so neighbouring fillets cannot overlap.
     const room = Math.min(Math.hypot(...sub(p, a)), Math.hypot(...sub(b, p))) / 2;
     const tangentLength = Math.min(bend * Math.tan(angle / 2), room);
@@ -58,9 +71,30 @@ function centreline(path: readonly Vec3[], bend: number) {
       });
     }
   }
-  const last = path[path.length - 1]!;
-  out.push({ p: [...last], t: unit(sub(last, path[path.length - 2]!)) });
+  if (!closed) {
+    const end = path[n - 1]!;
+    out.push({ p: [...end], t: unit(sub(end, path[n - 2]!)) });
+  }
   return out;
+}
+
+/** Unit normal of a closed path's plane; throws if the path is not planar. */
+function planeOf(path: readonly Vec3[]): V {
+  // Newell's method: robust for any simple polygon.
+  let nrm: V = [0, 0, 0];
+  for (let i = 0; i < path.length; i++) {
+    const a = path[i]!;
+    const b = path[(i + 1) % path.length]!;
+    nrm = add(nrm, [(a[1] - b[1]) * (a[2] + b[2]), (a[2] - b[2]) * (a[0] + b[0]), (a[0] - b[0]) * (a[1] + b[1])]);
+  }
+  const normal = unit(nrm);
+  const span = Math.max(...path.map((p) => Math.hypot(...sub(p, path[0]!)))) || 1;
+  for (const p of path) {
+    if (Math.abs(dot(sub(p, path[0]!), normal)) > 1e-6 * span) {
+      throw new Error('tube: a closed path must be planar');
+    }
+  }
+  return normal;
 }
 
 /**
@@ -73,16 +107,20 @@ export function tube({
   sides = 32,
   bend = 3 * radius,
   caps = [true, true],
-  part,
+  closed = false,
 }: TubeSpec): Mesh {
-  if (path.length < 2) throw new Error('tube: path needs at least 2 points');
-  const b = new MeshBuilder(part);
-  const line = centreline(path, bend);
+  if (path.length < (closed ? 3 : 2)) throw new Error('tube: path is too short');
+  const b = new MeshBuilder();
+  const line = centreline(path, bend, closed);
+  // A closed loop repeats its first ring at the end (same positions, so topology welds it;
+  // v runs on to the full length so the tube tone rule sees no jump).
+  if (closed) line.push(line[0]!);
 
   // Parallel transport: carry the first normal along, re-orthogonalised against each tangent.
+  // For a planar loop that is the plane normal throughout.
   const t0 = line[0]!.t;
   const helper: V = Math.abs(t0[2]) > 0.9 ? [1, 0, 0] : [0, 0, 1];
-  let u = unit(cross(helper, t0));
+  let u = closed ? planeOf(path) : unit(cross(helper, t0));
   let length = 0;
   const rings: number[][] = [];
   const frames: { u: V; v: V }[] = [];
@@ -125,7 +163,7 @@ export function tube({
     }
   };
   b.smooth(false);
-  if (caps[0]) cap(0, -1);
-  if (caps[1]) cap(line.length - 1, 1);
+  if (!closed && caps[0]) cap(0, -1);
+  if (!closed && caps[1]) cap(line.length - 1, 1);
   return b.build();
 }

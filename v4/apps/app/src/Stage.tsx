@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { type LayoutChangeEvent, PixelRatio, StyleSheet, Text, View } from 'react-native';
 import { Canvas, type CanvasRef } from 'react-native-webgpu';
 import type { TgpuRoot } from 'typegpu';
-import type { CanvasContext, SceneSpec } from '@anatomy/engine';
+import type { CanvasContext, SceneStore, ViewPreset } from '@anatomy/engine';
 import {
   type Shell,
   type ShellControls,
@@ -15,11 +15,13 @@ import { isRetired } from './gpuRoot.ts';
 
 export function Stage({
   root,
-  scene,
+  store,
+  views,
   controls,
 }: {
   root: TgpuRoot;
-  scene: SceneSpec;
+  store: SceneStore;
+  views: readonly ViewPreset[];
   controls: ShellControls;
 }) {
   const canvasRef = useRef<CanvasRef>(null);
@@ -62,7 +64,8 @@ export function Stage({
         context.canvas,
         format,
         size,
-        scene,
+        store,
+        views,
         controlsRef.current,
         setFatal,
       );
@@ -75,7 +78,7 @@ export function Stage({
       shell.stop();
       if (shellRef.current === shell) shellRef.current = null;
     };
-  }, [root, hasLayout, scene]);
+  }, [root, hasLayout, store, views]);
 
   const { theme, view, paused, debug } = controls;
   useEffect(() => shellRef.current?.setTheme(theme), [theme]);

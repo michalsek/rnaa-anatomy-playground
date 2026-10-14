@@ -1,3 +1,4 @@
+import { circleSteps } from './extrude.ts';
 import { type Mesh, MeshBuilder } from './mesh.ts';
 
 /** A profile knot: radius, height, and whether the surface is smooth through it. */
@@ -9,13 +10,17 @@ export interface LatheSpec {
    * is on the right of the direction of travel (e.g. bottom centre → rim → up → top centre).
    */
   profile: readonly ProfilePoint[];
-  /** Segments around the axis. */
+  /** Segments around the axis (default: about 8 per unit of the largest radius, 32..128). */
   steps?: number;
-  part: number;
   /** UV line sets: profile segment `segment` (knot i → i+1) gets line set `set` (1-based). */
   lineSets?: readonly { segment: number; set: number }[];
   /** Knot indices whose ring is forced as a line even where the surface is smooth or flat. */
   marks?: readonly number[];
+  /**
+   * Heights where every profile segment crossing them gets a knot whose ring is drawn as a
+   * seam line. The knot is placed on the chord, so a seam on a curved span bends it slightly.
+   */
+  seams?: readonly number[];
   /**
    * Pieces per profile segment that touches a smooth knot. The curve through smooth knots is
    * real geometry (a Catmull-Rom spline), so the faceted silhouette follows the smooth-shaded
@@ -25,6 +30,44 @@ export interface LatheSpec {
 }
 
 type Knot = readonly [number, number, boolean];
+
+/** A sphere's meridian (bottom pole to top pole), smooth everywhere but the poles. */
+export function sphereProfile(r: number, n = 12): ProfilePoint[] {
+  return Array.from({ length: n + 1 }, (_, k) => {
+    const a = (Math.PI * k) / n;
+    return [k === 0 || k === n ? 0 : r * Math.sin(a), -r * Math.cos(a), k > 0 && k < n] as const;
+  });
+}
+
+/**
+ * Insert seam knots into the input profile. Returns the new profile and maps from the input's
+ * segments and knots to the new ones, plus the seam knots to mark.
+ */
+function insertSeams(profile: readonly ProfilePoint[], seams: readonly number[]) {
+  const out: ProfilePoint[] = [profile[0]!];
+  const knotOf = [0];
+  const segmentsOf: number[][] = [];
+  const seamKnots: number[] = [];
+  for (let i = 0; i + 1 < profile.length; i++) {
+    const a = profile[i]!;
+    const b = profile[i + 1]!;
+    const cuts = seams
+      .map((z) => (z - a[1]) / (b[1] - a[1]))
+      .filter((t) => Number.isFinite(t) && t > 1e-6 && t < 1 - 1e-6)
+      .sort((p, q) => p - q);
+    const segs: number[] = [];
+    for (const t of cuts) {
+      segs.push(out.length - 1);
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] === true || b[2] === true]);
+      seamKnots.push(out.length - 1);
+    }
+    segs.push(out.length - 1);
+    out.push(b);
+    knotOf.push(out.length - 1);
+    segmentsOf.push(segs);
+  }
+  return { profile: out, knotOf, segmentsOf, seamKnots };
+}
 
 /**
  * Subdivide the spans next to smooth knots along a Hermite spline (Catmull-Rom tangents at
@@ -81,25 +124,34 @@ function refineProfile(profile: readonly ProfilePoint[], subdivisions: number) {
  * uv: u = k/steps around the axis, v = profile length from the first knot.
  */
 export function lathe({
-  profile: input,
-  steps = 128,
-  part,
+  profile: original,
+  steps: requestedSteps,
   lineSets: inputSets = [],
   marks: inputMarks = [],
+  seams = [],
   subdivisions = 8,
 }: LatheSpec): Mesh {
+  const seamed = insertSeams(original, seams);
+  const input = seamed.profile;
+  const steps =
+    requestedSteps ?? circleSteps(Math.max(...original.map(([r]) => Math.abs(r))));
   const { knots: profile, segments, knotIndex } = refineProfile(input, subdivisions);
   const lineSets = inputSets.flatMap(({ segment, set }) => {
-    const refined = segments[segment];
-    if (!refined) throw new Error(`lathe: line set on unknown segment ${segment} (0..${segments.length - 1})`);
-    return refined.map((index) => ({ segment: index, set }));
+    const seg = seamed.segmentsOf[segment];
+    if (!seg) {
+      throw new Error(`lathe: line set on unknown segment ${segment} (0..${original.length - 2})`);
+    }
+    return seg.flatMap((s) => segments[s]!.map((index) => ({ segment: index, set })));
   });
-  const marks = inputMarks.map((knot) => {
-    const index = knotIndex[knot];
-    if (index === undefined) throw new Error(`lathe: mark on unknown knot ${knot} (0..${knotIndex.length - 1})`);
+  const knots = inputMarks.map((knot) => {
+    const index = seamed.knotOf[knot];
+    if (index === undefined) {
+      throw new Error(`lathe: mark on unknown knot ${knot} (0..${original.length - 1})`);
+    }
     return index;
   });
-  const b = new MeshBuilder(part);
+  const marks = [...knots, ...seamed.seamKnots].map((knot) => knotIndex[knot]!);
+  const b = new MeshBuilder();
   const segCount = profile.length - 1;
   // Swept volume ∫ r² dz along the profile: positive when the outside is on the right of the
   // direction of travel. A reversed profile would build an inside-out (back-face-culled) solid.

@@ -1,27 +1,31 @@
 /**
- * The M1 fill shader with in-face lines.
+ * The fill shader with in-face lines, and the marks shader (free dots and segments).
  *
- * Vertex stage (vertex pulling, `draw(triCount × 3)`): each invocation loads its whole triangle,
- * projects the three corners to device pixels for the screen altitudes, and decides the mode of
- * each edge for this frame (outline where the neighbour faces away, crease where flagged).
+ * Fill vertex stage (vertex pulling, `draw(triCount × 3, instances, firstTri × 3, firstInstance)`):
+ * each invocation loads its whole triangle and its instance (`instance_index + tri.slot`),
+ * projects the three corners to device pixels for the screen altitudes, decides the mode of
+ * each edge for this frame (outline where the neighbour faces away, crease where flagged), and
+ * picks the tone rule (plan only while the model's z stays vertical, tube only on curved faces).
  *
- * Fragment stage: four-tone bands with analytic AA, then UV tick lines, creases, and outlines
- * (flagged edges plus a smooth-contour term on curved surfaces), each mixed in by coverage.
+ * Fill fragment stage: tones (bands, plan or tube rule) with analytic AA, then UV tick lines,
+ * creases, and outlines (flagged edges plus a smooth-contour term on curved surfaces), each
+ * mixed in by coverage.
  */
 import tgpu, { d, std } from 'typegpu';
 import { SLOT, SLOT_COUNT } from '../palette/tokens.ts';
 import { FLAG, NO_NEIGHBOUR } from '../geo/topology.ts';
-import { bandWeights } from '../shading/tone.ts';
+import { TUBE_LIGHT, bandWeights, planLit, planWeights, tubeStripes } from '../shading/tone.ts';
 import {
   EDGE_CREASE,
   EDGE_OUTLINE,
   edgeCoverage,
   edgeMode,
   flagBit,
+  overlap,
   tickCoverage,
   wire,
 } from '../shading/lines.ts';
-import { sceneLayout as L } from './schemas.ts';
+import { INSTANCE, MARK, TONE_RULE, sceneLayout as L } from './schemas.ts';
 
 const toPixels = (clip: d.v4f, viewport: d.v2f) => {
   'use gpu';
@@ -89,8 +93,11 @@ const neighbourFacing = (adj: number, model: d.m4x4f, toward: d.v3f) => {
   return std.select(facing, d.f32(-1), d.u32(adj) === NO_NEIGHBOUR);
 };
 
+/** A clip position outside the depth range: the primitive is dropped. */
+const HIDDEN = d.vec4f(0, 0, 2, 1);
+
 export const fillVertex = tgpu.vertexFn({
-  in: { vid: d.builtin.vertexIndex },
+  in: { vid: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
   out: {
     clip: d.builtin.position,
     normal: d.vec3f,
@@ -98,7 +105,8 @@ export const fillVertex = tgpu.vertexFn({
     bary: d.interpolate('linear', d.vec3f),
     heights: d.interpolate('flat', d.vec3f),
     modes: d.interpolate('flat', d.vec3u),
-    part: d.interpolate('flat', d.u32),
+    style: d.interpolate('flat', d.u32),
+    rule: d.interpolate('flat', d.u32),
     flags: d.interpolate('flat', d.u32),
     extraA: d.interpolate('flat', d.vec3f),
     extraB: d.interpolate('flat', d.vec3f),
@@ -109,24 +117,25 @@ export const fillVertex = tgpu.vertexFn({
   const t = d.u32(input.vid / 3);
   const c = input.vid % 3;
   const tri = L.$.tris[t];
-  const part = L.$.parts[tri.part];
+  const inst = L.$.instances[input.iid + tri.slot];
+  const style = L.$.styles[inst.style];
   const frame = L.$.frame;
 
   const v0 = L.$.vertices[tri.idx.x];
   const v1 = L.$.vertices[tri.idx.y];
   const v2 = L.$.vertices[tri.idx.z];
-  const c0 = std.mul(frame.viewProjection, std.mul(part.model, d.vec4f(v0.position, 1)));
-  const c1 = std.mul(frame.viewProjection, std.mul(part.model, d.vec4f(v1.position, 1)));
-  const c2 = std.mul(frame.viewProjection, std.mul(part.model, d.vec4f(v2.position, 1)));
+  const c0 = std.mul(frame.viewProjection, std.mul(inst.model, d.vec4f(v0.position, 1)));
+  const c1 = std.mul(frame.viewProjection, std.mul(inst.model, d.vec4f(v1.position, 1)));
+  const c2 = std.mul(frame.viewProjection, std.mul(inst.model, d.vec4f(v2.position, 1)));
   const p0 = toPixels(c0, frame.viewport);
   const p1 = toPixels(c1, frame.viewport);
   const p2 = toPixels(c2, frame.viewport);
 
-  const own = facingOf(part.model, tri.faceNormal, frame.toward);
+  const own = facingOf(inst.model, tri.faceNormal, frame.toward);
   const modes = d.vec3u(
-    edgeMode(own, neighbourFacing(tri.adj.x, part.model, frame.toward), tri.flags, 0),
-    edgeMode(own, neighbourFacing(tri.adj.y, part.model, frame.toward), tri.flags, 1),
-    edgeMode(own, neighbourFacing(tri.adj.z, part.model, frame.toward), tri.flags, 2),
+    edgeMode(own, neighbourFacing(tri.adj.x, inst.model, frame.toward), tri.flags, 0),
+    edgeMode(own, neighbourFacing(tri.adj.y, inst.model, frame.toward), tri.flags, 1),
+    edgeMode(own, neighbourFacing(tri.adj.z, inst.model, frame.toward), tri.flags, 2),
   );
 
   // The quad partner's two outer edges (its third edge is the shared diagonal): their lines
@@ -134,24 +143,24 @@ export const fillVertex = tgpu.vertexFn({
   const hasPartner = tri.partner !== NO_NEIGHBOUR;
   const pt = L.$.tris[std.select(tri.partner, d.u32(0), !hasPartner)];
   const q0 = toPixels(
-    std.mul(frame.viewProjection, std.mul(part.model, d.vec4f(L.$.vertices[pt.idx.x].position, 1))),
+    std.mul(frame.viewProjection, std.mul(inst.model, d.vec4f(L.$.vertices[pt.idx.x].position, 1))),
     frame.viewport,
   );
   const q1 = toPixels(
-    std.mul(frame.viewProjection, std.mul(part.model, d.vec4f(L.$.vertices[pt.idx.y].position, 1))),
+    std.mul(frame.viewProjection, std.mul(inst.model, d.vec4f(L.$.vertices[pt.idx.y].position, 1))),
     frame.viewport,
   );
   const q2 = toPixels(
-    std.mul(frame.viewProjection, std.mul(part.model, d.vec4f(L.$.vertices[pt.idx.z].position, 1))),
+    std.mul(frame.viewProjection, std.mul(inst.model, d.vec4f(L.$.vertices[pt.idx.z].position, 1))),
     frame.viewport,
   );
-  const ptFacing = facingOf(part.model, pt.faceNormal, frame.toward);
+  const ptFacing = facingOf(inst.model, pt.faceNormal, frame.toward);
   const e0 = edgeLine(q1, q2, q0);
   const e1 = edgeLine(q2, q0, q1);
   const e2 = edgeLine(q0, q1, q2);
-  const n0 = edgeMode(ptFacing, neighbourFacing(pt.adj.x, part.model, frame.toward), pt.flags, 0);
-  const n1 = edgeMode(ptFacing, neighbourFacing(pt.adj.y, part.model, frame.toward), pt.flags, 1);
-  const n2 = edgeMode(ptFacing, neighbourFacing(pt.adj.z, part.model, frame.toward), pt.flags, 2);
+  const n0 = edgeMode(ptFacing, neighbourFacing(pt.adj.x, inst.model, frame.toward), pt.flags, 0);
+  const n1 = edgeMode(ptFacing, neighbourFacing(pt.adj.y, inst.model, frame.toward), pt.flags, 1);
+  const n2 = edgeMode(ptFacing, neighbourFacing(pt.adj.z, inst.model, frame.toward), pt.flags, 2);
   // j = the partner's edge shared with this triangle, i = ours.
   const j1 = pt.adj.y === t;
   const j2 = pt.adj.z === t;
@@ -188,14 +197,27 @@ export const fillVertex = tgpu.vertexFn({
     is2,
   );
 
+  // Tone rule: plan only while the model's z axis stays vertical; tube only on curved faces.
+  const zAxis = std.normalize(std.mul(inst.model, d.vec4f(0, 0, 1, 0)).xyz);
+  const smooth = flagBit(tri.flags, FLAG.smoothBit) === 1;
+  let rule = d.u32(TONE_RULE.bands);
+  if (style.toneRule === TONE_RULE.plan && std.abs(zAxis.z) > 0.999) {
+    rule = d.u32(TONE_RULE.plan);
+  }
+  if (style.toneRule === TONE_RULE.tube && smooth) {
+    rule = d.u32(TONE_RULE.tube);
+  }
+  const visible = (inst.flags & INSTANCE.visible) !== 0;
+
   return {
-    clip,
-    normal: std.mul(part.model, d.vec4f(normal, 0)).xyz,
+    clip: std.select(HIDDEN, clip, visible),
+    normal: std.mul(inst.model, d.vec4f(normal, 0)).xyz,
     uv,
     bary,
     heights: d.vec3f(altitude(p0, p1, p2), altitude(p1, p2, p0), altitude(p2, p0, p1)),
     modes,
-    part: tri.part,
+    style: inst.style,
+    rule,
     flags: tri.flags,
     extraA,
     extraB,
@@ -227,7 +249,8 @@ export const fillFragment = tgpu.fragmentFn({
     bary: d.interpolate('linear', d.vec3f),
     heights: d.interpolate('flat', d.vec3f),
     modes: d.interpolate('flat', d.vec3u),
-    part: d.interpolate('flat', d.u32),
+    style: d.interpolate('flat', d.u32),
+    rule: d.interpolate('flat', d.u32),
     flags: d.interpolate('flat', d.u32),
     extraA: d.interpolate('flat', d.vec3f),
     extraB: d.interpolate('flat', d.vec3f),
@@ -237,13 +260,23 @@ export const fillFragment = tgpu.fragmentFn({
 })((input) => {
   'use gpu';
   const frame = L.$.frame;
-  const part = L.$.parts[input.part];
-  const m = part.material;
+  const st = L.$.styles[input.style];
+  const m = st.material;
 
   // Every derivative first, in uniform control flow.
   const n = std.normalize(input.normal);
   const score = std.dot(n, frame.light);
   const fw = std.fwidth(score);
+  const lit = planLit(n, frame.light);
+  const fwLit = std.fwidth(lit);
+  // Tube rule: the direction across the tube on screen is perpendicular to the gradient of v
+  // (arc length along the centreline); s = the normal's screen component across the tube.
+  const g = d.vec2f(std.dpdx(input.uv.y), std.dpdy(input.uv.y));
+  const gLen = std.length(g);
+  const across = std.select(d.vec2f(1, 0), std.div(d.vec2f(-g.y, g.x), std.max(gLen, 1e-9)), gLen > 1e-6);
+  const sAcross = std.dot(d.vec2f(std.dot(n, frame.right), -std.dot(n, frame.up)), across);
+  const fwS = std.fwidth(sAcross);
+  const tw = std.dot(across, d.vec2f(TUBE_LIGHT[0], TUBE_LIGHT[1]));
   const facing = std.dot(n, frame.toward);
   const facingGrad = std.length(d.vec2f(std.dpdx(facing), std.dpdy(facing)));
   const set = (input.flags >>> FLAG.lineSetShift) & FLAG.lineSetMask;
@@ -251,13 +284,29 @@ export const fillFragment = tgpu.fragmentFn({
   const x = input.uv.x * lineSet.count - lineSet.phase;
   const xGrad = std.length(d.vec2f(std.dpdx(x), std.dpdy(x)));
 
-  // Bands.
-  const w = bandWeights(score, fw);
   let color = tone(m, SLOT.s0);
-  color = std.mix(color, tone(m, SLOT.s1), w.x);
-  color = std.mix(color, tone(m, SLOT.s2), w.y);
-  color = std.mix(color, tone(m, SLOT.s3), w.z);
-  color = std.mix(color, tone(m, SLOT.top), w.w);
+  if (input.rule === TONE_RULE.plan) {
+    if (n.z > 0.5) {
+      color = tone(m, SLOT.top);
+    } else if (n.z >= -0.5) {
+      const pw = planWeights(lit, fwLit);
+      color = std.mix(color, tone(m, SLOT.s1), pw.x);
+      color = std.mix(color, tone(m, SLOT.s2), pw.y);
+      color = std.mix(color, tone(m, SLOT.s3), pw.z);
+    }
+  } else if (input.rule === TONE_RULE.tube && gLen > 1e-6) {
+    const stripes = tubeStripes(sAcross, tw, fwS);
+    color = tone(m, SLOT.s2);
+    color = std.mix(color, tone(m, SLOT.top), stripes.x);
+    color = std.mix(color, tone(m, SLOT.s0), stripes.y);
+  } else {
+    // Bands.
+    const w = bandWeights(score, fw);
+    color = std.mix(color, tone(m, SLOT.s1), w.x);
+    color = std.mix(color, tone(m, SLOT.s2), w.y);
+    color = std.mix(color, tone(m, SLOT.s3), w.z);
+    color = std.mix(color, tone(m, SLOT.top), w.w);
+  }
   const debug = frame.debug;
   if (debug === 1) {
     color = d.vec4f(frame.paper);
@@ -288,7 +337,7 @@ export const fillFragment = tgpu.fragmentFn({
     }
 
     // Edge lines: creases straddle their edge (half per face), outlines lie inside the face.
-    const line = wire(part.width * frame.pxPerCss);
+    const line = wire(st.width * frame.pxPerCss);
     const half = line.x / 2;
     const d0 = input.bary.x * input.heights.x;
     const d1 = input.bary.y * input.heights.y;
@@ -335,15 +384,151 @@ export const fillFragment = tgpu.fragmentFn({
 
     color = std.mix(
       color,
-      std.select(tone(m, part.creaseSlot), BLUE, debug === 1),
+      std.select(tone(m, st.creaseSlot), BLUE, debug === 1),
       crease,
     );
     if (debug === 1) {
       color = std.mix(color, MAGENTA, contour);
       color = std.mix(color, RED, outline);
     } else {
-      color = std.mix(color, tone(m, part.outlineSlot), std.max(outline, contour));
+      color = std.mix(color, tone(m, st.outlineSlot), std.max(outline, contour));
     }
   }
   return d.vec4f(color.xyz, 1);
+});
+
+// ---- marks: free dots and segments ------------------------------------------------------------
+
+/** World units a mark is pulled toward the viewer, so it wins the depth test on its surface. */
+const MARK_BIAS = 0.05;
+const CYAN = d.vec4f(0.05, 0.75, 0.85, 1);
+
+/** Quad corner k of 6 (two triangles): x = 0 at the start, 1 at the end; y = side (±1). */
+const cornerOf = (k: number) => {
+  'use gpu';
+  const x = std.select(d.f32(0), d.f32(1), k === 1 || k === 4 || k === 5);
+  const y = std.select(d.f32(-1), d.f32(1), k === 2 || k === 3 || k === 5);
+  return d.vec2f(x, y);
+};
+
+/** Dot opacity by tone (`iso.css`): hi .85, mid .45, lo .22, faint .12, else .32. */
+const dotOpacity = (slot: number) => {
+  'use gpu';
+  let o = d.f32(0.32);
+  if (slot === SLOT.hi) {
+    o = 0.85;
+  } else if (slot === SLOT.mid) {
+    o = 0.45;
+  } else if (slot === SLOT.lo) {
+    o = 0.22;
+  } else if (slot === SLOT.faint) {
+    o = 0.12;
+  }
+  return o;
+};
+
+export const marksVertex = tgpu.vertexFn({
+  in: { vid: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
+  out: {
+    clip: d.builtin.position,
+    pa: d.interpolate('flat', d.vec2f),
+    pb: d.interpolate('flat', d.vec2f),
+    /** Device px: a dot's radius, or a segment's drawn width. */
+    size: d.interpolate('flat', d.f32),
+    alpha: d.interpolate('flat', d.f32),
+    color: d.interpolate('flat', d.vec4f),
+    kind: d.interpolate('flat', d.u32),
+  },
+})((input) => {
+  'use gpu';
+  const mark = L.$.marks[input.iid];
+  const inst = L.$.instances[mark.instance];
+  const frame = L.$.frame;
+  const bias = std.mul(frame.toward, MARK_BIAS);
+  const wa = std.add(std.mul(inst.model, d.vec4f(mark.a, 1)).xyz, bias);
+  const wb = std.add(std.mul(inst.model, d.vec4f(mark.b, 1)).xyz, bias);
+  const ca = std.mul(frame.viewProjection, d.vec4f(wa, 1));
+  const cb = std.mul(frame.viewProjection, d.vec4f(wb, 1));
+  const pa = toPixels(ca, frame.viewport);
+  const pb = toPixels(cb, frame.viewport);
+
+  const isDot = mark.kind === MARK.dot;
+  const wpx = mark.size * frame.pxPerCss;
+  const line = wire(wpx);
+  const size = std.select(line.x, wpx, isDot);
+  const extent = std.select(line.x * 0.5, wpx, isDot) + 1;
+
+  const span = std.sub(pb, pa);
+  const len = std.length(span);
+  const dir = std.select(d.vec2f(1, 0), std.div(span, std.max(len, 1e-6)), len > 1e-4);
+  const perp = d.vec2f(-dir.y, dir.x);
+  const k = cornerOf(input.vid);
+  const atEnd = k.x > 0.5;
+  const end = std.select(pa, pb, atEnd);
+  const pos = std.add(
+    std.add(end, std.mul(dir, std.select(-extent, extent, atEnd))),
+    std.mul(perp, k.y * extent),
+  );
+  const z = std.select(ca.z / ca.w, cb.z / cb.w, atEnd);
+
+  // Facing: marks with a normal hide on back sides and fade toward the limbs.
+  const hasNormal = std.dot(mark.normal, mark.normal) > 0;
+  const wn = std.mul(inst.model, d.vec4f(mark.normal, 0)).xyz;
+  const facing = std.dot(std.div(wn, std.max(std.length(wn), 1e-9)), frame.toward);
+  let alpha = std.select(line.y, dotOpacity(mark.slot), isDot);
+  if (hasNormal) {
+    alpha = alpha * std.select(std.smoothstep(mark.fade.x, mark.fade.y, facing), 0, facing <= 0);
+  }
+  const visible = (inst.flags & INSTANCE.visible) !== 0 && frame.debug !== 2 && alpha > 0;
+
+  const slot = std.select(mark.slot, d.u32(SLOT.dot), isDot);
+  let color = tone(mark.material, slot);
+  if (frame.debug === 1) {
+    color = d.vec4f(CYAN);
+  }
+  const clip = d.vec4f(
+    (pos.x / frame.viewport.x) * 2 - 1,
+    1 - (pos.y / frame.viewport.y) * 2,
+    z,
+    1,
+  );
+  return {
+    clip: std.select(HIDDEN, clip, visible),
+    pa,
+    pb,
+    size,
+    alpha,
+    color,
+    kind: mark.kind,
+  };
+});
+
+export const marksFragment = tgpu.fragmentFn({
+  in: {
+    pixel: d.builtin.position,
+    pa: d.interpolate('flat', d.vec2f),
+    pb: d.interpolate('flat', d.vec2f),
+    size: d.interpolate('flat', d.f32),
+    alpha: d.interpolate('flat', d.f32),
+    color: d.interpolate('flat', d.vec4f),
+    kind: d.interpolate('flat', d.u32),
+  },
+  out: d.vec4f,
+})((input) => {
+  'use gpu';
+  const p = input.pixel.xy;
+  let cover = d.f32(0);
+  if (input.kind === MARK.dot) {
+    cover = std.clamp(input.size + 0.5 - std.length(std.sub(p, input.pa)), 0, 1);
+  } else {
+    // Butt ends, box-filtered along the segment too, so chained segments join without beads.
+    const span = std.sub(input.pb, input.pa);
+    const len = std.length(span);
+    const dir = std.div(span, std.max(len, 1e-6));
+    const q = std.sub(p, input.pa);
+    const along = std.dot(q, dir);
+    const across = std.abs(q.x * dir.y - q.y * dir.x);
+    cover = tickCoverage(across, input.size, 1) * overlap(along, 0, len);
+  }
+  return d.vec4f(input.color.xyz, cover * input.alpha);
 });

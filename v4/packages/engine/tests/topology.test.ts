@@ -61,7 +61,7 @@ const degrees = (edges: [string, string][]) => {
 
 describe('topology', () => {
   it('box: 12 triangles, 18 edges, 12 creases, symmetric adjacency', () => {
-    const mesh = box({ size: [2, 3, 4], part: 0 });
+    const mesh = box({ size: [2, 3, 4] });
     const topo = buildTopology(mesh);
     expect(triangleCount(mesh)).toBe(12);
     let halfEdges = 0;
@@ -79,7 +79,7 @@ describe('topology', () => {
   });
 
   it('lathe: no degenerate triangles at the axis, closed, volume matches the solid', () => {
-    const rotor = lathe({ profile: ROTOR_PROFILE, steps: 64, part: 0 });
+    const rotor = lathe({ profile: ROTOR_PROFILE, steps: 64 });
     const topo = buildTopology(rotor);
     expect(countBits(topo, FLAG.boundary)).toBe(0);
     for (let t = 0; t < triangleCount(rotor); t++) {
@@ -88,36 +88,36 @@ describe('topology', () => {
     }
     // A cylinder of n facets is a prism: V = n/2 · sin(2π/n) · r² · h, exactly.
     const n = 48;
-    const cylinder = lathe({ profile: [[0, 0], [2, 0], [2, 3], [0, 3]], steps: n, part: 0 });
+    const cylinder = lathe({ profile: [[0, 0], [2, 0], [2, 3], [0, 3]], steps: n });
     expect(countBits(buildTopology(cylinder), FLAG.boundary)).toBe(0);
     expect(signedVolume(cylinder)).toBeCloseTo((n / 2) * Math.sin((2 * Math.PI) / n) * 4 * 3, 4);
   });
 
   it('tube: closed with caps, open rims without', () => {
     const path: [number, number, number][] = [[0, 0, 0], [6, 0, 0], [6, 0, 6], [6, 6, 6]];
-    const closed = tube({ path, radius: 0.9, sides: 16, part: 0 });
+    const closed = tube({ path, radius: 0.9, sides: 16 });
     expect(countBits(buildTopology(closed), FLAG.boundary)).toBe(0);
     expect(signedVolume(closed)).toBeGreaterThan(0);
-    const open = tube({ path, radius: 0.9, sides: 16, caps: [false, false], part: 0 });
+    const open = tube({ path, radius: 0.9, sides: 16, caps: [false, false] });
     expect(countBits(buildTopology(open), FLAG.boundary)).toBe(2 * 16);
   });
 
   it('smoothness is declared by the generator, at any step count', () => {
     // A 1° normal-vs-face guess misses this: at 256 steps the facets turn by only 1.4°.
-    const cylinder = lathe({ profile: [[0, 0], [2, 0], [2, 3], [0, 3]], steps: 256, part: 0 });
+    const cylinder = lathe({ profile: [[0, 0], [2, 0], [2, 3], [0, 3]], steps: 256 });
     const topo = buildTopology(cylinder);
     const smooth = topo.flags.filter((f) => f & FLAG.smooth).length;
     expect(smooth).toBe(2 * 256); // the side; the flat caps are not smooth
   });
 
   it('rejects a reversed lathe profile', () => {
-    expect(() => lathe({ profile: [...ROTOR_PROFILE].reverse(), part: 0 })).toThrow(/reversed/);
+    expect(() => lathe({ profile: [...ROTOR_PROFILE].reverse() })).toThrow(/reversed/);
   });
 });
 
 describe('silhouette (CPU run of the shader edgeMode)', () => {
   it('box at the kit view: 6 outline edges forming one closed hexagon', () => {
-    const mesh = box({ size: [12, 12, 10], part: 0 });
+    const mesh = box({ size: [12, 12, 10] });
     const edges = outlineEdges(mesh, buildTopology(mesh));
     expect(edges).toHaveLength(6);
     const degree = degrees(edges);
@@ -126,7 +126,7 @@ describe('silhouette (CPU run of the shader edgeMode)', () => {
   });
 
   it('lathe at the kit view: outline edges form closed loops', () => {
-    const rotor = lathe({ profile: ROTOR_PROFILE, steps: 64, part: 0 });
+    const rotor = lathe({ profile: ROTOR_PROFILE, steps: 64 });
     const edges = outlineEdges(rotor, buildTopology(rotor));
     expect(edges.length).toBeGreaterThan(64);
     for (const n of degrees(edges).values()) expect(n % 2).toBe(0);

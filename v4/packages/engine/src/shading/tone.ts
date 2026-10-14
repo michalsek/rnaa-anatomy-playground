@@ -44,3 +44,59 @@ export const bandWeights = (score: number, fw: number) => {
     d.vec4f(1),
   );
 };
+
+/**
+ * The kit's plan rule (`iso-kit.mjs#extrude`), for upright prisms: tops and bottoms by the
+ * normal's z, sides by the plan angle against the light's plan direction,
+ * `lit = (n̂.xy · l̂.xy + 1) / 2` binned into 4 equal shades. Returns the class 0..4 (4 = top).
+ */
+export const planShade = (normal: d.v3f, light: d.v3f) => {
+  'use gpu';
+  const n = std.normalize(normal);
+  let shade = d.u32(0);
+  if (n.z > 0.5) {
+    shade = d.u32(TONE_TOP);
+  } else if (n.z >= -0.5) {
+    const lit = planLit(n, light);
+    shade = d.u32(std.clamp(std.floor(lit * 4), 0, 3));
+  }
+  return shade;
+};
+
+/** The plan rule's side score in 0..1. */
+export const planLit = (n: d.v3f, light: d.v3f) => {
+  'use gpu';
+  const h = n.xy;
+  const l = light.xy;
+  const hn = std.div(h, std.max(std.length(h), 1e-6));
+  const ln = std.div(l, std.max(std.length(l), 1e-6));
+  return (std.dot(hn, ln) + 1) * 0.5;
+};
+
+/** AA weights of the plan bins (edges at ¼, ½, ¾): s0 → s1 (x) → s2 (y) → s3 (z). */
+export const planWeights = (lit: number, fw: number) => {
+  'use gpu';
+  const inv = 1 / std.max(fw, 1e-6);
+  return std.clamp(
+    d.vec3f((lit - 0.25) * inv + 0.5, (lit - 0.5) * inv + 0.5, (lit - 0.75) * inv + 0.5),
+    d.vec3f(0),
+    d.vec3f(1),
+  );
+};
+
+/** Screen-space light of the kit's tube rule (`tube.mjs`), y down. */
+export const TUBE_LIGHT = [-0.55 / Math.hypot(0.55, 0.835), -0.835 / Math.hypot(0.55, 0.835)] as const;
+
+/**
+ * The kit's tube stripes: across a tube, s runs from −1 to 1 (the normal's screen component
+ * across the tube) and tw is how much that direction faces the light. Shine (`top`) centred at
+ * .44·tw, half-width .24; shade (`s0`) centred at −.62·tw, half-width .2; the body is `s2`.
+ * Returns AA'd weights (shine, shade); fw = fwidth(s).
+ */
+export const tubeStripes = (s: number, tw: number, fw: number) => {
+  'use gpu';
+  const inv = 1 / std.max(fw, 1e-6);
+  const shine = std.clamp((0.24 - std.abs(s - 0.44 * tw)) * inv + 0.5, 0, 1);
+  const shade = std.clamp((0.2 - std.abs(s + 0.62 * tw)) * inv + 0.5, 0, 1);
+  return d.vec2f(shine, shade);
+};

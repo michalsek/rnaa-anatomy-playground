@@ -1,12 +1,13 @@
 import './src/polyfills.ts';
 import 'react-native-webgpu';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StatusBar, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { TgpuRoot } from 'typegpu';
-import { type DebugMode, PAPER, TOKENS, type Theme, initGpu, m1Scene } from '@anatomy/engine';
-import { Stage } from './src/Stage.tsx';
+import { type DebugMode, PAPER, type PoolHandle, type SceneStore, TOKENS, type Theme, initGpu } from '@anatomy/engine';
+import { Scene } from './src/blocks/Scene.tsx';
 import { retireRoot } from './src/gpuRoot.ts';
+import { SCENES } from './src/scenes.tsx';
 
 export default function App() {
   return (
@@ -22,7 +23,9 @@ function Main() {
   const [picked, setPicked] = useState<Theme | null>(null);
   const theme = picked ?? system;
   const insets = useSafeAreaInsets();
-  const scene = useMemo(() => m1Scene(), []);
+  const [sceneIndex, setSceneIndex] = useState(0);
+  const scene = SCENES[sceneIndex]!;
+  const storeRef = useRef<SceneStore | null>(null);
   const [view, setView] = useState(0);
   const [paused, setPaused] = useState(false);
   const [debug, setDebug] = useState<DebugMode>(0);
@@ -33,7 +36,22 @@ function Main() {
     if (!__DEV__) return undefined;
     const g = globalThis as { __v4?: unknown };
     g.__v4 = {
+      scenes: SCENES.map((x) => x.name),
       views: scene.views.map((v) => v.name),
+      setScene: (name: string) => {
+        const index = SCENES.findIndex((x) => x.name === name);
+        if (index < 0) {
+          throw new Error(`unknown scene ${JSON.stringify(name)}; known: ${SCENES.map((x) => x.name).join(', ')}`);
+        }
+        setSceneIndex(index);
+        setView(0);
+      },
+      setPoolCount: (id: string, n: number) => {
+        const store = storeRef.current;
+        if (!store) throw new Error('no scene yet');
+        store.pool$(id).count = n;
+      },
+      store: () => storeRef.current,
       setView: (which: number | string) => {
         const index =
           typeof which === 'number' ? which : scene.views.findIndex((v) => v.name === which);
@@ -78,13 +96,27 @@ function Main() {
   return (
     <View style={[styles.fill, { backgroundColor: PAPER[theme] }]}>
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
-      {root && <Stage root={root} scene={scene} controls={controls} />}
+      {root && (
+        <Scene key={scene.name} root={root} views={scene.views} controls={controls} storeRef={storeRef}>
+          <scene.Content />
+        </Scene>
+      )}
       {error !== null && (
         <View style={styles.center}>
           <Text style={[styles.label, { color: ink }]}>WebGPU unavailable: {error}</Text>
         </View>
       )}
       <View style={[styles.bar, { top: insets.top + 8, right: insets.right + 8 }]}>
+        <Chip
+          theme={theme}
+          label={`Scene: ${scene.name}. Next scene`}
+          onPress={() => {
+            setSceneIndex((sceneIndex + 1) % SCENES.length);
+            setView(0);
+          }}
+        >
+          {scene.name}
+        </Chip>
         <Chip
           theme={theme}
           label={`View: ${scene.views[view]?.name}. Next view`}
@@ -155,7 +187,14 @@ function Chip({
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   center: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
-  bar: { position: 'absolute', flexDirection: 'row', gap: 2 },
+  bar: {
+    position: 'absolute',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 2,
+    maxWidth: '100%',
+  },
   // The pressable is the 44 pt hit area; the visible chip sits centred inside it.
   toggle: {
     minWidth: 44,

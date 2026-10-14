@@ -15,10 +15,11 @@ export type Theme = 'light' | 'dark';
 
 /**
  * Per-material tone slots, in GPU table order. `paper`..`s3` fill faces; `hi`, `mid`, `lo`,
- * `faint` and `lit` are line tones (`iso.css`: outline = mid, crease = faint, ribs = lo).
+ * `faint` and `lit` are line tones (`iso.css`: outline = mid, crease = faint, ribs = lo);
+ * `dot` fills bolt dots (`--anatomy-dot`), whose opacity comes from their tone.
  */
 export const SLOTS = [
-  'paper', 'face', 'top', 's0', 's1', 's2', 's3', 'hi', 'mid', 'lo', 'faint', 'lit',
+  'paper', 'face', 'top', 's0', 's1', 's2', 's3', 'hi', 'mid', 'lo', 'faint', 'lit', 'dot',
 ] as const;
 export type Slot = (typeof SLOTS)[number];
 export const SLOT_COUNT = SLOTS.length;
@@ -47,6 +48,7 @@ const graphite: MaterialTokens = {
   lo: '#5c6068',
   faint: '#43464d',
   lit: '#ffffff',
+  dot: '#c8cbd1',
 };
 
 export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
@@ -64,6 +66,7 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
       lo: '#b4b4b8',
       faint: '#d4d4d6',
       lit: '#000000',
+      dot: '#3a3a3e',
     },
     graphite,
     react: {
@@ -79,6 +82,7 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
       lo: '#4f97b1',
       faint: '#7cc3dc',
       lit: '#000000',
+      dot: '#0f4256',
     },
   },
   dark: {
@@ -95,6 +99,7 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
       lo: '#3e3e3e',
       faint: '#2a2a2a',
       lit: '#ffffff',
+      dot: '#e6e6e6',
     },
     graphite,
     react: {
@@ -110,6 +115,7 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
       lo: '#3c8aa6',
       faint: '#2a6377',
       lit: '#ffffff',
+      dot: '#bfeefc',
     },
   },
 };
@@ -136,3 +142,9 @@ export function paletteTable(theme: Theme): Float32Array {
   });
   return table;
 }
+
+/** Line tones (palette slots that ink lines and dots). */
+export type LineTone = 'hi' | 'mid' | 'lo' | 'faint' | 'lit';
+
+/** Dot opacity per tone (`iso.css`, `.iso-dots[data-tone]`). */
+export const DOT_OPACITY = { hi: 0.85, mid: 0.45, lo: 0.22, faint: 0.12 } as const;

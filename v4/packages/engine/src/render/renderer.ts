@@ -1,13 +1,14 @@
 /**
- * The M1 renderer: one merged mesh pulled from storage buffers, one pipeline (fills with
- * in-face lines), one MSAA pass with depth, resolved into the canvas. One encoder and one
- * submit per frame. Host-agnostic: it receives the TypeGPU root (which owns the device), a
- * configured canvas context, its format, size and DPR.
+ * The renderer: reads a SceneStore, rebuilds its GPU buffers when the store's structure changes,
+ * uploads the instance table when something moved, and draws one MSAA pass with depth (fill
+ * batches with in-face lines, then marks) resolved into the canvas. One encoder and one submit
+ * per frame. Host-agnostic: it receives the TypeGPU root (which owns the device), a configured
+ * canvas context, its format, size and DPR.
  */
 import { d, type TgpuRoot } from 'typegpu';
-import { mat4 } from 'wgpu-matrix';
 import { DEV, PLATFORM, log } from '#platform/env.ts';
 import {
+  type Bounds,
   type CameraState,
   type ViewPreset,
   type Viewport,
@@ -17,29 +18,21 @@ import {
   fitToBounds,
   viewCamera,
 } from '../camera/camera.ts';
-import { triangleCount, vertexCount } from '../geo/mesh.ts';
-import { FLAG } from '../geo/topology.ts';
-import {
-  MATERIALS,
-  PAPER,
-  SLOT,
-  SLOT_COUNT,
-  type Theme,
-  hexToRgb,
-  paletteTable,
-} from '../palette/tokens.ts';
-import { type LineSetSpec, type SceneSpec, partMatrix } from '../scene/spec.ts';
+import type { LineSetSpec } from '../geo/spec.ts';
+import { MATERIALS, PAPER, SLOT, SLOT_COUNT, type Theme, hexToRgb, paletteTable } from '../palette/tokens.ts';
+import type { SceneBuild, SceneStore } from '../scene/store.ts';
 import {
   Frame,
   GpuTri,
   GpuVertex,
+  Instance,
   LineSet,
-  Part,
-  packTriangles,
-  packVertices,
+  Mark,
+  Style,
+  assertLayouts,
   sceneLayout,
 } from './schemas.ts';
-import { fillFragment, fillVertex } from './shaders.ts';
+import { fillFragment, fillVertex, marksFragment, marksVertex } from './shaders.ts';
 
 const SAMPLES = 4;
 /** `GPUTextureUsage.RENDER_ATTACHMENT`; the literal avoids relying on a host global. */
@@ -52,7 +45,7 @@ const NO_LINES: LineSetSpec = {
 };
 
 /** 0 = normal, 1 = line classes on paper (outline red, contour magenta, crease blue, ticks
- * green), 2 = lines off. */
+ * green, marks cyan), 2 = lines off. */
 export type DebugMode = 0 | 1 | 2;
 
 /**
@@ -72,7 +65,7 @@ export interface RendererOptions {
   width: number;
   height: number;
   dpr: number;
-  scene: SceneSpec;
+  store: SceneStore;
   theme: Theme;
 }
 
@@ -90,74 +83,120 @@ export interface Renderer {
   setCamera(state: CameraState): void;
   setDebug(mode: DebugMode): void;
   setTheme(theme: Theme): void;
-  /** Render one frame; `time` in seconds drives the spins. Plain function: no React, no DOM. */
-  frame(time: number): void;
+  /** Render one frame. Plain function: no React, no DOM. */
+  frame(): void;
   destroy(): void;
 }
 
-export function createRenderer(options: RendererOptions): Renderer {
-  const { root, context, format, scene } = options;
-  const device = root.device;
-  const { mesh, topology } = scene;
-  const triCount = triangleCount(mesh);
-  const vCount = vertexCount(mesh);
-  for (let t = 0; t < triCount; t++) {
-    const tag = (topology.flags[t]! >>> FLAG.lineSetShift) & FLAG.lineSetMask;
-    if (tag > scene.lineSets.length) {
-      throw new Error(`triangle ${t}: line set ${tag} unknown (${scene.lineSets.length} defined)`);
-    }
-  }
+function lineSetData(s: LineSetSpec) {
+  return {
+    count: s.count,
+    phase: s.phase,
+    first: s.first,
+    last: s.last,
+    majorEvery: s.majorEvery,
+    minorSlot: SLOT[s.minor],
+    majorSlot: SLOT[s.major],
+    width: s.width,
+    majorWidth: s.majorWidth,
+    fade: d.vec2f(s.fade[0], s.fade[1]),
+  };
+}
 
-  // ---- resources -------------------------------------------------------------------------
+export function createRenderer(options: RendererOptions): Renderer {
+  const { root, context, format, store } = options;
+  const device = root.device;
+  assertLayouts();
+
+  // ---- static resources --------------------------------------------------------------------
   const frameBuffer = root.createBuffer(Frame).$usage('uniform');
-  const vertices = root.createBuffer(d.arrayOf(GpuVertex, vCount)).$usage('storage');
-  vertices.write(packVertices(mesh));
-  const tris = root.createBuffer(d.arrayOf(GpuTri, triCount)).$usage('storage');
-  tris.write(packTriangles(mesh, topology));
-  const parts = root.createBuffer(d.arrayOf(Part, scene.parts.length)).$usage('storage');
-  const lineSetCount = Math.max(1, scene.lineSets.length);
-  const lineSets = root.createBuffer(d.arrayOf(LineSet, lineSetCount)).$usage('storage');
   const palette = root
     .createBuffer(d.arrayOf(d.vec4f, MATERIALS.length * SLOT_COUNT))
     .$usage('storage');
-  const owned = [frameBuffer, vertices, tris, parts, lineSets, palette];
 
-  lineSets.write(
-    (scene.lineSets.length ? scene.lineSets : [NO_LINES]).map((s) => ({
-      count: s.count,
-      phase: s.phase,
-      first: s.first,
-      last: s.last,
-      majorEvery: s.majorEvery,
-      minorSlot: SLOT[s.minor],
-      majorSlot: SLOT[s.major],
-      width: s.width,
-      majorWidth: s.majorWidth,
-      fade: d.vec2f(...s.fade),
-    })),
-  );
-
-  const bindGroup = root.createBindGroup(sceneLayout, {
-    frame: frameBuffer,
-    vertices,
-    tris,
-    parts,
-    lineSets,
-    palette,
+  const fillPipeline = root.createRenderPipeline({
+    vertex: fillVertex,
+    fragment: fillFragment,
+    targets: { format },
+    // Solids are closed and wound CCW from outside; the kit's projection is mirrored, so
+    // front faces are clockwise on screen.
+    primitive: { topology: 'triangle-list', frontFace: 'cw', cullMode: 'back' },
+    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'less' },
+    multisample: { count: SAMPLES },
+  });
+  const marksPipeline = root.createRenderPipeline({
+    vertex: marksVertex,
+    fragment: marksFragment,
+    targets: {
+      format,
+      blend: {
+        color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+      },
+    },
+    primitive: { topology: 'triangle-list', cullMode: 'none' },
+    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'less-equal' },
+    multisample: { count: SAMPLES },
   });
 
-  const pipeline = root
-    .createRenderPipeline({
-      vertex: fillVertex,
-      fragment: fillFragment,
-      targets: { format },
-      // Solids are closed and wound CCW from outside; the kit's projection is mirrored, so
-      // front faces are clockwise on screen.
-      primitive: { topology: 'triangle-list', frontFace: 'cw', cullMode: 'back' },
-      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'less' },
-      multisample: { count: SAMPLES },
-    })
-    .with(bindGroup);
+  // ---- scene resources (rebuilt when the store's structure changes) --------------------------
+  type SceneGpu = {
+    version: number;
+    build: SceneBuild;
+    owned: { destroy(): void }[];
+    instances: ReturnType<typeof makeInstances>;
+    fill: typeof fillPipeline;
+    marks: typeof marksPipeline;
+  };
+  const makeInstances = (count: number) =>
+    root.createBuffer(d.arrayOf(Instance, Math.max(1, count))).$usage('storage');
+  let scene: SceneGpu | null = null;
+
+  const rebuild = () => {
+    const t0 = Date.now();
+    const build = store.build();
+    for (const r of scene?.owned ?? []) r.destroy();
+    const vertices = root.createBuffer(d.arrayOf(GpuVertex, Math.max(1, build.vertexCount))).$usage('storage');
+    if (build.vertexCount) vertices.write(build.vertices.buffer as ArrayBuffer);
+    const tris = root.createBuffer(d.arrayOf(GpuTri, Math.max(1, build.triCount))).$usage('storage');
+    if (build.triCount) tris.write(build.tris);
+    const instances = makeInstances(build.instanceCount);
+    const styles = root.createBuffer(d.arrayOf(Style, Math.max(1, build.styleCount))).$usage('storage');
+    styles.write(build.styles);
+    const sets = build.lineSets.length ? build.lineSets : [NO_LINES];
+    const lineSets = root.createBuffer(d.arrayOf(LineSet, sets.length)).$usage('storage');
+    lineSets.write(sets.map(lineSetData));
+    const marks = root.createBuffer(d.arrayOf(Mark, Math.max(1, build.markCount))).$usage('storage');
+    marks.write(build.marks);
+    const bindGroup = root.createBindGroup(sceneLayout, {
+      frame: frameBuffer,
+      vertices,
+      tris,
+      instances,
+      styles,
+      lineSets,
+      palette,
+      marks,
+    });
+    const boundsChanged = !scene || !sameBounds(scene.build.bounds, build.bounds);
+    scene = {
+      version: store.version,
+      build,
+      owned: [vertices, tris, instances, styles, lineSets, marks],
+      instances,
+      fill: fillPipeline.with(bindGroup),
+      marks: marksPipeline.with(bindGroup),
+    };
+    if (boundsChanged && onPreset) applyPreset();
+    if (DEV) {
+      const s = build.stats;
+      log(
+        `[engine] scene built in ${Date.now() - t0} ms on ${PLATFORM}: ${s.triangles} triangles, ` +
+          `${build.vertexCount} vertices, ${s.parts} parts, ${s.pools} pools, ${s.instances} instances, ` +
+          `${s.marks} marks (${s.contacts} contact segments), ${build.batches.length} batches`,
+      );
+    }
+  };
 
   // ---- per-size targets ------------------------------------------------------------------
   let targets: { width: number; height: number; color: GPUTexture; depth: GPUTexture } | null =
@@ -176,9 +215,10 @@ export function createRenderer(options: RendererOptions): Renderer {
     return targets;
   };
 
-  // ---- state -----------------------------------------------------------------------------
+  // ---- camera ------------------------------------------------------------------------------
   const viewport: Viewport = { width: options.width, height: options.height, dpr: options.dpr };
-  let camera: CameraState = fitToBounds(scene.bounds, viewport);
+  let bounds: Bounds = { min: [-1, -1, -1], max: [1, 1, 1] };
+  let camera: CameraState = fitToBounds(bounds, viewport);
   // True while the camera is a preset's (or the fit); a user camera survives resizes.
   let onPreset = true;
   let preset: ViewPreset | null = null;
@@ -188,27 +228,25 @@ export function createRenderer(options: RendererOptions): Renderer {
   let debug: DebugMode = 0;
   const matrices = createCameraMatrices();
   let clear: [number, number, number, number] = [0, 0, 0, 1];
-  const rest = scene.parts.map((p) => partMatrix(p));
-  const model = mat4.identity();
+
+  const fitZoomNow = () =>
+    fitToBounds(bounds, viewport, { yaw: camera.yaw, elevation: camera.elevation }).zoom;
+  function applyPreset() {
+    if (scene) bounds = scene.build.bounds;
+    camera = preset
+      ? viewCamera(bounds, viewport, preset)
+      : fitToBounds(bounds, viewport, { yaw: camera.yaw, elevation: camera.elevation });
+    onPreset = true;
+    refZoom = fitZoomNow();
+  }
 
   const setTheme = (theme: Theme) => {
     palette.write(paletteTable(theme));
     clear = [...hexToRgb(PAPER[theme]), 1];
   };
   setTheme(options.theme);
-  if (DEV) {
-    log(`[engine] renderer up on ${PLATFORM}: ${vCount} vertices, ${triCount} triangles, ${format}`);
-  }
+  if (DEV) log(`[engine] renderer up on ${PLATFORM}: ${format}`);
 
-  const fitZoomNow = () =>
-    fitToBounds(scene.bounds, viewport, { yaw: camera.yaw, elevation: camera.elevation }).zoom;
-  const applyPreset = () => {
-    camera = preset
-      ? viewCamera(scene.bounds, viewport, preset)
-      : fitToBounds(scene.bounds, viewport, { yaw: camera.yaw, elevation: camera.elevation });
-    onPreset = true;
-    refZoom = fitZoomNow();
-  };
   const resize = (width: number, height: number, dpr: number) => {
     const w = Math.max(1, Math.round(width));
     const h = Math.max(1, Math.round(height));
@@ -219,16 +257,14 @@ export function createRenderer(options: RendererOptions): Renderer {
     if (onPreset) applyPreset();
     else refZoom = fitZoomNow();
   };
-  const fit = () => {
-    preset = null;
-    applyPreset();
-  };
   const copyCamera = (state: CameraState): CameraState => ({
     ...state,
     target: [...state.target],
   });
 
-  const frame = (time: number) => {
+  const frame = () => {
+    if (!scene || scene.version !== store.version) rebuild();
+    const s = scene!;
     // A hidden or collapsed canvas has no pixels (the web host sizes it from its own layout);
     // asking for its texture would raise a validation error, so skip until it has some.
     if (context.canvas.width === 0 || context.canvas.height === 0) return;
@@ -239,54 +275,61 @@ export function createRenderer(options: RendererOptions): Renderer {
     }
     const { color, depth } = ensureTargets(texture.width, texture.height);
 
+    const flat = store.flatten();
+    if (flat.dirty && flat.used) {
+      s.instances.write(flat.f32.buffer as ArrayBuffer);
+    }
+
     cameraMatrices(camera, viewport, 1000, matrices);
+    const basis = basisOf(camera.yaw, camera.elevation);
     frameBuffer.write({
       viewProjection: matrices.viewProjection,
       light: d.vec3f(...matrices.light),
-      toward: d.vec3f(...basisOf(camera.yaw, camera.elevation).toward),
+      toward: d.vec3f(...basis.toward),
+      right: d.vec3f(...basis.right),
+      up: d.vec3f(...basis.up),
       viewport: d.vec2f(viewport.width, viewport.height),
       // Line widths scale with zoom like a pinch-zoomed SVG: 1 CSS px at the fit zoom.
       pxPerCss: (viewport.dpr * camera.zoom) / refZoom,
       debug,
       paper: d.vec4f(...clear),
     });
-    parts.write(
-      scene.parts.map((p, index) => {
-        mat4.rotateZ(rest[index]!, time * p.spin, model);
-        return {
-          model: mat4.clone(model),
-          material: p.material,
-          outlineSlot: SLOT[p.outline],
-          creaseSlot: SLOT[p.crease],
-          width: p.width,
-        };
-      }),
-    );
 
     const encoder = device.createCommandEncoder();
-    pipeline
-      .with(encoder)
-      .withColorAttachment({
-        view: color.createView(),
-        resolveTarget: texture.createView(),
-        clearValue: clear,
-        loadOp: 'clear',
-        storeOp: 'discard',
-      })
-      .withDepthStencilAttachment({
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: color.createView(),
+          resolveTarget: texture.createView(),
+          clearValue: clear,
+          loadOp: 'clear',
+          storeOp: 'discard',
+        },
+      ],
+      depthStencilAttachment: {
         view: depth.createView(),
         depthClearValue: 1,
         depthLoadOp: 'clear',
         depthStoreOp: 'discard',
-      })
-      .draw(triCount * 3);
+      },
+    });
+    const fill = s.fill.with(pass);
+    for (const b of s.build.batches) {
+      const count = b.pool === null ? 1 : store.poolCount(b.pool);
+      if (count > 0 && b.triCount > 0) fill.draw(b.triCount * 3, count, b.firstTri * 3, b.firstInstance);
+    }
+    if (s.build.markCount > 0 && debug !== 2) s.marks.with(pass).draw(6, s.build.markCount);
+    pass.end();
     device.queue.submit([encoder.finish()]);
     context.present?.();
   };
 
   return {
     resize,
-    fit,
+    fit: () => {
+      preset = null;
+      applyPreset();
+    },
     setView: (view) => {
       preset = view;
       applyPreset();
@@ -305,7 +348,13 @@ export function createRenderer(options: RendererOptions): Renderer {
       targets?.color.destroy();
       targets?.depth.destroy();
       targets = null;
-      for (const buffer of owned) buffer.destroy();
+      for (const r of scene?.owned ?? []) r.destroy();
+      scene = null;
+      frameBuffer.destroy();
+      palette.destroy();
     },
   };
 }
+
+const sameBounds = (a: Bounds, b: Bounds) =>
+  a.min.every((v, i) => v === b.min[i]) && a.max.every((v, i) => v === b.max[i]);

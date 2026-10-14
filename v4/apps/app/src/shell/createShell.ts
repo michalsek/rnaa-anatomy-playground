@@ -4,8 +4,9 @@ import type { TgpuRoot } from 'typegpu';
 import {
   type CanvasContext,
   type DebugMode,
-  type SceneSpec,
+  type SceneStore,
   type Theme,
+  type ViewPreset,
   createRenderer,
 } from '@anatomy/engine';
 
@@ -27,7 +28,7 @@ export interface ShellSize {
 /** What the UI controls; the shell applies it at start and whenever it changes. */
 export interface ShellControls {
   theme: Theme;
-  /** Index into `scene.views`. */
+  /** Index into the scene's views. */
   view: number;
   paused: boolean;
   debug: DebugMode;
@@ -48,7 +49,8 @@ export function createShell(
   canvas: CanvasLike,
   format: GPUTextureFormat,
   size: ShellSize,
-  scene: SceneSpec,
+  store: SceneStore,
+  views: readonly ViewPreset[],
   controls: ShellControls,
   onFatal: (message: string) => void,
 ): Shell {
@@ -80,12 +82,12 @@ export function createShell(
     width: px.width,
     height: px.height,
     dpr: px.dpr,
-    scene,
+    store,
     theme: controls.theme,
   });
   let view = controls.view;
   const applyView = () => {
-    const preset = scene.views[view];
+    const preset = views[view];
     if (preset) renderer.setView(preset);
     else renderer.fit();
   };
@@ -100,10 +102,14 @@ export function createShell(
   let raf = 0;
   const loop = (now: number) => {
     if (stopped) return;
-    if (!paused) time += Math.min(Math.max(0, (now - last) / 1000), MAX_DT);
+    const dt = Math.min(Math.max(0, (now - last) / 1000), MAX_DT);
     last = now;
     try {
-      renderer.frame(time);
+      if (!paused) {
+        time += dt;
+        store.tick(time, dt);
+      }
+      renderer.frame();
     } catch (err) {
       fatal(err);
       return;
