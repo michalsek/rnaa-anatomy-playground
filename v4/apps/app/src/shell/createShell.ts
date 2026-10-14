@@ -112,10 +112,9 @@ export function createShell(
     const dt = Math.min(Math.max(0, (now - last) / 1000), MAX_DT);
     last = now;
     try {
-      if (!paused) {
-        time += dt;
-        store.tick(time, dt);
-      }
+      // Tick every frame (dt 0 while paused), so poses written while paused (a seek) render.
+      if (!paused) time += dt;
+      store.tick(time, paused ? 0 : dt);
       renderer.frame();
     } catch (err) {
       fatal(err);

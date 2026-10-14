@@ -13,12 +13,11 @@ export const CENTRIFUGE_VIEWS: ViewPreset[] = [
   { name: 'funnel', yaw: 45, elevation: 30, zoom: 1, frame: [[-13, -36, 164], [13, -10, 187]] },
 ];
 
-/** The overlay card (v2 `build.mjs` page options; the readout is the shot's "in sync" moment). */
+/** The overlay card (v2 `build.mjs` page options); the live readout comes from `live.ts`. */
 export const CENTRIFUGE_CARD = {
   fig: 'Part',
   title: 'Centrifuge',
   hint: 'fills · spins up · drains one per quantum',
-  readout: 'held 5/10 · 14.1 rpm · in sync',
   /** The first sentence of the v2 caption. */
   label: 'The lock-free ring between JS and the audio thread.',
 } as const;

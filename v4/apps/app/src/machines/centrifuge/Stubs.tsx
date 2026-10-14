@@ -3,17 +3,16 @@
  * the audio belt below the spout, with its slats. Siblings of the machine (`stubFeed.*`,
  * `stubBelt.*`); v2's absolute coordinates minus the origin [100, 66, 0].
  */
-import type { PoolHandle } from '@anatomy/engine';
-import { Box, Extrude, Group, Instances, Lathe, useFrame, useNode } from '../../blocks/blocks.tsx';
+import { CF } from '@anatomy/engine';
+import { Box, Extrude, Group, Instances, Lathe } from '../../blocks/blocks.tsx';
 import { SPOUT, corners, disc } from './dims.ts';
 
-/** The audio belt runs along −x under the spout's hand-over point. */
+/** The audio belt runs along −x under the spout's hand-over point (the sim moves its slats). */
 const BELT = (() => {
-  const y = SPOUT.hand[1];
-  const x1 = Math.round(SPOUT.hand[0] + 100 + 14) - 100;
-  return { x0: -78, x1, y, y0: y - 8, y1: y + 8, pitch: 12 };
+  const { x0, x1, y } = CF.belt;
+  if (x1 !== Math.round(SPOUT.hand[0] + 100 + 14) - 100) throw new Error('belt end out of step with the spout');
+  return { x0, x1, y, y0: y - 8, y1: y + 8 };
 })();
-const SLATS = 8;
 
 export function Feeder() {
   return (
@@ -34,12 +33,6 @@ export function Feeder() {
 }
 
 export function AudioBelt() {
-  const slats = useNode<PoolHandle>('stubBelt.slats');
-  useFrame(() => {
-    const pool = slats();
-    pool.count = SLATS;
-    for (let j = 0; j < SLATS; j++) pool.pose(j, [BELT.x1 - 1 - BELT.pitch * j, BELT.y, 91.4]);
-  });
   const legs = [-66, -36, BELT.x1 - 8].flatMap((x) => [BELT.y0 + 1, BELT.y1 - 1].map((y) => [x, y] as const));
   return (
     <Group id="stubBelt" contacts={false}>
@@ -58,7 +51,7 @@ export function AudioBelt() {
         id="slats"
         geo={{ kind: 'box', size: [1.6, 15.2, 0.6], r: 0.3, center: [0, 0, 0.3] }}
         styles={[{ material: 'steel', outline: 'lo' }]}
-        capacity={SLATS}
+        capacity={CF.belt.slats}
       />
     </Group>
   );

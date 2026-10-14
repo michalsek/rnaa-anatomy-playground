@@ -132,7 +132,8 @@ export interface CentrifugeSim {
   advance(dt: number, speed?: number): number;
   /** Uncapped (seek, tests). */
   run(seconds: number): void;
-  status(): Status;
+  /** Pass `out` to reuse an object (per-frame callers). */
+  status(out?: Status): Status;
   outputs(out: Outputs): Outputs;
   /** Every live packet's pose (bottom centre, yaw); returns the count. */
   packets(cb: PacketCallback): number;
@@ -652,16 +653,16 @@ export function createCentrifugeSim(o: { seed?: number } = {}): CentrifugeSim {
       const n = Math.round(seconds / H);
       for (let i = 0; i < n; i++) step();
     },
-    status() {
-      return {
-        t: s.t,
-        held: held(),
-        rpm: (Math.max(0, s.w) * 60) / TAU,
-        phase: s.phase,
-        queued: s.queue.length,
-        inSync: s.inSync,
-        mode: s.mode,
-      };
+    status(out) {
+      const o = out ?? ({} as Status);
+      o.t = s.t;
+      o.held = held();
+      o.rpm = (Math.max(0, s.w) * 60) / TAU;
+      o.phase = s.phase;
+      o.queued = s.queue.length;
+      o.inSync = s.inSync;
+      o.mode = s.mode;
+      return o;
     },
     outputs(out) {
       const w = Math.max(0, s.w);

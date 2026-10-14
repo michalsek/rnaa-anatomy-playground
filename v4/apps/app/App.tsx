@@ -70,6 +70,8 @@ function Main() {
       setTheme: setPicked,
       /** Hide the chip bar for clean captures (the card moves up into its place). */
       setChrome,
+      /** The scene's own hook (the centrifuge: time control, see live.ts). */
+      sim: scene.dev,
     };
     return () => {
       delete g.__v4;

@@ -4,6 +4,7 @@ import { Gallery } from './gallery/Gallery.tsx';
 import { M1Row } from './gallery/M1Row.tsx';
 import { GALLERY_VIEWS, M1_VIEWS } from './gallery/views.ts';
 import { Centrifuge } from './machines/centrifuge/Centrifuge.tsx';
+import * as centrifugeLive from './machines/centrifuge/live.ts';
 import { CENTRIFUGE_CARD, CENTRIFUGE_VIEWS } from './machines/centrifuge/views.ts';
 import type { ReadoutSource } from './overlay/readout.ts';
 
@@ -22,12 +23,20 @@ export interface SceneEntry {
   views: readonly ViewPreset[];
   Content: ComponentType;
   card: CardText;
+  /** Dev-only hook object, exposed as `__v4.sim`. */
+  dev?: object;
 }
 
 const M1Only = () => <M1Row />;
 
 export const SCENES: SceneEntry[] = [
-  { name: 'centrifuge', views: CENTRIFUGE_VIEWS, Content: Centrifuge, card: CENTRIFUGE_CARD },
+  {
+    name: 'centrifuge',
+    views: CENTRIFUGE_VIEWS,
+    Content: Centrifuge,
+    card: { ...CENTRIFUGE_CARD, readout: centrifugeLive.readout },
+    dev: centrifugeLive.dev,
+  },
   {
     name: 'gallery',
     views: GALLERY_VIEWS,

@@ -11,7 +11,7 @@
  * from u toward v) are model angles unchanged, as long as v = a × u (`placeFrame` reports a
  * mirrored frame). Plain module: no components here (Fast Refresh boundary rule).
  */
-import type { DotSpec, LineSetSpec, ProfilePoint, SegmentSpec, Vec3 } from '@anatomy/engine';
+import { CF, type DotSpec, type LineSetSpec, type ProfilePoint, type SegmentSpec, type Vec3 } from '@anatomy/engine';
 
 export type V3 = [number, number, number];
 
@@ -213,18 +213,18 @@ export function closed(points: readonly Vec3[], normal: Vec3, tone: SegmentSpec[
 
 // ---- the spout and the hand-over (for the audio belt stub) -------------------------------------
 
-/** v2 spout frame: from the rim at the gate, sloping out and down. */
+/**
+ * v2 spout frame: from the rim at the gate, sloping out and down. The lip and the hand-over point
+ * (where a falling packet reaches z 100) come from the engine sim, the one source of the spout
+ * kinematics.
+ */
 export const SPOUT = (() => {
-  const g = GATE_DEG * DEG;
   const sl = SPOUT_SLOPE * DEG;
+  const g = GATE_DEG * DEG;
   const o = polar(GATE_DEG, R.rimOut, Z.pocket);
   const a: V3 = [Math.cos(g) * Math.cos(sl), Math.sin(g) * Math.cos(sl), -Math.sin(sl)];
   const u = dir(GATE_DEG + 90);
-  const lip = add(o, scale(a, SPOUT_LEN));
-  // A packet leaves the lip at 18 units/s along the slope and falls (g = 400) to z 100.
-  const vx = 18 * Math.cos(sl);
-  const vz0 = 18 * Math.sin(sl);
-  const tFall = (-vz0 + Math.sqrt(vz0 * vz0 + 2 * 400 * (lip[2] - 100))) / 400;
-  const hand: V3 = [lip[0] + Math.cos(g) * vx * tFall, lip[1] + Math.sin(g) * vx * tFall, 100];
+  const lip: V3 = [...CF.spout.lip];
+  const hand: V3 = [...CF.spout.hand];
   return { frame: placeFrame(o, a, u, cross(a, u)), lip, hand };
 })();
