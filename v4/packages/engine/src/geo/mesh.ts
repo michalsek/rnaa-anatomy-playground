@@ -13,6 +13,8 @@ export interface Mesh {
   normals: Float32Array;
   /** uv per vertex: generators put the around-the-axis coordinate in u (0..1). */
   uvs: Float32Array;
+  /** xyz per vertex: a tube's centreline direction (the tube tone rule's axis), else zero. */
+  tangents: Float32Array;
   indices: Uint32Array;
   /** UV line-set id per triangle (1-based; 0 = none). */
   tags: Uint32Array;
@@ -43,6 +45,7 @@ export class MeshBuilder {
   private positions: number[] = [];
   private normals: number[] = [];
   private uvs: number[] = [];
+  private tangents: number[] = [];
   private indices: number[] = [];
   private tags: number[] = [];
   private marks: number[] = [];
@@ -51,8 +54,9 @@ export class MeshBuilder {
   private currentTag = 0;
   private currentSmooth = 0;
 
-  vertex(p: Vec3, n: Vec3, uv: readonly [number, number] = [0, 0]): number {
+  vertex(p: Vec3, n: Vec3, uv: readonly [number, number] = [0, 0], tangent: Vec3 = [0, 0, 0]): number {
     this.positions.push(p[0], p[1], p[2]);
+    this.tangents.push(tangent[0], tangent[1], tangent[2]);
     const len = Math.hypot(n[0], n[1], n[2]) || 1;
     this.normals.push(n[0] / len, n[1] / len, n[2] / len);
     this.uvs.push(uv[0], uv[1]);
@@ -107,6 +111,7 @@ export class MeshBuilder {
       positions: new Float32Array(this.positions),
       normals: new Float32Array(this.normals),
       uvs: new Float32Array(this.uvs),
+      tangents: new Float32Array(this.tangents),
       indices: new Uint32Array(this.indices),
       tags: new Uint32Array(this.tags),
       marks: new Uint32Array(this.marks),
@@ -123,6 +128,7 @@ export function mergeMeshes(meshes: readonly Mesh[]): Mesh {
     positions: new Float32Array(sum((m) => m.positions.length)),
     normals: new Float32Array(sum((m) => m.normals.length)),
     uvs: new Float32Array(sum((m) => m.uvs.length)),
+    tangents: new Float32Array(sum((m) => m.tangents.length)),
     indices: new Uint32Array(sum((m) => m.indices.length)),
     tags: new Uint32Array(sum((m) => m.tags.length)),
     marks: new Uint32Array(sum((m) => m.marks.length)),
@@ -137,6 +143,7 @@ export function mergeMeshes(meshes: readonly Mesh[]): Mesh {
     out.positions.set(m.positions, v * 3);
     out.normals.set(m.normals, v * 3);
     out.uvs.set(m.uvs, v * 2);
+    out.tangents.set(m.tangents, v * 3);
     for (let j = 0; j < m.indices.length; j++) out.indices[i + j] = m.indices[j]! + v;
     out.tags.set(m.tags, t);
     out.smooth.set(m.smooth, t);

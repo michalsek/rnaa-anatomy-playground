@@ -173,6 +173,9 @@ export function lathe({
   });
   const knotNormal = (seg: number, knot: number) => {
     const own = segNormal[seg]!;
+    // A knot on the axis (a pole) is a single point: its normal is the axis, or the fan around
+    // it would carry a ring of different normals and draw creases like a star.
+    if (Math.abs(profile[knot]![0]) < 1e-9) return [0, own[1] >= 0 ? 1 : -1] as const;
     const other = knot === seg ? segNormal[seg - 1] : segNormal[seg + 1];
     if (!profile[knot]![2] || !other) return own;
     return [own[0] + other[0], own[1] + other[1]] as const;

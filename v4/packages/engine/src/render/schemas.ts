@@ -10,7 +10,11 @@ export const GpuVertex = d.struct({
   u: d.f32,
   normal: d.vec3f,
   v: d.f32,
-}); // 32 B
+  /** A tube's centreline direction (zero elsewhere). */
+  tangent: d.vec3f,
+  _pad: d.f32,
+}); // 48 B
+export const VERTEX_FLOATS = 12;
 
 export const GpuTri = d.struct({
   idx: d.vec3u,
@@ -108,12 +112,12 @@ export const sceneLayout = tgpu.bindGroupLayout({
   instances: { storage: (n: number) => d.arrayOf(Instance, n), visibility: ['vertex'] },
   styles: { storage: (n: number) => d.arrayOf(Style, n), visibility: ['vertex', 'fragment'] },
   lineSets: { storage: (n: number) => d.arrayOf(LineSet, n), visibility: ['fragment'] },
-  palette: { storage: (n: number) => d.arrayOf(d.vec4f, n), visibility: ['fragment'] },
+  palette: { storage: (n: number) => d.arrayOf(d.vec4f, n), visibility: ['vertex', 'fragment'] },
   marks: { storage: (n: number) => d.arrayOf(Mark, n), visibility: ['vertex'] },
 });
 
 /** Byte sizes the CPU packers assume; checked against TypeGPU's layout once. */
-export const SIZES = { vertex: 32, tri: 48, instance: 80, style: 32, mark: 64 } as const;
+export const SIZES = { vertex: 48, tri: 48, instance: 80, style: 32, mark: 64 } as const;
 
 export function assertLayouts() {
   const actual = {

@@ -111,6 +111,7 @@ export const fillVertex = tgpu.vertexFn({
     extraA: d.interpolate('flat', d.vec3f),
     extraB: d.interpolate('flat', d.vec3f),
     extraModes: d.interpolate('flat', d.vec2u),
+    tangent: d.vec3f,
   },
 })((input) => {
   'use gpu';
@@ -208,6 +209,7 @@ export const fillVertex = tgpu.vertexFn({
     rule = d.u32(TONE_RULE.tube);
   }
   const visible = (inst.flags & INSTANCE.visible) !== 0;
+  const tangent = std.select(std.select(v0.tangent, v1.tangent, is1), v2.tangent, is2);
 
   return {
     clip: std.select(HIDDEN, clip, visible),
@@ -222,6 +224,7 @@ export const fillVertex = tgpu.vertexFn({
     extraA,
     extraB,
     extraModes,
+    tangent: std.mul(inst.model, d.vec4f(tangent, 0)).xyz,
   };
 });
 
@@ -244,6 +247,7 @@ const GREEN = d.vec4f(0.1, 0.7, 0.2, 1);
 export const fillFragment = tgpu.fragmentFn({
   in: {
     pixel: d.builtin.position,
+    front: d.builtin.frontFacing,
     normal: d.vec3f,
     uv: d.vec2f,
     bary: d.interpolate('linear', d.vec3f),
@@ -255,6 +259,7 @@ export const fillFragment = tgpu.fragmentFn({
     extraA: d.interpolate('flat', d.vec3f),
     extraB: d.interpolate('flat', d.vec3f),
     extraModes: d.interpolate('flat', d.vec2u),
+    tangent: d.vec3f,
   },
   out: d.vec4f,
 })((input) => {
@@ -269,11 +274,14 @@ export const fillFragment = tgpu.fragmentFn({
   const fw = std.fwidth(score);
   const lit = planLit(n, frame.light);
   const fwLit = std.fwidth(lit);
-  // Tube rule: the direction across the tube on screen is perpendicular to the gradient of v
-  // (arc length along the centreline); s = the normal's screen component across the tube.
-  const g = d.vec2f(std.dpdx(input.uv.y), std.dpdy(input.uv.y));
-  const gLen = std.length(g);
-  const across = std.select(d.vec2f(1, 0), std.div(d.vec2f(-g.y, g.x), std.max(gLen, 1e-9)), gLen > 1e-6);
+  // Tube rule: the tube's axis on screen (from the interpolated centreline tangent), the
+  // direction across it, s = the normal's screen component along that, and tw = how much it
+  // faces the kit's screen light. axisLen: 1 side-on, 0 end-on.
+  const t3 = input.tangent;
+  const axisScreen = d.vec2f(std.dot(t3, frame.right), -std.dot(t3, frame.up));
+  const axisLen = std.length(axisScreen) / std.max(std.length(t3), 1e-9);
+  const axis2 = std.div(axisScreen, std.max(std.length(axisScreen), 1e-9));
+  const across = d.vec2f(-axis2.y, axis2.x);
   const sAcross = std.dot(d.vec2f(std.dot(n, frame.right), -std.dot(n, frame.up)), across);
   const fwS = std.fwidth(sAcross);
   const tw = std.dot(across, d.vec2f(TUBE_LIGHT[0], TUBE_LIGHT[1]));
@@ -294,11 +302,6 @@ export const fillFragment = tgpu.fragmentFn({
       color = std.mix(color, tone(m, SLOT.s2), pw.y);
       color = std.mix(color, tone(m, SLOT.s3), pw.z);
     }
-  } else if (input.rule === TONE_RULE.tube && gLen > 1e-6) {
-    const stripes = tubeStripes(sAcross, tw, fwS);
-    color = tone(m, SLOT.s2);
-    color = std.mix(color, tone(m, SLOT.top), stripes.x);
-    color = std.mix(color, tone(m, SLOT.s0), stripes.y);
   } else {
     // Bands.
     const w = bandWeights(score, fw);
@@ -306,13 +309,27 @@ export const fillFragment = tgpu.fragmentFn({
     color = std.mix(color, tone(m, SLOT.s2), w.y);
     color = std.mix(color, tone(m, SLOT.s3), w.z);
     color = std.mix(color, tone(m, SLOT.top), w.w);
+    if (input.rule === TONE_RULE.tube) {
+      // Seen nearly end-on the stripes have no direction; hand over to the bands there.
+      const stripes = tubeStripes(sAcross, tw, fwS);
+      let tubeColor = tone(m, SLOT.s2);
+      tubeColor = std.mix(tubeColor, tone(m, SLOT.top), stripes.x);
+      tubeColor = std.mix(tubeColor, tone(m, SLOT.s0), stripes.y);
+      color = std.mix(color, tubeColor, std.smoothstep(0.25, 0.45, axisLen));
+    }
   }
   const debug = frame.debug;
   if (debug === 1) {
     color = d.vec4f(frame.paper);
   }
 
-  if (debug !== 2) {
+  // The inside of an open mesh (only drawn unculled): a flat void, no lines.
+  const inside = !input.front;
+  if (inside) {
+    color = tone(m, SLOT.s0);
+  }
+
+  if (debug !== 2 && !inside) {
     // UV tick lines.
     if (set > 0) {
       const nearest = std.round(x);
@@ -528,7 +545,7 @@ export const marksFragment = tgpu.fragmentFn({
     const q = std.sub(p, input.pa);
     const along = std.dot(q, dir);
     const across = std.abs(q.x * dir.y - q.y * dir.x);
-    cover = tickCoverage(across, input.size, 1) * overlap(along, 0, len);
+    cover = tickCoverage(across, input.size, d.f32(1)) * overlap(along, d.f32(0), len);
   }
   return d.vec4f(input.color.xyz, cover * input.alpha);
 });

@@ -4,7 +4,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StatusBar, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { TgpuRoot } from 'typegpu';
-import { type DebugMode, PAPER, type PoolHandle, type SceneStore, TOKENS, type Theme, initGpu } from '@anatomy/engine';
+import { type DebugMode, PAPER, type SceneStore, TOKENS, type Theme, type ViewPreset, initGpu } from '@anatomy/engine';
 import { Scene } from './src/blocks/Scene.tsx';
 import { retireRoot } from './src/gpuRoot.ts';
 import { SCENES } from './src/scenes.tsx';
@@ -26,7 +26,7 @@ function Main() {
   const [sceneIndex, setSceneIndex] = useState(0);
   const scene = SCENES[sceneIndex]!;
   const storeRef = useRef<SceneStore | null>(null);
-  const [view, setView] = useState(0);
+  const [view, setView] = useState<number | ViewPreset>(0);
   const [paused, setPaused] = useState(false);
   const [debug, setDebug] = useState<DebugMode>(0);
   const controls = useMemo(() => ({ theme, view, paused, debug }), [theme, view, paused, debug]);
@@ -52,6 +52,9 @@ function Main() {
         store.pool$(id).count = n;
       },
       store: () => storeRef.current,
+      /** An ad-hoc camera: `__v4.look({ focus: [x, y, z], zoom: 4 })` (angles in degrees). */
+      look: (p: Partial<ViewPreset>) =>
+        setView({ name: 'look', yaw: 45, elevation: 30, zoom: 1, ...p }),
       setView: (which: number | string) => {
         const index =
           typeof which === 'number' ? which : scene.views.findIndex((v) => v.name === which);
@@ -93,6 +96,7 @@ function Main() {
   }, []);
 
   const ink = TOKENS[theme].steel.hi;
+  const viewName = typeof view === 'number' ? (scene.views[view]?.name ?? 'fit') : view.name;
   return (
     <View style={[styles.fill, { backgroundColor: PAPER[theme] }]}>
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
@@ -119,10 +123,10 @@ function Main() {
         </Chip>
         <Chip
           theme={theme}
-          label={`View: ${scene.views[view]?.name}. Next view`}
-          onPress={() => setView((view + 1) % scene.views.length)}
+          label={`View: ${viewName}. Next view`}
+          onPress={() => setView(typeof view === 'number' ? (view + 1) % scene.views.length : 0)}
         >
-          {scene.views[view]?.name ?? 'fit'}
+          {viewName}
         </Chip>
         <Chip
           theme={theme}

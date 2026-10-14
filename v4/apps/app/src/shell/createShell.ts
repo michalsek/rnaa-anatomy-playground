@@ -28,8 +28,8 @@ export interface ShellSize {
 /** What the UI controls; the shell applies it at start and whenever it changes. */
 export interface ShellControls {
   theme: Theme;
-  /** Index into the scene's views. */
-  view: number;
+  /** Index into the scene's views, or an ad-hoc preset (dev hook `__v4.look`). */
+  view: number | ViewPreset;
   paused: boolean;
   debug: DebugMode;
 }
@@ -37,7 +37,7 @@ export interface ShellControls {
 export interface Shell {
   resize(cssWidth: number, cssHeight: number, dpr: number): void;
   setTheme(theme: Theme): void;
-  setView(index: number): void;
+  setView(view: number | ViewPreset): void;
   setPaused(paused: boolean): void;
   setDebug(mode: DebugMode): void;
   stop(): void;
@@ -87,7 +87,7 @@ export function createShell(
   });
   let view = controls.view;
   const applyView = () => {
-    const preset = views[view];
+    const preset = typeof view === 'number' ? views[view] : view;
     if (preset) renderer.setView(preset);
     else renderer.fit();
   };
@@ -125,8 +125,8 @@ export function createShell(
       renderer.resize(next.width, next.height, next.dpr);
     },
     setTheme: (next) => renderer.setTheme(next),
-    setView(index) {
-      view = index;
+    setView(next) {
+      view = next;
       applyView();
     },
     setPaused(next) {

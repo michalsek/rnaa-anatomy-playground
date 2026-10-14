@@ -18,7 +18,7 @@ import type { Vec3 } from '../geo/mesh.ts';
 import { type GeoKind, type GeoSpec, type LineSetSpec, type Prototype, buildGeo } from '../geo/spec.ts';
 import { FLAG, NO_NEIGHBOUR, triangleCountOf } from '../geo/topology.ts';
 import { DOT_OPACITY, type LineTone, MATERIAL, type Material, SLOT } from '../palette/tokens.ts';
-import { INSTANCE, INSTANCE_FLOATS, MARK, SIZES, TONE_RULE } from '../render/schemas.ts';
+import { INSTANCE, INSTANCE_FLOATS, MARK, SIZES, TONE_RULE, VERTEX_FLOATS } from '../render/schemas.ts';
 
 export type Token = number;
 
@@ -98,14 +98,15 @@ export interface PoolHandle {
 }
 
 export interface SceneBuild {
-  /** 8 floats per vertex (GpuVertex). */
+  /** 12 floats per vertex (GpuVertex). */
   vertices: Float32Array;
   vertexCount: number;
   /** 12 words per triangle (GpuTri). */
   tris: ArrayBuffer;
   triCount: number;
   /** Draws: the static batch (one instance) first, then one per pool. */
-  batches: { firstTri: number; triCount: number; firstInstance: number; pool: string | null }[];
+  /** `open`: the geometry has boundary edges, so it is drawn without culling (inner walls). */
+  batches: { firstTri: number; triCount: number; firstInstance: number; pool: string | null; open: boolean }[];
   instanceCount: number;
   /** 8 words per style (Style). */
   styles: ArrayBuffer;
@@ -182,6 +183,18 @@ export function transformMatrix(t: Transform | undefined, out = mat4.identity())
 }
 
 const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] } as const;
+
+const BOUNDARY_BITS = FLAG.boundary(0) | FLAG.boundary(1) | FLAG.boundary(2);
+const openCache = new WeakMap<Prototype, boolean>();
+/** Whether a prototype has open boundaries (its inside can be seen). */
+function isOpen(proto: Prototype): boolean {
+  let open = openCache.get(proto);
+  if (open === undefined) {
+    open = proto.topology.flags.some((f) => (f & BOUNDARY_BITS) !== 0);
+    openCache.set(proto, open);
+  }
+  return open;
+}
 
 interface Built {
   version: number;
@@ -474,27 +487,29 @@ export class SceneStore {
     };
     const parts = statics.filter((n): n is PartNode => n.kind === 'part');
     const draws: { proto: Prototype; slot: number }[] = parts.map((n) => ({ proto: protoOf(n.geo), slot: slot.get(n.id)! }));
+    // Static geometry in two runs, closed then open (open meshes are drawn without culling).
+    const statics2 = [...draws.filter((x) => !isOpen(x.proto)), ...draws.filter((x) => isOpen(x.proto))];
     const poolProtos = pools.map((p) => protoOf(p.geo));
     if (lineSets.length > FLAG.lineSetMask) throw new Error(`too many line sets (${lineSets.length} > 255)`);
 
     // Geometry: the static batch, then one copy per pool.
-    const all = [...draws, ...poolProtos.map((proto) => ({ proto, slot: 0 }))];
+    const all = [...statics2, ...poolProtos.map((proto) => ({ proto, slot: 0 }))];
     const vertexCount = all.reduce((s, d) => s + d.proto.mesh.positions.length / 3, 0);
     const triCount = all.reduce((s, d) => s + triangleCountOf(d.proto.topology), 0);
-    const vertices = new Float32Array(vertexCount * 8);
+    const vertices = new Float32Array(vertexCount * VERTEX_FLOATS);
     const tris = new ArrayBuffer(triCount * SIZES.tri);
     const tu = new Uint32Array(tris);
     const tf = new Float32Array(tris);
     let v0 = 0;
     let t0 = 0;
     const batches: SceneBuild['batches'] = [];
-    let staticTris = 0;
+    const staticRuns = { closed: 0, open: 0 };
     all.forEach(({ proto, slot: s }, k) => {
       const { mesh, topology } = proto;
       const vc = mesh.positions.length / 3;
       const tc = triangleCountOf(topology);
       for (let v = 0; v < vc; v++) {
-        const o = (v0 + v) * 8;
+        const o = (v0 + v) * VERTEX_FLOATS;
         vertices[o] = mesh.positions[v * 3]!;
         vertices[o + 1] = mesh.positions[v * 3 + 1]!;
         vertices[o + 2] = mesh.positions[v * 3 + 2]!;
@@ -503,6 +518,9 @@ export class SceneStore {
         vertices[o + 5] = mesh.normals[v * 3 + 1]!;
         vertices[o + 6] = mesh.normals[v * 3 + 2]!;
         vertices[o + 7] = mesh.uvs[v * 2 + 1]!;
+        vertices[o + 8] = mesh.tangents[v * 3]!;
+        vertices[o + 9] = mesh.tangents[v * 3 + 1]!;
+        vertices[o + 10] = mesh.tangents[v * 3 + 2]!;
       }
       const shift = lineSetOffset.get(proto.key)!;
       for (let t = 0; t < tc; t++) {
@@ -530,14 +548,19 @@ export class SceneStore {
       }
       if (k >= draws.length) {
         const pool = pools[k - draws.length]!;
-        batches.push({ firstTri: t0, triCount: tc, firstInstance: poolBase.get(pool.id)!, pool: pool.id });
+        batches.push({ firstTri: t0, triCount: tc, firstInstance: poolBase.get(pool.id)!, pool: pool.id, open: isOpen(proto) });
       } else {
-        staticTris += tc;
+        staticRuns[isOpen(proto) ? 'open' : 'closed'] += tc;
       }
       v0 += vc;
       t0 += tc;
     });
-    if (staticTris > 0) batches.unshift({ firstTri: 0, triCount: staticTris, firstInstance: 0, pool: null });
+    if (staticRuns.open > 0) {
+      batches.unshift({ firstTri: staticRuns.closed, triCount: staticRuns.open, firstInstance: 0, pool: null, open: true });
+    }
+    if (staticRuns.closed > 0) {
+      batches.unshift({ firstTri: 0, triCount: staticRuns.closed, firstInstance: 0, pool: null, open: false });
+    }
 
     // Marks: marks nodes, pool marks (per instance), contacts.
     const markWords: number[] = [];

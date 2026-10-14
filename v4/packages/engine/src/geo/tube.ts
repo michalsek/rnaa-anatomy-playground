@@ -135,7 +135,7 @@ export function tube({
     for (let j = 0; j <= sides; j++) {
       const a = (j / sides) * Math.PI * 2;
       const radial = add(scale(u, Math.cos(a)), scale(v, Math.sin(a)));
-      ring.push(b.vertex(add(p, scale(radial, radius)), radial, [j / sides, length]));
+      ring.push(b.vertex(add(p, scale(radial, radius)), radial, [j / sides, length], t));
     }
     rings.push(ring);
   });

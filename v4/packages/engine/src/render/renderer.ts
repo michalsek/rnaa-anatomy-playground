@@ -124,6 +124,15 @@ export function createRenderer(options: RendererOptions): Renderer {
     depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'less' },
     multisample: { count: SAMPLES },
   });
+  // Open meshes (pipes without caps): no culling, the fragment shades inner walls as a void.
+  const openPipeline = root.createRenderPipeline({
+    vertex: fillVertex,
+    fragment: fillFragment,
+    targets: { format },
+    primitive: { topology: 'triangle-list', frontFace: 'cw', cullMode: 'none' },
+    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'less' },
+    multisample: { count: SAMPLES },
+  });
   const marksPipeline = root.createRenderPipeline({
     vertex: marksVertex,
     fragment: marksFragment,
@@ -146,6 +155,7 @@ export function createRenderer(options: RendererOptions): Renderer {
     owned: { destroy(): void }[];
     instances: ReturnType<typeof makeInstances>;
     fill: typeof fillPipeline;
+    open: typeof openPipeline;
     marks: typeof marksPipeline;
   };
   const makeInstances = (count: number) =>
@@ -185,6 +195,7 @@ export function createRenderer(options: RendererOptions): Renderer {
       owned: [vertices, tris, instances, styles, lineSets, marks],
       instances,
       fill: fillPipeline.with(bindGroup),
+      open: openPipeline.with(bindGroup),
       marks: marksPipeline.with(bindGroup),
     };
     if (boundsChanged && onPreset) applyPreset();
@@ -313,10 +324,11 @@ export function createRenderer(options: RendererOptions): Renderer {
         depthStoreOp: 'discard',
       },
     });
-    const fill = s.fill.with(pass);
     for (const b of s.build.batches) {
       const count = b.pool === null ? 1 : store.poolCount(b.pool);
-      if (count > 0 && b.triCount > 0) fill.draw(b.triCount * 3, count, b.firstTri * 3, b.firstInstance);
+      if (count > 0 && b.triCount > 0) {
+        (b.open ? s.open : s.fill).with(pass).draw(b.triCount * 3, count, b.firstTri * 3, b.firstInstance);
+      }
     }
     if (s.build.markCount > 0 && debug !== 2) s.marks.with(pass).draw(6, s.build.markCount);
     pass.end();
