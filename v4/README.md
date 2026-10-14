@@ -41,7 +41,9 @@ Android: `pnpm android` (config only so far, not built).
 packages/engine/src
   camera/    2:1 dimetric ortho camera (kit projection), fit (to part box corners, into the
              viewport minus pads, optionally a centred 16:9 rectangle: `frameRect`), view presets
-             (optional `frame` box to fit); ease.ts: eased view changes (critically damped)
+             (optional `frame` box to fit); ease.ts: eased view changes (critically damped);
+             orbit.ts (M11): orbit about the target (elevation 10–80°), pan, zoom about a point
+             (0.5–12× the fit)
   palette/   light/dark tokens (from the v2 kit) → GPU palette table (material slots, then FX
              colours: halo, glow, void, strobe); CARD tokens and MONO for the overlay
   geo/       JSON GeoSpecs → cached prototypes: box/extrude (plans, polygon smooth points, seams, side line sets: E6
@@ -57,7 +59,7 @@ packages/engine/src
              volume; groupBounds, haloIds; M1 profiles and line sets
   sim/       M5: the shared sim, plain TS on one fixed 1/120 s step: clock (factory, advance/run,
              link in step order), ports (receivers, strict receivers, asking senders, local → world
-             → local), items (kinds, sizes, ledger, PoseFn), math, path (belt frame, stadium loop, vertical stadium),
+             → local; M11: a machine may be turned by quarter turns, `yaw`), items (kinds, sizes, ledger, PoseFn), math, path (belt frame, stadium loop, vertical stadium),
              fall, conveyor (top: hop, hold, tip), loop (cleats, bails, read greying, drop,
              quanta/phaseAt/canTake, syncToLoop), source, sink, crusher (M6), scanner (M7: reads on
              the loop's read point, `scannerReadAt`, pulses, cells, the push onto belt D), elevator
@@ -74,9 +76,11 @@ packages/engine/src
              centrifuge/ = packets (throat, pockets, release path, §A invariants) + controller (the
              swappable spin model: default and ramp)
   assembly/  M10: factory.ts (the phone, FACTORY_LAYOUT with the stands, createFactoryGraph in
-             FACTORY_ORDER), origins.ts (machine origins, boxes), reveal.ts (the phone-opening reveal:
-             machine boxes, the packed layout, order, docking pairs, the scheduler, poses, the lid,
-             the clip volume)
+             FACTORY_ORDER; M11: the layout from knobs, `factoryLayout`: V2_KNOBS = v2 A's =
+             LINE_LAYOUT, M11_KNOBS the factory's), origins.ts (machine origins and turns, boxes,
+             placeBox), reveal.ts (the phone-opening reveal: machine boxes, the packed layout, order,
+             docking pairs, the scheduler (M11: most machines at once, rests checked), poses, the
+             lid, the clip volume)
   shading/   'use gpu' tone rules (bands, plan, tube stripes) + AA weights, line coverage
   render/    vertex pulling, instance (96 B: + style2/mix blend, uShift)/style/mark/gradient
              tables, in-face lines (+ UV sectors, per-instance scroll), gradient tone, marks
@@ -103,9 +107,11 @@ apps/app
                                bands with scrolling pins), Head (frame, turning wheel, discharge,
                                drive); five cradle plate pools; one frame hook in Elevator.tsx;
                                `stand` prop, default on; dims.ts)
-  src/machines/speaker/        the speaker from v2 (Driver (mount, basket, surround, cone + cap on
-                               live groups), Throat (mouth, ledge, 6 live LEDs, wiring); one frame
-                               hook in Speaker.tsx; `stand` prop, default on; dims.ts)
+  src/machines/speaker/        the speaker from v2 (Driver (stand, baffle, basket, surround, cone +
+                               cap on live groups), Throat (mouth, ledge, 6 live LEDs, terminal,
+                               wiring); one frame hook in Speaker.tsx; `stand` prop, default on;
+                               dims.ts; M11: the driver drawn `scale` (2) times v2's, the machine
+                               turned by its sim's yaw)
   src/machines/packer/         the packer from v2 (Deck: stand, deck, lane, magazine, pusher,
                                bridge, gutter, transfer plate, pedestals, cabinet; Arm: nested
                                moves groups (turret, link 1, link 2, level wrist, tool) posed by
@@ -136,7 +142,8 @@ apps/app
                                row; views.ts holds layout and view presets (no components)
   src/platform/{web,native}/   hosts for #platform/*, picked by metro.config.js
   src/shell/                   rAF loop: store.tick (dt ≤ 0.1 s; 0 while paused) → renderer.frame
-                               → present?.()
+                               → present?.(); gestures.ts (M11: orbit, pan, pinch, wheel, double
+                               tap; fed by Stage.tsx's PanResponder on a pad over the canvas)
   src/Stage.tsx                <Canvas> + layout → configure → shell (rebuilt on Fast Refresh)
   src/gpuRoot.ts               the TypeGPU root in module state (survives Fast Refresh)
 ```
@@ -155,16 +162,18 @@ pages; `output`: a source over belt D, the elevator, the speaker; `conveyor`: v2
 view preset (factory: `fit` (the tray and the machines in 16:9; the floating display is cut at the top), `phone`,
 `case`, the hand-offs `dispenser-A`, `A-packer`, `packer-B`, `B-centrifuge`, `centrifuge-audio`, `release`,
 `scanner-read`, `audio-C`, `C-crusher`, `scanner-D`, `D-elevator`, `elevator-speaker`, and one per machine
-`dispenser`, `packer`, `centrifuge`, `loop`, `crusher`, `scanner`, `elevator`, `speaker` (turned, yaw −45); the
+`dispenser`, `packer`, `centrifuge`, `loop`, `crusher`, `scanner`, `elevator`, `speaker`; the
 card's text follows the view; packer: `fit`, `gutter`, `lane`, `magazine`, `folder`, `nose`; centrifuge: `fit`,
 `rotor`, `instr`, `drive`, `funnel`; crusher: `fit`, `hopper`, `spring`, `drive`, `ctl`, `bin`; scanner: `fit`,
 `arm`, `preamp`, `scanner`, `D`; output: `fit`, `boot`, `head`, `spout`, `speaker`, `meter`), view changes ease
 (critically damped, τ 0.35 s), run/paused, pause, debug view (`dbg 1` = line
 classes: outline red, contour magenta, crease blue, ticks green, marks and contacts cyan;
 `dbg 2` = lines off), `reveal`/`conceal` (the factory: the phone opens: the screen lifts off the closed case,
-the machines rise out of their packed layer and turn into place; conceal is the reverse), `tour` (an event-gated
-camera script for recordings: the reveal, the phone, every hand-off, ≈ 75 s), `i` (the figure's caption and a
-legend), `card`/`bare` (full-bleed: no card frame or texts), theme. The stage always fills the window; the card,
+the machines rise out of their packed layer, most of them at once, and turn into place, ≈ 4.5 s; conceal is the
+reverse), `tour` (an event-gated camera script for recordings: the reveal, the phone, every hand-off, ≈ 46 s), `i`
+(the figure's caption and a legend), `bare`/`card` (full-bleed, the default since M11: no card frame or texts; the
+card is opt-in), theme. On the stage (M11): drag orbits (elevation 10–80°), two fingers or shift-drag pan, pinch or
+the wheel zoom (0.5–12× the fit), a double tap eases back to the view; any of them stops the tour. The stage always fills the window; the card,
 its texts, the chips and the sheet are overlays, and the camera keeps the figure clear of them through the frame's
 pads. In dev builds the same is scriptable from a debugger or the browser
 console: `__v4.setScene('m1')`, `__v4.setView('close cage')`, `__v4.look({ focus: [x, y, z],
@@ -172,7 +181,8 @@ zoom: 8 })`, `__v4.setDebug(1)`, `__v4.setPaused(true)`, `__v4.setTheme('dark')`
 `__v4.setPoolCount('inst.packets', 12)`, `__v4.setChrome(false)` (hide the toolbar for
 captures), `__v4.setBare(true)` (full-bleed), `__v4.record(true)` (fit every view into a centred 16:9 rectangle),
 `__v4.setSheet(true)`, `__v4.reveal` (`seek(0–1)`, `reveal()`, `conceal()`, `skip()`, `restart()`, `state()`),
-`__v4.tour` (`play()`, `stop()`, `state()`), `__v4.store()`; `__v4.views` / `__v4.scenes` list the names. In the factory,
+`__v4.tour` (`play()`, `stop()`, `state()`), `__v4.store()`, `__v4cam` (the free camera: `get()`, `set(state,
+ease)`, `ref()`, `reset()`); `__v4.views` / `__v4.scenes` list the names. In the factory,
 packer, centrifuge, crusher, scanner and conveyor scenes `__v4.sim` controls the scene's graph: `seek(t)` (deterministic:
 rebuild, run, pause), `play()`, `pause()`, `speed(0.25–4)`, `seed(n)` (integer), `status(id)`
 (`machines()` lists the ids), `log()` (the centrifuge's phase changes), `ledger()`
@@ -186,4 +196,5 @@ feed, the scanner and output pages' feeds) are `RATES` in
 the last 50 engine log lines in `globalThis.__v4logs` (per-phase rebuild ms). Notes:
 [notes/M1.md](notes/M1.md), [notes/M2.md](notes/M2.md), [notes/M3.md](notes/M3.md),
 [notes/M4.md](notes/M4.md), [notes/M5.md](notes/M5.md), [notes/M6.md](notes/M6.md),
-[notes/M7.md](notes/M7.md), [notes/M8.md](notes/M8.md), [notes/M9.md](notes/M9.md), [notes/M10.md](notes/M10.md). Test timelines print with `V4_TIMELINE=1 pnpm test`.
+[notes/M7.md](notes/M7.md), [notes/M8.md](notes/M8.md), [notes/M9.md](notes/M9.md), [notes/M10.md](notes/M10.md),
+[notes/M11.md](notes/M11.md). Test timelines print with `V4_TIMELINE=1 pnpm test`.
