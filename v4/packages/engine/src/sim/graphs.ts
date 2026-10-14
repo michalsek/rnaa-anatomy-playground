@@ -23,7 +23,7 @@ import { createDispenser, dispenserGeometry } from './dispenser.ts';
 import { fallTime } from './fall.ts';
 import { type Loop, createLoop, loopGeometry, syncToLoop } from './loop.ts';
 import { SCANNER_OUT, type Scanner, createScanner, scannerReadAt } from './scanner.ts';
-import type { V3 } from './ports.ts';
+import { type V3, quarterTurn } from './ports.ts';
 import { type Sink, createSink } from './sink.ts';
 import { RATES } from './rates.ts';
 import { type BeadSource, type Source, createBeadSource, createSource } from './source.ts';
@@ -76,10 +76,14 @@ export interface CoreLayout {
   read?: { scanner: V3 };
 }
 
-/** Belt C under the loop's head drum and the crusher at its end. */
+/**
+ * Belt C under the loop's head drum and the crusher at its end (`dir`: belt C's travel along y,
+ * default +1; `yaw`: the crusher's turn, default 0, its feed facing belt C's head).
+ */
 export interface GarbageLayout {
-  beltC: TopRun;
+  beltC: TopRun & { dir?: 1 | -1 };
   crusher: V3;
+  yaw?: number;
 }
 
 export interface LineLayout {
@@ -105,13 +109,18 @@ export interface InputLayout {
   packer: V3;
 }
 
-/** The elevator (lift, spout reach) and the speaker under its spout (baffle height). */
+/**
+ * The elevator (lift, spout reach) and the speaker under its spout (baffle height; its turn, a
+ * multiple of 90, and the driver's scale, M11).
+ */
 export interface OutputLayout {
   elevator: V3;
   lift: number;
   reach: number;
   speaker: V3;
   height: number;
+  speakerYaw: number;
+  speakerScale: number;
 }
 
 /** Belt D's surface: the preamp's lip (v2 A: top 24). */
@@ -145,16 +154,28 @@ const ELEV_BACK = 51;
 /**
  * The elevator under belt D's head and the speaker under the elevator's spout (world), at v2 A's
  * lift 210, reach 40 and baffle height 220. The speaker sits so its ledge's end is 2 past the
- * spout's centre (v2 A: speaker = spout − [62, 0]).
+ * spout's centre, the ledge pointing at it (v2 A, yaw 0: speaker = spout − [62, 0]; turned by
+ * `yaw`, the speaker stands on the other side).
  */
-function outputAt(beltDHead: V3, o: { lift?: number; reach?: number; height?: number } = {}): OutputLayout {
+export function outputAt(beltDHead: V3, o: { lift?: number; reach?: number; height?: number; yaw?: number; scale?: number } = {}): OutputLayout {
   const lift = o.lift ?? 210;
   const reach = o.reach ?? 40;
   const height = o.height ?? 220;
+  const yaw = o.yaw ?? 0;
+  const scale = o.scale ?? 1;
   const elevator: V3 = [beltDHead[0], beltDHead[1] - ELEV_BACK, 0];
   const spout = elevatorGeometry({ lift, reach }).spout;
-  const back = speakerGeometry({ height }).ledge.x1 - 2;
-  return { elevator, lift, reach, speaker: [elevator[0] + spout[0] - back, elevator[1] + spout[1], 0], height };
+  const back = speakerGeometry({ height, scale }).ledge.x1 - 2;
+  const [c, s] = quarterTurn(yaw);
+  return {
+    elevator,
+    lift,
+    reach,
+    speaker: [elevator[0] + spout[0] - c * back, elevator[1] + spout[1] - s * back, 0],
+    height,
+    speakerYaw: yaw,
+    speakerScale: scale,
+  };
 }
 
 /**
@@ -281,8 +302,8 @@ export function corePath(factory: Factory, l: CoreLayout, o: { controller?: Spin
 /** The garbage path after the loop: belt C under its head drum (holds, so the crusher takes one at a time), the crusher. */
 export function garbagePath(factory: Factory, audio: Loop, gb: GarbageLayout) {
   const c = gb.beltC;
-  const beltC = factory.add(createConveyor(factory.clock, { id: 'beltC', origin: c.origin, axis: 'y', dir: 1, length: c.length, top: TOP_C, inAt: c.inAt, tip: false, hold: true }));
-  const crusher = factory.add(createCrusher(factory.clock, factory.ledger, { id: 'crusher', origin: gb.crusher }));
+  const beltC = factory.add(createConveyor(factory.clock, { id: 'beltC', origin: c.origin, axis: 'y', dir: c.dir ?? 1, length: c.length, top: TOP_C, inAt: c.inAt, tip: false, hold: true }));
+  const crusher = factory.add(createCrusher(factory.clock, factory.ledger, { id: 'crusher', origin: gb.crusher, yaw: gb.yaw ?? 0 }));
   factory.link(audio, 'drop', beltC);
   factory.link(beltC, 'out', crusher);
   return { beltC, crusher };
@@ -320,7 +341,7 @@ export function outputPath(factory: Factory, beltD: Conveyor, at: OutputLayout, 
   const { clock, ledger } = factory;
   if (beltD.geometry.tip) throw new Error('outputPath: belt D must hand on at its head (tip: false)');
   const elevator = factory.add(createElevator(clock, ledger, { id: 'elevator', origin: at.elevator, lift: at.lift, reach: at.reach, prefill: o.prefill }));
-  const speaker = factory.add(createSpeaker(clock, ledger, { id: 'speaker', origin: at.speaker, height: at.height }));
+  const speaker = factory.add(createSpeaker(clock, ledger, { id: 'speaker', origin: at.speaker, yaw: at.speakerYaw, height: at.height, scale: at.speakerScale }));
   factory.link(beltD, 'out', elevator);
   factory.link(elevator, 'out', speaker);
   return { elevator, speaker };

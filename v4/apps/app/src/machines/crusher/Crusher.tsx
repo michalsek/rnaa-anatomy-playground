@@ -175,23 +175,26 @@ export function Crusher(props: CrusherProps) {
   const c = sim();
   return (
     <Group id={c.id} position={[...c.origin]} moves={props.reveal === true} rare={props.reveal === true} clip={props.reveal === true} contacts={false}>
-      <Frame {...props} />
-      <Base stand={stand} />
-      <Housing />
-      <Hopper />
-      <Rollers />
-      <Drive />
-      <Chute />
-      <Bin plan={c.pilePlan} chips={c.pools.chips} />
-      <Control stand={stand} />
-      <Instances
-        id="flakes"
-        geo={{ kind: 'box', size: FLAKE, center: [0, 0, FLAKE[2] / 2], r: 0.15 }}
-        styles={[{ material: 'pkGarbage', outline: 'hi' }]}
-        capacity={c.pools.flakes}
-        scalable
-      />
-      <PacketPool capacity={c.pools.packets} scalable />
+      {/* The machine's turn (the sim's yaw; M11 can turn the disposal round). */}
+      <Group id="body" rotation={[0, 0, c.yaw ?? 0]}>
+        <Frame {...props} />
+        <Base stand={stand} />
+        <Housing />
+        <Hopper />
+        <Rollers />
+        <Drive />
+        <Chute />
+        <Bin plan={c.pilePlan} chips={c.pools.chips} />
+        <Control stand={stand} />
+        <Instances
+          id="flakes"
+          geo={{ kind: 'box', size: FLAKE, center: [0, 0, FLAKE[2] / 2], r: 0.15 }}
+          styles={[{ material: 'pkGarbage', outline: 'hi' }]}
+          capacity={c.pools.flakes}
+          scalable
+        />
+        <PacketPool capacity={c.pools.packets} scalable />
+      </Group>
     </Group>
   );
 }

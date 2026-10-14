@@ -114,6 +114,8 @@ interface Fed {
 export interface CrusherOptions {
   id: string;
   origin: V3;
+  /** Its turn about z (degrees, a multiple of 90; belt C feeds it along local +y). */
+  yaw?: number;
 }
 
 export interface Crusher extends Machine, Located, Receiver, PoseSource {
@@ -299,6 +301,7 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
     pools: CRUSHER_POOLS,
     id: o.id,
     origin: o.origin,
+    yaw: o.yaw ?? 0,
     pilePlan,
     // Advice, not strict: a belt that doesn't ask still hands on (and its packets may overlap).
     canAccept() {

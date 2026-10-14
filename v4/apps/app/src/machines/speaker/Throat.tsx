@@ -47,29 +47,44 @@ export function Throat({ g, d }: { g: SpeakerGeometry; d: Driver }) {
   );
 }
 
-export function Wiring({ d, stand }: { d: Driver; stand: boolean }) {
+/** The terminal block and its tabs under the dish (drawn in the driver's scaled frame). */
+export function Terminal({ d }: { d: Driver }) {
   const tb = d.terminal;
-  const ZB = d.ZB;
-  const yWire = stand ? 30 : 31.4;
-  const zEnd = stand ? 8 : ZB - 7;
   return (
-    <Group id="wiring">
-      <Box id="terminal" material="graphite" {...corners([tb.x0, tb.y0, tb.z0], [tb.x1, tb.y1, tb.z1])} r={0.4} />
+    <Group id="terminal">
+      <Box id="block" material="graphite" {...corners([tb.x0, tb.y0, tb.z0], [tb.x1, tb.y1, tb.z1])} r={0.4} />
       {[-2.6, 2.6].map((x, i) => (
         <Box key={i} id={`tab${i}`} material="steel" outline="hi" {...corners([x - 1.2, tb.y1, tb.z0 + 0.8], [x + 1.2, tb.y1 + 3, tb.z0 + 3.2])} r={0.2} />
       ))}
-      {[-2.6, 2.6].map((x, i) => (
-        <Tube key={i} id={`wire${i}`} material={i === 0 ? 'steel' : 'graphite'} path={[[x, tb.y1 + 3, tb.z0 + 2], [x, yWire, tb.z0 + 2], [x, yWire, zEnd]]} radius={0.6} bend={3} sides={10} />
-      ))}
+    </Group>
+  );
+}
+
+/**
+ * Two wires from the terminal's tabs (mapped out of the driver's frame) down to a plug on the base
+ * (`stand`) or up to a connector under the baffle.
+ */
+export function Wiring({ d, stand }: { d: Driver; stand: boolean }) {
+  const tb = d.terminal;
+  const ZB = d.ZB;
+  const k = d.k;
+  const yWire = stand ? 30 * k : 31.4 * k;
+  const zEnd = stand ? 8 : ZB - 7;
+  return (
+    <Group id="wiring">
+      {[-2.6, 2.6].map((x, i) => {
+        const a = d.driverAt([x, tb.y1 + 3, tb.z0 + 2]);
+        return <Tube key={i} id={`wire${i}`} material={i === 0 ? 'steel' : 'graphite'} path={[a, [a[0], yWire, a[2]], [a[0], yWire, zEnd]]} radius={0.6} bend={3} sides={10} />;
+      })}
       {stand ? (
         <>
-          <Box id="plug" material="graphite" {...corners([-6, 26, 3], [6, 34, 8])} r={0.8} />
-          <Marks id="plug-dots" material="graphite" dots={dots([[-2.6, 30, 8], [2.6, 30, 8]], [0, 0, 1], 0.5, 'mid')} />
+          <Box id="plug" material="graphite" {...corners([-6, yWire - 4, 3], [6, yWire + 4, 8])} r={0.8} />
+          <Marks id="plug-dots" material="graphite" dots={dots([[-2.6 * k, yWire, 8], [2.6 * k, yWire, 8]], [0, 0, 1], 0.5, 'mid')} />
         </>
       ) : (
         <>
-          <Box id="connector" material="graphite" {...corners([-6, 29.6, ZB - 7], [6, 33.2, ZB - 2])} r={0.6} seams={[ZB - 3.4]} />
-          <Marks id="connector-dots" material="graphite" dots={dots([[-2.6, 31.4, ZB - 7], [2.6, 31.4, ZB - 7]], [0, 0, -1], 0.45, 'mid')} />
+          <Box id="connector" material="graphite" {...corners([-6, yWire - 1.8, ZB - 7], [6, yWire + 1.8, ZB - 2])} r={0.6} seams={[ZB - 3.4]} />
+          <Marks id="connector-dots" material="graphite" dots={dots([[-2.6 * k, yWire, ZB - 7], [2.6 * k, yWire, ZB - 7]], [0, 0, -1], 0.45, 'mid')} />
         </>
       )}
     </Group>

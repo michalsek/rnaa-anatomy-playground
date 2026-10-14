@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FACTORY_LAYOUT, FACTORY_ORDER, createFactoryGraph } from '../src/assembly/factory.ts';
+import { FACTORY_LAYOUT, FACTORY_ORDER, type FactoryGraph, V2_KNOBS, createFactoryGraph, layoutFor } from '../src/assembly/factory.ts';
 import { CF } from '../src/sim/centrifuge/index.ts';
 import { createFactory } from '../src/sim/clock.ts';
 import { createConveyor } from '../src/sim/conveyor.ts';
@@ -8,12 +8,11 @@ import { createDispenser, dispenserGeometry, dispenserOutputs } from '../src/sim
 import { EL } from '../src/sim/elevator.ts';
 import { LINE_LAYOUT, createLine } from '../src/sim/graphs.ts';
 import { PK } from '../src/sim/packer.ts';
-import type { V3 } from '../src/sim/ports.ts';
+import { type Located, type V3, toWorld } from '../src/sim/ports.ts';
 import { SC, SCANNER_OUT } from '../src/sim/scanner.ts';
 import { report, snapshot } from './rig.ts';
 
 const H = 1 / 120;
-const w = (o: readonly number[], p: readonly number[]): V3 => [o[0]! + p[0]!, o[1]! + p[1]!, o[2]! + p[2]!];
 
 describe('factory graph (createFactoryGraph)', () => {
   it('steps in FACTORY_ORDER; the line is the same graph with the bead source in place of the dispenser', () => {
@@ -27,6 +26,12 @@ describe('factory graph (createFactoryGraph)', () => {
     const a = f.add(createConveyor(f.clock, { id: 'beltA', origin: [-4, -190, 0], axis: 'x', length: 61, top: 232 }));
     const d = f.add(createDispenser(f.clock, f.ledger, { id: 'dispenser', origin: [0, 0, 0], at: [20, -190], geometry }));
     expect(() => f.link(d, 'out', a)).toThrow(/must step before/);
+  });
+
+  it("the V2 knobs give v2 A's layout (LINE_LAYOUT, the test bed)", () => {
+    const { phone: _p, stands: _s, ...l } = layoutFor(V2_KNOBS);
+    const { centrifuge, input, beltB, audio, garbage, read, output } = LINE_LAYOUT;
+    expect(l).toEqual({ centrifuge, input, beltB, audio, garbage, read, output });
   });
 
   it('conserves items on every step for 300 s; the dispenser makes ≈ 0.8 beads/s; items are heard and crushed', () => {
@@ -122,6 +127,11 @@ const V2_PORTS: Record<string, [V3, V3]> = {
   'scanner-read': [[30, 112.9, 92], [30, 119.9, 62]],
 };
 
+/** M11 hand-offs whose shape differs from v2's layout on purpose. */
+const M11_DEVIATIONS: Record<string, string> = {
+  'elevator-speaker': "M11: the speaker turned 180° to the back-right corner: its ledge ends 2 past the spout's centre on the spout's +x side (v2: −x)",
+};
+
 /** Ports that differ from v2 on purpose (end 0 = the sender's, 1 = the receiver's). */
 const DEVIATIONS: Record<string, string> = {
   'A-packer.1': "M9: beads are handed on at belt A's head over the transfer plate (v2 flung them 15 across the gap to the gutter's lip)",
@@ -135,29 +145,34 @@ const DEVIATIONS: Record<string, string> = {
   'B-centrifuge.1': "M5: the throat's mouth (CF.in), where the packet falls in",
 };
 
+/** Both ends of every hand-off (world) in a factory graph. */
+function handOffs(g: FactoryGraph): Record<string, [V3, V3]> {
+  const p = (m: Located, local: readonly number[]) => toWorld(m, local);
+  const A = g.beltA.geometry.ports;
+  const B = g.beltB.geometry.ports;
+  const C = g.beltC.geometry.ports;
+  const D = g.beltD.geometry.ports;
+  const L = g.audio.geometry.ports;
+  const dz = g.dispenser.geometry.tipZ;
+  return {
+    'dispenser-A': [[g.dispenser.at[0], g.dispenser.at[1], dz], p(g.beltA, A.in)],
+    'A-packer': [p(g.beltA, A.out), p(g.packer, PK.ports.in)],
+    'packer-B': [p(g.packer, PK.ports.out), p(g.beltB, B.in)],
+    'B-centrifuge': [p(g.beltB, B.out), p(g.centrifuge, CF.in)],
+    'centrifuge-audio': [p(g.centrifuge, CF.spout.hand), p(g.audio, L.in)],
+    'audio-C': [p(g.audio, L.drop), p(g.beltC, C.in)],
+    'C-crusher': [p(g.beltC, C.out), p(g.crusher, CR.drop)],
+    'scanner-D': [p(g.scanner, SCANNER_OUT.at), p(g.beltD, D.in)],
+    'D-elevator': [p(g.beltD, D.out), p(g.elevator, EL.in)],
+    'elevator-speaker': [p(g.elevator, g.elevator.geometry.ports.out), p(g.speaker, g.speaker.geometry.ports.in)],
+    'scanner-read': [p(g.scanner, SC.read), p(g.audio, L.read)],
+  };
+}
+
 describe('ports line up with v2 A (assembly/qa/ports.json)', () => {
-  it('every hand-off is within 0.5 of v2, or a recorded deviation', () => {
-    const g = createFactoryGraph();
-    const p = (m: { origin: V3 }, local: readonly number[]) => w(m.origin, local);
-    const A = g.beltA.geometry.ports;
-    const B = g.beltB.geometry.ports;
-    const C = g.beltC.geometry.ports;
-    const D = g.beltD.geometry.ports;
-    const L = g.audio.geometry.ports;
-    const dz = g.dispenser.geometry.tipZ;
-    const v4: Record<string, [V3, V3]> = {
-      'dispenser-A': [[g.dispenser.at[0], g.dispenser.at[1], dz], p(g.beltA, A.in)],
-      'A-packer': [p(g.beltA, A.out), p(g.packer, PK.ports.in)],
-      'packer-B': [p(g.packer, PK.ports.out), p(g.beltB, B.in)],
-      'B-centrifuge': [p(g.beltB, B.out), p(g.centrifuge, CF.in)],
-      'centrifuge-audio': [p(g.centrifuge, CF.spout.hand), p(g.audio, L.in)],
-      'audio-C': [p(g.audio, L.drop), p(g.beltC, C.in)],
-      'C-crusher': [p(g.beltC, C.out), p(g.crusher, CR.drop)],
-      'scanner-D': [p(g.scanner, SCANNER_OUT.at), p(g.beltD, D.in)],
-      'D-elevator': [p(g.beltD, D.out), p(g.elevator, EL.in)],
-      'elevator-speaker': [p(g.elevator, g.elevator.geometry.ports.out), p(g.speaker, g.speaker.geometry.ports.in)],
-      'scanner-read': [p(g.scanner, SC.read), p(g.audio, L.read)],
-    };
+  it("every hand-off is within 0.5 of v2, or a recorded deviation (v2's layout: the V2 knobs)", () => {
+    const g = createFactoryGraph(layoutFor(V2_KNOBS));
+    const v4 = handOffs(g);
     const lines: string[] = [];
     const bad: string[] = [];
     for (const [name, ends] of Object.entries(V2_PORTS)) {
@@ -171,6 +186,27 @@ describe('ports line up with v2 A (assembly/qa/ports.json)', () => {
     report(`ports:\n${lines.join('\n')}\n`);
     expect(bad).toEqual([]);
     // The dispenser's tip is v2's 437 (the plan's 493 was wrong).
-    expect(dz).toBe(437);
+    expect(g.dispenser.geometry.tipZ).toBe(437);
+  });
+
+  it("M11's layout moves machines but keeps every hand-off's shape (receiver − sender) as v2's layout's, or a recorded deviation", () => {
+    const v2 = handOffs(createFactoryGraph(layoutFor(V2_KNOBS)));
+    const m11 = handOffs(createFactoryGraph(FACTORY_LAYOUT));
+    const lines: string[] = [];
+    const bad: string[] = [];
+    for (const name of Object.keys(v2)) {
+      const shape = (e: [V3, V3]) => e[1].map((v, i) => v - e[0][i]!);
+      const a = shape(v2[name]!);
+      const b = shape(m11[name]!);
+      const d = Math.hypot(...a.map((v, i) => v - b[i]!));
+      lines.push(`${name}: v2 layout [${a.map((x) => +x.toFixed(2))}] M11 [${b.map((x) => +x.toFixed(2))}] Δ ${d.toFixed(2)}${M11_DEVIATIONS[name] ? ' (deviation)' : ''}`);
+      if (d > 0.5 && !M11_DEVIATIONS[name]) bad.push(lines[lines.length - 1]!);
+    }
+    report(`M11 hand-off shapes:\n${lines.join('\n')}\n`);
+    expect(bad).toEqual([]);
+    // The turned speaker's ledge still ends 2 past the spout's centre, its in port 29 under the spout.
+    const [spout, ledge] = m11['elevator-speaker']!;
+    expect(Math.hypot(ledge[0] - spout[0], ledge[1] - spout[1])).toBeCloseTo(2, 6);
+    expect(spout[2] - ledge[2]).toBeCloseTo(v2['elevator-speaker']![0][2] - v2['elevator-speaker']![1][2], 6);
   });
 });

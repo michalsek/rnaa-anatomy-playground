@@ -36,6 +36,12 @@ export const SPK = {
 
 export interface SpeakerGeometry {
   height: number;
+  /**
+   * The driver's scale (M11: the user asked for a 2–3× larger speaker): the driver, its baffle and
+   * stand grow about the baffle's top on the axis; the throat stays packet-sized and reaches out
+   * from under the bigger ring, so the ledge (the in port) keeps its height.
+   */
+  scale: number;
   /** The throat box (x0..x1, y ±, z0..z1) and its mouth on the +x face (y ±, z0..z1). */
   throat: { x0: number; x1: number; y: number; z0: number; z1: number };
   mouth: { y: number; z0: number; z1: number };
@@ -47,15 +53,18 @@ export interface SpeakerGeometry {
   ports: { in: V3 };
 }
 
-export function speakerGeometry(o: { height?: number } = {}): SpeakerGeometry {
+export function speakerGeometry(o: { height?: number; scale?: number } = {}): SpeakerGeometry {
   const ZB = o.height ?? 220;
+  const k = o.scale ?? 1;
   if (!(ZB >= 40)) throw new Error(`speaker: height ${ZB} below 40`);
-  const throat = { x0: 25, x1: SPK.HB + 6, y: 6.5, z0: ZB - 17, z1: ZB - 2 };
+  if (!(k >= 1 && k <= 3)) throw new Error(`speaker: scale ${k} outside 1–3`);
+  const throat = { x0: 25 * k, x1: SPK.HB * k + 6, y: 6.5, z0: ZB - 17, z1: ZB - 2 };
   const mouth = { y: 4.8, z0: throat.z0 + 2, z1: throat.z1 - 2.4 };
   const ledge = { x0: throat.x1, x1: throat.x1 + 12, z: mouth.z0 };
   const half = PACKET_SIZE.w / 2;
   return {
     height: ZB,
+    scale: k,
     throat,
     mouth,
     ledge,
@@ -69,7 +78,10 @@ export function speakerGeometry(o: { height?: number } = {}): SpeakerGeometry {
 export interface SpeakerOptions {
   id: string;
   origin: V3;
+  /** Its turn about z (degrees, a multiple of 90; the throat faces local +x). */
+  yaw?: number;
   height?: number;
+  scale?: number;
 }
 
 export interface SpeakerOutputs {
@@ -134,6 +146,7 @@ export function createSpeaker(clock: Readonly<Clock>, ledger: Ledger, o: Speaker
   const speaker: Speaker = {
     id: o.id,
     origin: o.origin,
+    yaw: o.yaw ?? 0,
     geometry: g,
     // A packet spends ≈ 1 s here; packets come ≥ 1 s apart (one per cradle at the elevator's
     // ≈ 0.8/s): two, plus one of slack.

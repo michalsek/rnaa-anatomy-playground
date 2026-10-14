@@ -90,12 +90,14 @@ describe('the reveal: the phone opens (closed → lid up → machines expand)', 
     expect(worstTurn).toBeLessThan(0.03);
   });
 
-  it('never passes a machine through another, stays inside the case under the lid once it is up', () => {
+  it('never passes a machine through one at rest (packed or landed; flying ones may cross, M11), stays inside the case under the lid once it is up', () => {
     const later = new Map<string, RevealId>();
     for (const [x, y] of DOCKING) later.set(`${x}|${y}`, y).set(`${y}|${x}`, y);
     const hits = new Map<string, [number, number]>();
     const out = new Map<string, number>();
     const clip = clipAt(plan, 0, FACTORY_LAYOUT);
+    const moving = (id: RevealId, t: number) => t > plan.entries[id].t0 && t < plan.entries[id].t3;
+    let crossings = 0;
     for (let t = 0; t <= plan.end + DT; t += DT) {
       clipAt(plan, t, FACTORY_LAYOUT, clip);
       const bs = REVEAL_IDS.map((id) => revealBox(plan, id, t));
@@ -104,17 +106,31 @@ describe('the reveal: the phone opens (closed → lid up → machines expand)', 
         if (t >= plan.lid.t2 && ((!insidePlan(bs[i]!, 0.5) && bs[i]![0][2] < clip.band) || bs[i]![1][2] > clip.hi[2] + 3)) out.set(REVEAL_IDS[i]!, t);
         for (let j = i + 1; j < bs.length; j++) {
           if (!boxesOverlap(bs[i]!, bs[j]!, 0.25)) continue;
-          const l = later.get(`${REVEAL_IDS[i]}|${REVEAL_IDS[j]}`);
+          const a = REVEAL_IDS[i]!;
+          const b = REVEAL_IDS[j]!;
+          if (moving(a, t) && moving(b, t)) {
+            crossings++;
+            continue;
+          }
+          const l = later.get(`${a}|${b}`);
           if (l && t >= plan.entries[l].t2) continue;
-          const k = `${REVEAL_IDS[i]} × ${REVEAL_IDS[j]}`;
+          const k = `${a} × ${b}`;
           hits.set(k, [hits.get(k)?.[0] ?? t, t]);
         }
       }
     }
     const list = [...hits].map(([k, [a, b]]) => `${k} ${a.toFixed(2)}..${b.toFixed(2)}`);
-    report(`reveal hits:\n${list.join('\n')}\noutside: ${[...out].map(([k, t]) => `${k}@${t.toFixed(2)}`).join(', ')}\n`);
+    report(`reveal hits:\n${list.join('\n')}\noutside: ${[...out].map(([k, t]) => `${k}@${t.toFixed(2)}`).join(', ')}\nflying boxes crossing: ${(crossings * DT).toFixed(2)} pair-s\n`);
     expect(list).toEqual([]);
     expect([...out.keys()]).toEqual([]);
+  });
+
+  it('is short and mostly simultaneous (M11): every machine is moving at the plan\'s busiest instant but two', () => {
+    let busiest = 0;
+    for (let t = 0; t <= plan.end; t += 1 / 60) busiest = Math.max(busiest, REVEAL_IDS.filter((id) => t > plan.entries[id].t0 && t < plan.entries[id].t3).length);
+    report(`reveal: ${plan.end.toFixed(2)} s, at most ${busiest} machines moving at once\n`);
+    expect(plan.end).toBeLessThan(7);
+    expect(busiest).toBeGreaterThanOrEqual(REVEAL_IDS.length - 2);
   });
 
   it('turnedBox: a quarter turn swaps the extents', () => {

@@ -1,7 +1,8 @@
 /**
  * The speaker's driver and its mount (v2 speaker.mjs L27–170): the stand (`stand`: base plate with
  * its seam and halo, four posts on feet with seam rings, tabs from the baffle to the posts) or,
- * without it, four short mounting ears with open holes; the graphite baffle in four ring quarters;
+ * without it, four short mounting ears with open holes; the graphite baffle in four ring quarters
+ * (the baffle and everything below are drawn in the driver's frame, scaled by `d.k`);
  * the motor (back plate, magnet, top plate), the stamped dish with its dots, the spider with its
  * corrugation rings, the voice-coil former, four basket arms; the mounting ring with four screw
  * slots, the rubber roll surround; the mint cone (`cone`, moved along +z by the frame hook) with
@@ -26,45 +27,52 @@ const annulus = (r0: number, r1: number, z0: number, z1: number) =>
     [r0, z0],
   ] as const;
 
-export function Mount({ d, stand }: { d: Driver; stand: boolean }) {
-  const { ZB } = d;
-  const HB = SPK.HB;
-  const post = Math.SQRT2 * (HB - 6);
+/** The stand (at the speaker's scale): base plate with its seam and halo, four posts on feet. */
+export function Stand({ d }: { d: Driver }) {
+  const { ZB, HB, post } = d;
   return (
-    <Group id="mount">
-      {stand && (
-        <Group id="stand">
-          <Halo id="halo" plan={{ w: 2 * HB + 8, d: 2 * HB + 8, r: 8 }} />
-          <Box id="base" material="steel" outline="lo" size={[2 * HB, 2 * HB, 3]} center={[0, 0, 1.5]} r={4} seams={[1.5]} />
-          {DIAG.map((deg, i) => {
-            const [x, y] = [post * Math.cos(rad(deg)), post * Math.sin(rad(deg))];
-            return (
-              <Group key={i} id={`post${i}`} position={[x, y, 0]}>
-                <Lathe id="foot" material="steel" profile={disc(4.2, 3, 5)} steps={28} />
-                <Lathe id="post" material="steel" profile={disc(2.4, 5, ZB - 2)} seams={[8, ZB - 5]} steps={20} />
-              </Group>
-            );
-          })}
-        </Group>
-      )}
-      <Group id="baffle">
-        {QUARTERS.map((q) => (
-          <Extrude key={q} id={`q${q}`} material="graphite" plan={{ sector: { r0: SPK.hole, r1: SPK.ringOut, a0: q * 90, a1: q * 90 + 90 }, steps: 18 }} z={ZB - 2} height={2} />
-        ))}
-        {DIAG.map((deg, q) => {
-          const reach = stand ? post + 4.5 : SPK.ringOut + 7.5;
-          return (
-            <Group key={q} id={`${stand ? 'tab' : 'ear'}${q}`} rotation={[0, 0, deg]}>
-              <Extrude id="plate" material="graphite" plan={{ polygon: [[SPK.ringOut - 0.4, -4], [reach, -4], [reach, 4], [SPK.ringOut - 0.4, 4]] }} z={ZB - 2} height={2} />
-              {stand ? (
-                <Marks id="post-top" material="graphite" segments={circle([post, 0, ZB], 1.6, UP, 'lo', 12)} dots={[{ at: [post, 0, ZB], size: 0.5, normal: UP }]} />
-              ) : (
-                <Lathe id="hole" material="rubber" outline="lo" profile={[[1.5, ZB + 0.02], [0, ZB + 0.02]]} steps={14} position={[SPK.ringOut + 4, 0, 0]} />
-              )}
-            </Group>
-          );
-        })}
-      </Group>
+    <Group id="stand">
+      <Halo id="halo" plan={{ w: 2 * HB + 8, d: 2 * HB + 8, r: 8 }} />
+      <Box id="base" material="steel" outline="lo" size={[2 * HB, 2 * HB, 3]} center={[0, 0, 1.5]} r={4} seams={[1.5]} />
+      {DIAG.map((deg, i) => {
+        const [x, y] = [post * Math.cos(rad(deg)), post * Math.sin(rad(deg))];
+        return (
+          <Group key={i} id={`post${i}`} position={[x, y, 0]}>
+            <Lathe id="foot" material="steel" profile={disc(4.2, 3, 5)} steps={28} />
+            <Lathe id="post" material="steel" profile={disc(2.4, 5, ZB - 2 * d.k)} seams={[8, ZB - 5 * d.k]} steps={20} />
+          </Group>
+        );
+      })}
+    </Group>
+  );
+}
+
+/**
+ * The graphite baffle in four ring quarters, with tabs out to the posts (`stand`) or four short
+ * mounting ears with open holes; drawn in the driver's (scaled) frame.
+ */
+export function Baffle({ d, stand }: { d: Driver; stand: boolean }) {
+  const { ZB } = d;
+  // The posts' radius in the driver's frame.
+  const post = d.post / d.k;
+  return (
+    <Group id="baffle">
+      {QUARTERS.map((q) => (
+        <Extrude key={q} id={`q${q}`} material="graphite" plan={{ sector: { r0: SPK.hole, r1: SPK.ringOut, a0: q * 90, a1: q * 90 + 90 }, steps: 18 }} z={ZB - 2} height={2} />
+      ))}
+      {DIAG.map((deg, q) => {
+        const reach = stand ? post + 4.5 / d.k : SPK.ringOut + 7.5;
+        return (
+          <Group key={q} id={`${stand ? 'tab' : 'ear'}${q}`} rotation={[0, 0, deg]}>
+            <Extrude id="plate" material="graphite" plan={{ polygon: [[SPK.ringOut - 0.4, -4], [reach, -4], [reach, 4], [SPK.ringOut - 0.4, 4]] }} z={ZB - 2} height={2} />
+            {stand ? (
+              <Marks id="post-top" material="graphite" segments={circle([post, 0, ZB], 1.6, UP, 'lo', 12)} dots={[{ at: [post, 0, ZB], size: 0.5, normal: UP }]} />
+            ) : (
+              <Lathe id="hole" material="rubber" outline="lo" profile={[[1.5, ZB + 0.02], [0, ZB + 0.02]]} steps={14} position={[SPK.ringOut + 4, 0, 0]} />
+            )}
+          </Group>
+        );
+      })}
     </Group>
   );
 }

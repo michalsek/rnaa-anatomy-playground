@@ -5,10 +5,13 @@
  *    the tray under it (tall ones laid down), hidden.
  * 2. **The lid lifts:** straight up first (so it keeps covering what the clip cuts under it), then
  *    on to its floating pose (z 560, shift [−80, −24]).
- * 3. **The machines expand,** one after another: each rises off the packed layer, turns upright
- *    while it flies over to its place at a height clear of whatever it passes, and comes down
- *    onto its spot (the later member of a docking pair lands after the earlier one). The
- *    dispenser goes last, up under the display.
+ * 3. **The machines expand,** nearly all at once (M11: a short stagger, some chaos is fine): each
+ *    rises off the packed layer, turns upright while it flies over to its place at a height clear
+ *    of whatever rests under its path, and comes down onto its spot. Flying machines may pass
+ *    each other; none passes through a machine at rest (still packed, or landed), none comes
+ *    down before what lies packed under its spot has left, the later member of a docking pair
+ *    lands after the earlier one, and nothing rises above the lid once it starts to float off.
+ *    The dispenser goes last, up under the display.
  * 4. **Conceal** is the same plan played backwards.
  *
  * Rigid only: every machine's pose is T·R (no scale, no morph). The clip volume (the case's
@@ -34,12 +37,13 @@ function dispenserBox(p: PhoneLayout): Box3 {
 
 /**
  * Local rest AABBs (with `FACTORY_STANDS`), from `store.groupBounds` minus the origins, rounded
- * outward to 0.5 (the item pools ride inside); the dispenser's in the phone's frame.
+ * outward to 0.5 (the item pools ride inside), on world axes (a turned machine's box turned with it);
+ * the dispenser's in the phone's frame.
  */
 export const MACHINE_BOX: Record<RevealId, Box3> = {
   beltA: [[-7, -16, 219], [68, 21.5, 236.5]],
   packer: [[-41.5, -33, 0], [55.5, 26, 233]],
-  beltB: [[-15, -7, 179], [20.5, 185, 196.5]],
+  beltB: [[-15, -7, 179], [20.5, 95, 196.5]],
   centrifuge: [[-40, -37, 0], [63.5, 47, 186]],
   audio: [[-17.5, -17, 59], [215, 27.5, 94.5]],
   beltC: [[-14, -7, 0], [19.5, 117, 44.5]],
@@ -47,7 +51,7 @@ export const MACHINE_BOX: Record<RevealId, Box3> = {
   scanner: [[-86, -26, 0], [25, 31.5, 106]],
   beltD: [[-15, -7, 0], [20.5, 262, 28.5]],
   elevator: [[-14, -82, 0], [22, 40, 264]],
-  speaker: [[-46, -46, 0], [64, 46, 226.5]],
+  speaker: [[-110, -72, 0], [72, 72, 232.5]],
   dispenser: dispenserBox(PHONE),
 };
 
@@ -62,36 +66,36 @@ export interface PackedPose {
 }
 
 /**
- * The packed layout (hand-authored): rows across the tray, back (−y) to front, every machine on
- * the floor, the tall ones laid down (most then stand ≤ 36; the speaker, packer, centrifuge and
- * scanner lie 92, 59, 84 and 58 high and the clip cuts them under the closed lid). Rows: the
- * speaker and the crusher; the elevator; the packer and belt A; the scanner; the loop; belt D;
- * belts B and C; the centrifuge and the dispenser.
+ * The packed layout (M11: from a greedy one-layer packer, notes/M11.md): every machine on the
+ * floor inside the case, none overlapping, each in its lowest orientation (laid down) near its
+ * assembled spot, biggest first. Most stand ≤ 59; the centrifuge lies 84 and the speaker (twice
+ * v2's size) 144 high: the clip cuts them under the closed lid, and the lid rises straight up 150
+ * before it floats off, so the cut stays under it.
  */
 export const PACKED: readonly PackedPose[] = [
-  { id: 'speaker', at: [54.2, -8], rot: [90, 0, 90] },
-  { id: 'crusher', at: [-79, 264], rot: [0, 0, 90] },
-  { id: 'elevator', at: [22, -227], rot: [0, 90, 90] },
-  { id: 'packer', at: [-114.5, -98.5], rot: [90, 0, 0] },
-  { id: 'beltA', at: [111.8, -177.5], rot: [0, 0, 90] },
-  { id: 'scanner', at: [32.5, 314], rot: [90, 0, 0] },
-  { id: 'audio', at: [53.2, 123.2], rot: [0, 0, 0] },
-  { id: 'beltD', at: [-16.5, 67.2], rot: [0, 90, 90] },
-  { id: 'beltB', at: [73, -78.2], rot: [0, 90, 90] },
-  { id: 'beltC', at: [-92.8, 155], rot: [0, 90, 0] },
-  { id: 'centrifuge', at: [70, 204.8], rot: [90, 0, 90] },
-  { id: 'dispenser', at: [109, -289.5], rot: [0, 90, 90] },
+  { id: 'speaker', at: [42, -254.8], rot: [90, 0, 0] },
+  { id: 'elevator', at: [-39, -74.5], rot: [0, 90, 0] },
+  { id: 'packer', at: [54.5, 38], rot: [90, 0, 90] },
+  { id: 'centrifuge', at: [78, 141.3], rot: [90, 0, 90] },
+  { id: 'scanner', at: [-71, 145], rot: [90, 0, 90] },
+  { id: 'audio', at: [8.8, 225.8], rot: [0, 0, 0] },
+  { id: 'beltD', at: [-144.8, 124], rot: [0, 0, 0] },
+  { id: 'crusher', at: [-76, 290], rot: [0, 0, 90] },
+  { id: 'beltC', at: [37, 273.3], rot: [0, 90, 90] },
+  { id: 'dispenser', at: [151.3, -100], rot: [90, 0, 0] },
+  { id: 'beltB', at: [113.8, -64.5], rot: [0, 0, 0] },
+  { id: 'beltA', at: [-70.8, -176], rot: [0, 0, 90] },
 ];
 
 /**
- * The start order: back to front where the docking pairs allow (the speaker before the
- * elevator, belts A and B before the packer, the elevator before belt D, belt C before the loop
- * and the crusher, the loop and belt D before the scanner and the centrifuge), every machine off
- * the floor before another lands on its packed spot, the dispenser last.
+ * The start order (a stagger apart): the docking pairs' landing order (the speaker before the
+ * elevator, the elevator before belt D, belt D before the scanner, belt C before the loop and the
+ * crusher, the loop before the scanner and the centrifuge, belts A and B before the packer), the
+ * dispenser last.
  */
 export const REVEAL_ORDER: readonly RevealId[] = ['speaker', 'elevator', 'beltD', 'beltC', 'audio', 'scanner', 'centrifuge', 'crusher', 'beltA', 'beltB', 'packer', 'dispenser'];
 
-/** Docking pairs [earlier, later]: the later one comes down over the earlier one. */
+/** Docking pairs [earlier, later] (their assembled boxes overlap): the later one comes down over the earlier one. */
 export const DOCKING: readonly (readonly [RevealId, RevealId])[] = [
   ['beltA', 'packer'],
   ['beltB', 'packer'],
@@ -107,22 +111,25 @@ export const DOCKING: readonly (readonly [RevealId, RevealId])[] = [
 /** The case's inside (world): the clip volume's plan (rounded corners) and its floor. */
 export const CASE_INSIDE = { x: PHONE.case.w / 2 - PHONE.case.t, y: PHONE.case.d / 2 - PHONE.case.t, r: PHONE.case.r - PHONE.case.t, floor: -0.5 } as const;
 
-/** The scheduler's patience: at most this many 0.1 s delays per machine. */
-const MAX_TRIES = 100;
-
 /** Timing (s) and speeds (units/s). */
 export const REVEAL = {
-  /** The lid: straight up by `rise` (clear of the laid-down machines' cut tops), then to its pose. */
-  lid: { rise: 90, up: 0.8, open: 1.4 },
-  /** Gap between the machines' starts, the flight, the rise and descent speed and their floor. */
-  stagger: 0.35,
-  move: 1.3,
-  speed: 360,
-  minLift: 0.4,
-  /** Clearance over whatever a flight passes. */
+  /**
+   * The lid: straight up by `rise` (the packed machines' cut tops stay under it: the tallest lies
+   * 144 high), then to its pose.
+   */
+  lid: { rise: 150, up: 0.7, open: 1.5 },
+  /** The machines start this long after the lid, a `stagger` apart (in REVEAL_ORDER). */
+  start: 0.35,
+  stagger: 0.1,
+  /** The flight's length from its distance, clamped; the rise and descent speed and their floor. */
+  move: { speed: 220, min: 1.2, max: 1.8 },
+  speed: 340,
+  minLift: 0.3,
+  /** Clearance over whatever rests under a flight. */
   clear: 8,
-  /** The packed layer's top (the laid-down machines, cut or not). */
-  layer: 92,
+  /** The scheduler's delay step and patience (per machine). */
+  delay: 0.05,
+  tries: 200,
 } as const;
 
 export interface RevealEntry {
@@ -349,11 +356,15 @@ export function clipAt(plan: RevealPlan, t: number, layout: FactoryLayout, out: 
   return out;
 }
 
+/** A box pair's overlap, both shrunk by `eps` (strict). */
+const overlapsAt = (a: readonly (readonly number[])[], b: readonly (readonly number[])[], eps: number) => boxesOverlap(a, b, eps);
+
 /**
- * Plan the reveal: the lid's two phases, then each machine (in `order`, at least `REVEAL.stagger`
- * after the previous one, later if its motion would clash with one already planned or with one
- * still packed) rises off the packed layer, flies turning upright at a height clear of every
- * machine planned before it under its sweep, and comes down.
+ * Plan the reveal: the lid's two phases, then every machine (in `order`, a stagger apart, later
+ * when it must wait) rises off the packed layer, flies turning upright at a height clear of what
+ * rests under its path, and comes down. A plan is checked over its whole length (every 1/60 s) and
+ * a machine is delayed while it would pass through a machine at rest, come down before a docking
+ * partner, or rise above the floating lid.
  */
 export function revealPlan(layout: FactoryLayout, packed: readonly PackedPose[] = PACKED, boxes: Record<RevealId, Box3> = MACHINE_BOX, order: readonly RevealId[] = REVEAL_ORDER): RevealPlan {
   const origins: Record<RevealId, V3> = { ...machineOrigins(layout), dispenser: [0, 0, 0] };
@@ -362,81 +373,118 @@ export function revealPlan(layout: FactoryLayout, packed: readonly PackedPose[] 
   const lidT2 = lidT1 + REVEAL.lid.open;
   const lid = { t0: 0, t1: lidT1, t2: lidT2, closed: [-p.shift[0], -p.shift[1], p.case.cut - p.displayZ] as V3 };
   const byId = new Map(packed.map((x) => [x.id, x]));
-  const entries = {} as Record<RevealId, RevealEntry>;
-  const landed: [V3, V3][] = [];
-  const box: [V3, V3] = [[0, 0, 0], [0, 0, 0]];
-  const later = new Map<string, RevealId>();
-  for (const [x, y] of DOCKING) later.set(`${x}|${y}`, y).set(`${y}|${x}`, y);
-  const scheduled: RevealEntry[] = [];
-  const a: [V3, V3] = [[0, 0, 0], [0, 0, 0]];
-  const q: [V3, V3] = [[0, 0, 0], [0, 0, 0]];
-  const pos: V3 = [0, 0, 0];
-  const rr: V3 = [0, 0, 0];
-  const clashes = (e: RevealEntry) => {
-    for (let t = e.t0; t <= e.t3 + 1e-9; t += 1 / 120) {
-      placeAt(e, t, pos, rr);
-      turnedBox(boxes[e.id], pos, rr, a);
-      for (const other of order) {
-        if (other === e.id) continue;
-        const o = entries[other];
-        const l = later.get(`${e.id}|${other}`);
-        if (o) {
-          placeAt(o, t, pos, rr);
-          turnedBox(boxes[other], pos, rr, q);
-        } else {
-          // Not scheduled yet: still packed on the floor.
-          const pk = byId.get(other)!;
-          const r: V3 = [pk.rot[0] * DEG, pk.rot[1] * DEG, pk.rot[2] * DEG];
-          turnedBox(boxes[other], [0, 0, 0], r, q);
-          turnedBox(boxes[other], [pk.at[0], pk.at[1], -q[0][2]], r, q);
-        }
-        if (!boxesOverlap(a, q, -1)) continue;
-        // A docking pair may touch while the later one comes down.
-        if (l && t >= (l === e.id ? e.t2 : (o?.t2 ?? Infinity))) continue;
-        return true;
-      }
-    }
-    return false;
-  };
-  order.forEach((id, k) => {
+  const earlier = new Map<RevealId, RevealId[]>();
+  for (const [x, y] of DOCKING) earlier.set(y, [...(earlier.get(y) ?? []), x]);
+  const isDock = (x: RevealId, y: RevealId) => DOCKING.some(([a, b]) => (a === x && b === y) || (a === y && b === x));
+  // Static per machine: packed and final boxes, centres, the turn.
+  const base = order.map((id) => {
     const pk = byId.get(id);
     if (!pk) throw new Error(`revealPlan: no packed pose for ${id}`);
     const b = boxes[id];
     const o = origins[id];
     const c = centreOf(b);
     const rot: V3 = [pk.rot[0] * DEG, pk.rot[1] * DEG, pk.rot[2] * DEG];
-    turnedBox(b, [0, 0, 0], rot, box);
-    const from: V3 = [pk.at[0], pk.at[1], -box[0][2]];
+    const pb = turnedBox(b, [0, 0, 0], rot);
+    const from: V3 = [pk.at[0], pk.at[1], -pb[0][2]];
     const to: V3 = [o[0] + c[0], o[1] + c[1], o[2] + c[2]];
-    // The flight's plan sweep (both ends, any turn's extent): what it passes over.
-    const hd = halfDiag(b);
-    const lo0 = Math.min(from[0], to[0]) - hd;
-    const lo1 = Math.min(from[1], to[1]) - hd;
-    const hi0 = Math.max(from[0], to[0]) + hd;
-    const hi1 = Math.max(from[1], to[1]) + hd;
-    let top: number = REVEAL.layer;
-    for (const l of landed) if (l[0][0] < hi0 && l[1][0] > lo0 && l[0][1] < hi1 && l[1][1] > lo1) top = Math.max(top, l[1][2]);
-    const air = Math.max(top + REVEAL.clear + hd, to[2], from[2]);
-    const rise = Math.max(REVEAL.minLift, (air - from[2]) / REVEAL.speed);
-    const fall = Math.max(REVEAL.minLift, (air - to[2]) / REVEAL.speed);
-    // The earliest start (a stagger after the previous one) whose whole motion is clear.
-    const prev = scheduled.length ? scheduled[scheduled.length - 1]!.t0 + REVEAL.stagger : lidT2;
-    const e: RevealEntry = { id, origin: [o[0], o[1], o[2]], centre: c, from, rot, to, air, t0: prev, t1: 0, t2: 0, t3: 0 };
-    for (let tries = 0; ; tries++) {
-      e.t1 = e.t0 + rise;
-      e.t2 = e.t1 + REVEAL.move;
-      e.t3 = e.t2 + fall;
-      if (!clashes(e) || tries > MAX_TRIES) break;
-      e.t0 += 0.1;
-    }
-    void k;
-    entries[id] = e;
-    scheduled.push(e);
-    landed.push([
+    const packedBox = turnedBox(b, from, rot);
+    const finalBox: [V3, V3] = [
       [o[0] + b[0][0], o[1] + b[0][1], o[2] + b[0][2]],
       [o[0] + b[1][0], o[1] + b[1][1], o[2] + b[1][2]],
-    ]);
+    ];
+    return { id, o, c, rot, from, to, hd: halfDiag(b), packedBox, finalBox };
   });
+  const extra = new Map<RevealId, number>(order.map((id) => [id, 0]));
+  const lidAt: V3 = [0, 0, 0];
+  const lidUnder = (t: number) => p.displayZ + lidPose({ lid } as RevealPlan, t, lidAt)[2];
+  const build = () => {
+    const entries = {} as Record<RevealId, RevealEntry>;
+    let prev = REVEAL.start - REVEAL.stagger;
+    for (const m of base) {
+      const t0 = Math.max(prev + REVEAL.stagger, REVEAL.start) + extra.get(m.id)!;
+      prev = t0 - extra.get(m.id)!;
+      // The flight's sweep (both ends, any turn's extent) and what rests under it: every machine's
+      // packed box (conservative: it may have left), the landed boxes of those planned before.
+      const lo0 = Math.min(m.from[0], m.to[0]) - m.hd;
+      const lo1 = Math.min(m.from[1], m.to[1]) - m.hd;
+      const hi0 = Math.max(m.from[0], m.to[0]) + m.hd;
+      const hi1 = Math.max(m.from[1], m.to[1]) + m.hd;
+      const under = (b: readonly (readonly number[])[]) => b[0]![0]! < hi0 && b[1]![0]! > lo0 && b[0]![1]! < hi1 && b[1]![1]! > lo1;
+      let top = 0;
+      for (const q of base) {
+        if (q.id === m.id) continue;
+        if (under(q.packedBox)) top = Math.max(top, q.packedBox[1][2]);
+        if (entries[q.id] && under(q.finalBox)) top = Math.max(top, q.finalBox[1][2]);
+      }
+      // Never above the open lid's underside (any turn's extent): the dispenser, hung under the
+      // display, flies just under its spot and rises onto it.
+      const air = Math.min(Math.max(top + REVEAL.clear + m.hd, m.to[2], m.from[2]), p.displayZ - m.hd - 2);
+      const rise = Math.max(REVEAL.minLift, (air - m.from[2]) / REVEAL.speed);
+      const dist = Math.hypot(m.to[0] - m.from[0], m.to[1] - m.from[1]);
+      const move = Math.min(REVEAL.move.max, Math.max(REVEAL.move.min, dist / REVEAL.move.speed));
+      const fall = Math.max(REVEAL.minLift, (air - m.to[2]) / REVEAL.speed);
+      const e: RevealEntry = { id: m.id, origin: [m.o[0], m.o[1], m.o[2]], centre: m.c, from: m.from, rot: m.rot, to: m.to, air, t0, t1: t0 + rise, t2: t0 + rise + move, t3: t0 + rise + move + fall };
+      // A docking pair's later member lands after the earlier one.
+      for (const x of earlier.get(m.id) ?? []) {
+        const ex = entries[x];
+        if (ex && e.t3 < ex.t3 + REVEAL.delay) {
+          const d = ex.t3 + REVEAL.delay - e.t3;
+          e.t0 += d;
+          e.t1 += d;
+          e.t2 += d;
+          e.t3 += d;
+        }
+      }
+      entries[m.id] = e;
+    }
+    return entries;
+  };
+  /** The first machine that moves through a machine at rest, or rises above the floating lid. */
+  const a: [V3, V3] = [[0, 0, 0], [0, 0, 0]];
+  const q: [V3, V3] = [[0, 0, 0], [0, 0, 0]];
+  const pos: V3 = [0, 0, 0];
+  const rr: V3 = [0, 0, 0];
+  const firstFault = (entries: Record<RevealId, RevealEntry>, end: number): RevealId | null => {
+    for (let t = 0; t <= end + 1e-9; t += 1 / 60) {
+      for (const m of base) {
+        const e = entries[m.id];
+        if (t <= e.t0 || t >= e.t3) continue;
+        placeAt(e, t, pos, rr);
+        turnedBox(boxes[m.id], pos, rr, a);
+        if (t >= lidT1 && a[1][2] > lidUnder(t) + 1) return m.id;
+        for (const r of base) {
+          if (r.id === m.id) continue;
+          const er = entries[r.id];
+          const resting = t <= er.t0 ? r.packedBox : t >= er.t3 ? r.finalBox : null;
+          if (!resting) continue;
+          // A docking pair may touch while the later one comes down onto the earlier one.
+          if (t >= er.t3 && isDock(m.id, r.id) && t >= e.t2) continue;
+          q[0][0] = resting[0][0];
+          q[0][1] = resting[0][1];
+          q[0][2] = resting[0][2];
+          q[1][0] = resting[1][0];
+          q[1][1] = resting[1][1];
+          q[1][2] = resting[1][2];
+          if (overlapsAt(a, q, 0.25)) {
+            // Waiting helps the mover only if the resting one is still packed (it will leave);
+            // a landed one stays: then the one that landed waits instead.
+            return t <= er.t0 ? m.id : r.id;
+          }
+        }
+      }
+    }
+    return null;
+  };
+  let entries = build();
+  for (let i = 0; ; i++) {
+    let end = lidT2;
+    for (const id of order) end = Math.max(end, entries[id].t3);
+    const bad = firstFault(entries, end);
+    if (!bad) break;
+    if (i > REVEAL.tries * order.length) throw new Error(`revealPlan: ${bad} still clashes after ${i} delays`);
+    extra.set(bad, extra.get(bad)! + REVEAL.delay);
+    entries = build();
+  }
   let end = lidT2;
   for (const id of order) end = Math.max(end, entries[id].t3);
   return { entries, order, lid, end };

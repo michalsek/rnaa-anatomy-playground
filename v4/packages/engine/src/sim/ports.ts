@@ -1,7 +1,8 @@
 /**
  * Ports: how machines hand items on. Every machine works in its own local frame and is placed by
- * translation (`origin`, world), so a hand-off converts the sender's local point to world and on
- * into the receiver's local frame (v2 `shared/runtime.js` route). Plain TS.
+ * translation (`origin`, world) and an optional quarter turn about z (`yaw`, M11), so a hand-off
+ * converts the sender's local point (and the item's velocity) to world and on into the receiver's
+ * local frame (v2 `shared/runtime.js` route). Plain TS.
  */
 import { DEV } from '#platform/env.ts';
 import type { Item } from './items.ts';
@@ -39,7 +40,7 @@ export interface Receiver {
    * that asks first is never refused.
    */
   canAccept(lead?: number): boolean;
-  /** `from` in the receiver's local frame; `v` the item's velocity (world = local axes). */
+  /** `from` and the item's velocity `v` in the receiver's local frame. */
   accept(item: Item, from: V3, v: V3): void;
 }
 
@@ -47,6 +48,27 @@ export interface Located {
   readonly id: string;
   /** World translation of the machine's local frame. */
   readonly origin: V3;
+  /** Its turn about z (degrees, a multiple of 90; default 0): world = origin + Rz(yaw)·local. */
+  readonly yaw?: number;
+}
+
+/** A quarter turn's cos and sin, exact (yaw in degrees, a multiple of 90). */
+export function quarterTurn(yaw = 0): readonly [number, number] {
+  const q = Math.round(yaw / 90);
+  if (Math.abs(q * 90 - yaw) > 1e-9) throw new Error(`yaw ${yaw}: use a multiple of 90`);
+  const k = ((q % 4) + 4) % 4;
+  return k === 0 ? [1, 0] : k === 1 ? [0, 1] : k === 2 ? [-1, 0] : [0, -1];
+}
+
+/** A local point of a machine in world (writes out). */
+export function toWorld(m: Located, p: readonly number[], out: V3 = [0, 0, 0]): V3 {
+  const [c, s] = quarterTurn(m.yaw);
+  const x = p[0]!;
+  const y = p[1]!;
+  out[0] = m.origin[0] + c * x - s * y;
+  out[1] = m.origin[1] + s * x + c * y;
+  out[2] = m.origin[2] + p[2]!;
+  return out;
 }
 
 /** An output port. Unlinked, `ready` is false and `send` throws. */
@@ -79,9 +101,16 @@ export function createOut(owner: Located, name: string, o: { asks: boolean }): O
     send(item, from, v) {
       if (!to) throw new Error(`${owner.id}.${name}: not linked`);
       if (DEV && to.strict && !to.canAccept()) throw new Error(`${owner.id}.${name}: ${to.id} refuses item ${item.id} (strict receiver; the sender must ask first)`);
+      // world = o + Ro·from; the receiver's local = Rrᵀ·(world − r); a velocity turns alike.
       const o = owner.origin;
       const r = to.origin;
-      to.accept(item, [from[0] + o[0] - r[0], from[1] + o[1] - r[1], from[2] + o[2] - r[2]], [v[0], v[1], v[2]]);
+      const [co, so] = quarterTurn(owner.yaw);
+      const [cr, sr] = quarterTurn(to.yaw);
+      const wx = o[0] + co * from[0] - so * from[1] - r[0];
+      const wy = o[1] + so * from[0] + co * from[1] - r[1];
+      const vx = co * v[0] - so * v[1];
+      const vy = so * v[0] + co * v[1];
+      to.accept(item, [cr * wx + sr * wy, -sr * wx + cr * wy, from[2] + o[2] - r[2]], [cr * vx + sr * vy, -sr * vx + cr * vy, v[2]]);
     },
   };
 }
