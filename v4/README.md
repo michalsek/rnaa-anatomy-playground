@@ -40,31 +40,47 @@ Android: `pnpm android` (config only so far, not built).
 ```
 packages/engine/src
   camera/    2:1 dimetric ortho camera (kit projection), fit (to part box corners), view presets
-  palette/   light/dark tokens (from the v2 kit) → GPU palette table (fill, line and dot tones)
+             (optional `frame` box to fit, `lines` line-scale cap)
+  palette/   light/dark tokens (from the v2 kit) → GPU palette table (material slots, then FX
+             colours: halo, glow, void, strobe); CARD tokens and MONO for the overlay
   geo/       JSON GeoSpecs → cached prototypes: box/extrude (plans, seams), lathe (seams, poles,
              spline spans), tube (open/closed, tangents), belt; topology per prototype;
              contacts (triangle crossings); mark helpers (bolt circles, polylines)
   scene/     SceneStore (groups/parts/pools/marks, tokens, build → batches, flatten → instances);
              M1 profiles and line sets
   shading/   'use gpu' tone rules (bands, plan, tube stripes) + AA weights, line coverage
-  render/    vertex pulling, instance/style/mark tables, in-face lines, marks pipeline,
-             MSAA 4× + depth, one encoder/submit per frame
+  render/    vertex pulling, instance/style/mark/gradient tables, in-face lines (+ UV sectors),
+             gradient tone, marks pipeline, sprites (halo, glow discs; multiply/screen by
+             theme), MSAA 4× + depth, one encoder/submit per frame
   platform/  #platform/* contract (+ Node stub for tests)
 apps/app
-  src/blocks/                  React blocks: Scene, Group/Machine, Box, Extrude, Lathe, Tube,
-                               Belt, Instances, Marks, useFrame, useNode (render null)
-  src/gallery/                 M2 gallery (rows m1, ext, lathe, inst, marks, contact) + M1 row
+  src/blocks/                  React blocks: Scene, Group/Machine (contacts default), Box,
+                               Extrude, Lathe, Tube, Belt, Instances, Marks, Halo, Glow,
+                               useFrame, useNode (render null)
+  src/machines/centrifuge/     M3: the static centrifuge from v2 (dims.ts + one module per
+                               assembly; views.ts: fit + 4 crops, card text)
+  src/overlay/Card.tsx         the kit's figure card (fig, title, hint, readout)
+  src/gallery/                 M2 gallery (rows m1, ext, lathe, inst, marks, contact, fx) + M1
+                               row; views.ts holds layout and view presets (no components)
   src/platform/{web,native}/   hosts for #platform/*, picked by metro.config.js
   src/shell/                   rAF loop: store.tick (dt ≤ 0.1 s) → renderer.frame → present?.()
   src/Stage.tsx                <Canvas> + layout → configure → shell (rebuilt on Fast Refresh)
+  src/gpuRoot.ts               the TypeGPU root in module state (survives Fast Refresh)
 ```
 
 ## Controls
 
-Top-right toolbar: scene (`gallery`, `m1`), view preset, pause, debug view (`dbg 1` = line
+Rule for Fast Refresh: component modules (`*.tsx`) export only components; constants and
+view presets live in plain modules (`dims.ts`, `views.ts`). Then a prop edit patches in place:
+the store and GPU device survive and the scene rebuilds warm.
+
+The toolbar row above the card: scene (`centrifuge` default, `gallery`, `m1`), view preset
+(centrifuge: `fit`, `rotor`, `instr`, `drive`, `funnel`), pause, debug view (`dbg 1` = line
 classes: outline red, contour magenta, crease blue, ticks green, marks and contacts cyan;
 `dbg 2` = lines off), theme. In dev builds the same is scriptable from a debugger or the browser
 console: `__v4.setScene('m1')`, `__v4.setView('close cage')`, `__v4.look({ focus: [x, y, z],
 zoom: 8 })`, `__v4.setDebug(1)`, `__v4.setPaused(true)`, `__v4.setTheme('dark')`,
-`__v4.setPoolCount('inst.packets', 12)`, `__v4.store()`; `__v4.views` / `__v4.scenes` list the
-names. Notes: [notes/M1.md](notes/M1.md), [notes/M2.md](notes/M2.md).
+`__v4.setPoolCount('inst.packets', 12)`, `__v4.setChrome(false)` (hide the toolbar for
+captures), `__v4.store()`; `__v4.views` / `__v4.scenes` list the names. DEV builds keep the last
+50 engine log lines in `globalThis.__v4logs` (per-phase rebuild ms). Notes:
+[notes/M1.md](notes/M1.md), [notes/M2.md](notes/M2.md), [notes/M3.md](notes/M3.md).

@@ -53,11 +53,21 @@ function Tach() {
   return (
     <Group id="tach" {...faceFrame(TACH_DEG, TZ)}>
       <Lathe id="pad" material="steel" profile={pad(5.4, 35.4)} contacts />
-      <Lathe id="dial" material="graphite" crease="mid" profile={TACH} marks={[5]} lineSets={[{ segment: 4, lines: TICKS }]} />
+      <Lathe id="dial" material="graphite" profile={TACH} lineSets={[{ segment: 4, lines: TICKS }]} />
+      {/* The scale's arc (270°, open at the bottom) and the sync tick at 70% of the sweep. */}
       <Marks
-        id="sync"
+        id="scale"
         material="graphite"
-        segments={[{ a: face(3.2, SYNC, FACE_S + 0.01), b: face(4.6, SYNC, FACE_S + 0.01), width: 1.3, tone: 'hi', normal: OUT }]}
+        segments={[
+          ...Array.from({ length: 48 }, (_, i) => ({
+            a: face(3.2, -135 + (270 * i) / 48, FACE_S + 0.01),
+            b: face(3.2, -135 + (270 * (i + 1)) / 48, FACE_S + 0.01),
+            tone: 'mid' as const,
+            normal: OUT,
+            fade: [0, 0.05] as const,
+          })),
+          { a: face(3.2, SYNC, FACE_S + 0.01), b: face(4.6, SYNC, FACE_S + 0.01), width: 1.3, tone: 'hi', normal: OUT },
+        ]}
       />
       {/* The needle (M4 turns it about the face axis); at rest it sits on the sync tick. */}
       <Group id="needle" moves position={[0, 0, FACE_S + 0.05]}>
