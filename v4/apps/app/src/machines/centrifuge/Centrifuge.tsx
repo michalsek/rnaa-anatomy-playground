@@ -26,6 +26,8 @@ import { DEG } from './dims.ts';
 const SYNC_DEG = -135 + 270 * 0.7;
 
 interface CentrifugeProps {
+  /** The factory's reveal moves the whole machine (its root moves, rarely) and clips it to the case. */
+  reveal?: boolean;
   live: LiveHandle;
   sim: () => CentrifugeSim;
   /** The four-legged stand (v2 `stand`). */
@@ -68,7 +70,7 @@ export function Centrifuge(props: CentrifugeProps) {
   const { sim, stand = true } = props;
   const origin: V3 = [...sim().origin];
   return (
-    <Group id="centrifuge" position={origin} contacts={false}>
+    <Group id="centrifuge" position={origin} moves={props.reveal === true} rare={props.reveal === true} clip={props.reveal === true} contacts={false}>
       <Frame {...props} />
       {stand && <Stand />}
       <Bowl />

@@ -460,3 +460,10 @@ Not needed:
 - **Full-bleed (user, 2026-10-14):** eventually the card frame and text chrome go away, so the canvas animation fills the whole screen.
   - M10 adds a `bare` mode (`__v4.setBare`, a chip) that is off by default, and uses it for the recordings.
   - M11 decides whether bare becomes the default.
+- **Reveal redesign (user, 2026-10-14, overrides the earlier reveal answer):**
+  1. **Closed:** the phone looks like a normal closed phone, with the display as its lid.
+  2. **Lid lifts:** the screen rises to its floating spot, uncovering machinery packed tightly in the vertical direction.
+  3. **Expansion:** the machines rise and rotate rigidly into their assembled positions.
+  4. **Conceal:** the exact reverse.
+
+  When closed, no machine part may bleed outside the case. A clip volume is allowed: the case interior, with its top plane at the lid underside, following the lid. It applies to machine geometry only. Clipping is a mask, not a deformation, so there is still no scaling or morphing.

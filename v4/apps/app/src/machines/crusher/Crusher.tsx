@@ -27,6 +27,8 @@ import { Base, Housing, Hopper } from './Housing.tsx';
 import { CR, FLAKE, VBELT } from './dims.ts';
 
 interface CrusherProps {
+  /** The factory's reveal moves the whole machine (its root moves, rarely) and clips it to the case. */
+  reveal?: boolean;
   live: LiveHandle;
   sim: () => CrusherSim;
   /** Feet, skid rails, cross members and the control box's pedestal. */
@@ -172,7 +174,7 @@ export function Crusher(props: CrusherProps) {
   const { sim, stand = true } = props;
   const c = sim();
   return (
-    <Group id={c.id} position={[...c.origin]} contacts={false}>
+    <Group id={c.id} position={[...c.origin]} moves={props.reveal === true} rare={props.reveal === true} clip={props.reveal === true} contacts={false}>
       <Frame {...props} />
       <Base stand={stand} />
       <Housing />

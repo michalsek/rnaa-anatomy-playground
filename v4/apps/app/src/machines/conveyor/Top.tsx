@@ -17,6 +17,8 @@ import { type BeltKit, beltKit, slats } from './dims.ts';
 import { BeltBody, LabelPlate, Lamp, Motor, Nut } from './Parts.tsx';
 
 interface TopProps {
+  /** The factory's reveal moves the whole machine (its root moves, rarely) and clips it to the case. */
+  reveal?: boolean;
   id: string;
   live: LiveHandle;
   sim: () => Conveyor;
@@ -95,7 +97,7 @@ export function Top(props: TopProps) {
     return { F, dots: Array.from({ length: 6 }, (_, k) => ({ at: [1.75 * Math.cos((k * Math.PI) / 3), 1.75 * Math.sin((k * Math.PI) / 3), 0.7] as const, size: 0.4, normal: [0, 0, 1] as const })) };
   })();
   return (
-    <Group id={id} position={conveyor.origin} contacts={false}>
+    <Group id={id} position={conveyor.origin} moves={props.reveal === true} rare={props.reveal === true} clip={props.reveal === true} contacts={false}>
       <Frame {...props} />
       <BeltBody
         f={f}

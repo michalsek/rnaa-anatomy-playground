@@ -32,13 +32,13 @@ function halfRing(rx: number, ry: number, band: number, deg: number, a0: number,
 
 const LOGO_RINGS = [90, 30, 150] as const;
 
-export function Display() {
+export function Display({ reveal = false }: { reveal?: boolean }) {
   const D = displayDims();
   const { c, sx, sy, DZ, Z1, Z2, SW, SD, SR, s, LY } = D;
   const top = -SD / 2;
   const edge = roundedRing(SW, SD, SR, 8).points.map(([x, y]) => [x, y, 0.02] as V3);
   return (
-    <Group id="display" position={[sx, sy, 0]} contacts={false}>
+    <Group id="display" position={[sx, sy, 0]} moves={reveal} rare={reveal} contacts={false}>
       <Extrude id="oled" material="graphite" outline="mid" plan={{ rect: [c.w - 6, c.d - 6], r: c.r - 3, steps: 10 }} position={[0, 0, DZ]} height={Z1 - DZ} seams={[1.6]} />
       <Extrude
         id="glass"

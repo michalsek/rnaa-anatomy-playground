@@ -7,6 +7,7 @@ import { CentrifugeScene, ConveyorScene, CrusherScene, FactoryScene, LineScene, 
 import { centrifugeLive, conveyorLive, crusherLive, factoryLive, lineLive, outputLive, packerLive, scannerLive } from './factory/live.ts';
 import { CAPTION, CARDS, LEGEND, PHASES, READOUTS } from './factory/cards.ts';
 import { FACTORY_VIEWS } from './factory/factoryViews.ts';
+import { revealCtl } from './factory/revealCtl.ts';
 import { standsStore } from './factory/stands.ts';
 import { CONVEYOR_CARD, CONVEYOR_VIEWS, LINE_CARD, LINE_VIEWS, OUTPUT_CARD, OUTPUT_VIEWS, PACKER_CARD, PACKER_VIEWS } from './factory/views.ts';
 import { CENTRIFUGE_CARD, CENTRIFUGE_VIEWS } from './machines/centrifuge/views.ts';
@@ -35,6 +36,20 @@ export interface SceneEntry {
   cardFor?: (view: string) => CardText;
   /** A view became current (the readout follows its card). */
   onView?: (view: string) => void;
+  /** The factory's reveal (the `reveal` chip, `__v4.reveal`). */
+  reveal?: {
+    reveal(): void;
+    conceal(): void;
+    restart(): void;
+    play(): void;
+    skip(): void;
+    seek(s: number): void;
+    state(): object;
+    /** Open (or opening): the chip offers to conceal. */
+    readonly opening: boolean;
+    subscribe(cb: () => void): () => void;
+    getSnapshot(): string;
+  };
   /** The "i" sheet: the full caption and a legend. */
   info?: { caption: string; legend: readonly { material: Material; label: string }[] };
 }
@@ -50,6 +65,7 @@ export const SCENES: SceneEntry[] = [
     Content: FactoryScene,
     card: { ...CARDS.factory, readout: factoryLive.readout },
     dev: { ...factoryLive.dev, stands: standsStore.set },
+    reveal: revealCtl,
     cardFor: (view) => ({ ...CARDS[factoryKey(view)], readout: factoryLive.readout }),
     info: { caption: CAPTION, legend: LEGEND },
     onView: (view) => {

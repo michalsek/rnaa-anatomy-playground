@@ -144,6 +144,34 @@ describe('SceneStore', () => {
     expect(store.flatten().dirty).toBe(false);
   });
 
+  it('rare groups: their parts keep static slots; a still frame after the last write uploads nothing', () => {
+    const store = createSceneStore();
+    expect(() => store.group('x', { rare: true })).toThrow(/rare needs moves/);
+    store.group('m', { moves: true, rare: true });
+    store.group('m.rotor', { parent: 'm', moves: true });
+    for (const id of ['a', 'b']) store.part(`m.${id}`, { parent: 'm', geo, style });
+    store.part('m.rotor.vane', { parent: 'm.rotor', geo, style });
+    store.part('z', { geo, style });
+    store.build();
+    store.flatten();
+    // Static slots: a, b, z (sorted by id) first; the vane (under an every-frame mover) last.
+    const root = store.group$('m');
+    root.set({ position: [5, 0, 0], rotation: [0, 0, 30] });
+    let r = store.flatten();
+    // The root's motion rewrites its parts' static slots and the vane: 0..1 and 3, not z (2).
+    expect([r.lo, r.hi]).toEqual([0, 4]);
+    expect(modelOf(r.f32, 0)[12]).toBeCloseTo(5, 5);
+    // The final identity write, then nothing.
+    root.set({});
+    r = store.flatten();
+    expect(r.dirty).toBe(true);
+    expect(modelOf(r.f32, 0)[12]).toBeCloseTo(0, 6);
+    root.set({});
+    expect(store.flatten().dirty).toBe(false);
+    // groupBounds: the rest AABB of the parts below (box 1 × 1 × 1 at the origins).
+    expect(store.groupBounds('m')).toEqual({ min: [-0.5, -0.5, -0.5], max: [0.5, 0.5, 0.5] });
+  });
+
   it('E2/E1/E3: part blend and shift, pool blend, shift and axis scale', () => {
     const store = createSceneStore();
     store.part('p', { geo, style, live: true, blend: { material: 'pkGarbage' } });

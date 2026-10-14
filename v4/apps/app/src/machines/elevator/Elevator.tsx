@@ -18,6 +18,8 @@ import { Drive, Head } from './Head.tsx';
 import { Tower } from './Tower.tsx';
 
 interface ElevatorProps {
+  /** The factory's reveal moves the whole machine (its root moves, rarely) and clips it to the case. */
+  reveal?: boolean;
   live: LiveHandle;
   sim: () => ElevatorSim;
   /** The posts' base plates and the chute's leg. */
@@ -82,7 +84,7 @@ export function Elevator(props: ElevatorProps) {
   const el = sim();
   const g = el.geometry;
   return (
-    <Group id={el.id} position={[...el.origin]} contacts={false}>
+    <Group id={el.id} position={[...el.origin]} moves={props.reveal === true} rare={props.reveal === true} clip={props.reveal === true} contacts={false}>
       <Frame {...props} />
       <Halo id="halo" plan={{ w: 30, d: 66, r: 4 }} position={[0, 7, 0]} />
       <Boot stand={stand} />

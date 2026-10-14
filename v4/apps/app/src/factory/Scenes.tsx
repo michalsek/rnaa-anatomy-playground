@@ -26,6 +26,7 @@ import { Loop } from '../machines/conveyor/Loop.tsx';
 import { Top } from '../machines/conveyor/Top.tsx';
 import { corners, rod } from '../machines/kit.ts';
 import { usePacketPoses } from '../machines/poses.ts';
+import { RevealDriver } from './RevealDriver.tsx';
 import { standsStore } from './stands.ts';
 import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, factoryLive, lineLive, outputLive, packerLive, scannerLive } from './live.ts';
 
@@ -222,18 +223,19 @@ export function FactoryScene() {
   const g = () => live.graph();
   return (
     <>
-      <Phone live={live} sim={() => g().dispenser} reads={() => g().scanner.stats.delivered} />
-      <Top id="beltA" live={live} sim={() => g().beltA} beads legs={st.beltA} />
-      <Packer live={live} sim={() => g().packer} stand={st.packer} />
-      <Top id="beltB" live={live} sim={() => g().beltB} legs={st.beltB} />
-      <Centrifuge live={live} sim={() => g().centrifuge} stand={st.centrifuge} />
-      <Loop id="audio" live={live} sim={() => g().audio} legs={st.audio} />
-      <Top id="beltC" live={live} sim={() => g().beltC} legs={st.beltC} />
-      <Crusher live={live} sim={() => g().crusher} stand={st.crusher} />
-      <Scanner live={live} sim={() => g().scanner} stand={st.scanner} />
-      <Top id="beltD" live={live} sim={() => g().beltD} legs={st.beltD} />
-      <Elevator live={live} sim={() => g().elevator} stand={st.elevator} />
-      <Speaker live={live} sim={() => g().speaker} stand={st.speaker} />
+      <RevealDriver />
+      <Phone reveal live={live} sim={() => g().dispenser} reads={() => g().scanner.stats.delivered} />
+      <Top id="beltA" reveal live={live} sim={() => g().beltA} beads legs={st.beltA} />
+      <Packer reveal live={live} sim={() => g().packer} stand={st.packer} />
+      <Top id="beltB" reveal live={live} sim={() => g().beltB} legs={st.beltB} />
+      <Centrifuge reveal live={live} sim={() => g().centrifuge} stand={st.centrifuge} />
+      <Loop id="audio" reveal live={live} sim={() => g().audio} legs={st.audio} />
+      <Top id="beltC" reveal live={live} sim={() => g().beltC} legs={st.beltC} />
+      <Crusher reveal live={live} sim={() => g().crusher} stand={st.crusher} />
+      <Scanner reveal live={live} sim={() => g().scanner} stand={st.scanner} />
+      <Top id="beltD" reveal live={live} sim={() => g().beltD} legs={st.beltD} />
+      <Elevator reveal live={live} sim={() => g().elevator} stand={st.elevator} />
+      <Speaker reveal live={live} sim={() => g().speaker} stand={st.speaker} />
     </>
   );
 }

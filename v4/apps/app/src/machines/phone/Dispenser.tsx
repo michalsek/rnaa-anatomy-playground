@@ -13,7 +13,7 @@ import { dispenserDims } from './dims.ts';
 
 const KNURL = ribs(16, 'lo');
 
-export function Dispenser({ beads }: { beads: number }) {
+export function Dispenser({ beads, reveal = false }: { beads: number; reveal?: boolean }) {
   const { g, dx, dy, VB, VC, cageR, rod: rr } = dispenserDims();
   const [p0, p1] = g.plate;
   const [n0, n1] = g.neck;
@@ -26,7 +26,7 @@ export function Dispenser({ beads }: { beads: number }) {
     return { a: [0.9 * Math.cos(a), 0, 0.9 * Math.sin(a)] as V3, b: [3.7 * Math.cos(a), 0, 3.7 * Math.sin(a)] as V3, normal: [0, 1, 0] as V3, tone: 'mid' as const };
   });
   return (
-    <Group id="dispenser" contacts={false}>
+    <Group id="dispenser" moves={reveal} rare={reveal} clip={reveal} contacts={false}>
       <Box id="plate" material="react" outline="mid" {...corners([dx - 12, dy - 12, p0], [dx + 12, dy + 12, p1])} r={2} />
       <Marks
         id="plate-screws"

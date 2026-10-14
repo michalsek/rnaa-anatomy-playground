@@ -100,12 +100,18 @@ function usePart(props: PartProps, geo: GeoSpec) {
 export function Group({
   id,
   moves = false,
+  rare = false,
+  clip = false,
   contacts,
   children,
   ...placement
 }: Placement & {
   id: string;
   moves?: boolean;
+  /** With `moves`: moves only rarely (a machine's root in the factory's reveal; see the store). */
+  rare?: boolean;
+  /** Its parts are clipped to the store's clip volume (machines inside the factory's case). */
+  clip?: boolean;
   /** Default `contacts` for the parts below (inherited when omitted). */
   contacts?: boolean;
   children?: ReactNode;
@@ -115,10 +121,10 @@ export function Group({
   const transform = transformOf(placement);
   const tk = stableKey(transform);
   useLayoutEffect(() => {
-    const token = store.group(full, { ...parentOf(path), transform, moves });
+    const token = store.group(full, { ...parentOf(path), transform, moves, rare, clip });
     return () => store.remove(full, token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, full, path, tk, moves]);
+  }, [store, full, path, tk, moves, rare, clip]);
   const below = contacts ?? inherited;
   const value = useMemo(() => ({ store, path: full, contacts: below }), [store, full, below]);
   return <SceneContext.Provider value={value}>{children}</SceneContext.Provider>;

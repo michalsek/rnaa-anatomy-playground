@@ -41,3 +41,4 @@ export * from './sim/dispenser.ts';
 export * from './assembly/factory.ts';
 export * from './camera/ease.ts';
 export * from './assembly/origins.ts';
+export * from './assembly/reveal.ts';

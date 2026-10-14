@@ -21,6 +21,8 @@ import { beltKit, slats } from './dims.ts';
 import { BeltBody, LabelPlate, Lamp, Motor } from './Parts.tsx';
 
 interface LoopProps {
+  /** The factory's reveal moves the whole machine (its root moves, rarely) and clips it to the case. */
+  reveal?: boolean;
   id: string;
   live: LiveHandle;
   sim: () => LoopSim;
@@ -152,7 +154,7 @@ export function Loop(props: LoopProps) {
   const cleatSize: V3 = axis === 'x' ? [1.6, W - 1.2, CH] : [W - 1.2, 1.6, CH];
   const strapSize: V3 = axis === 'x' ? [1.4, 0.7, 1] : [0.7, 1.4, 1];
   return (
-    <Group id={id} position={loop.origin} contacts={false}>
+    <Group id={id} position={loop.origin} moves={props.reveal === true} rare={props.reveal === true} clip={props.reveal === true} contacts={false}>
       <Frame {...props} />
       <BeltBody
         f={f}

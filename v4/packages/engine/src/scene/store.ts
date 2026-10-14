@@ -222,6 +222,8 @@ interface NodeBase {
   parentNode: Node | null;
   /** Flatten pass that last recomputed `world`. */
   stamp: number;
+  /** Below a `clip` group (resolved at build): its instances carry INSTANCE.clip. */
+  clipped: boolean;
   /**
    * The last motion call, so an unchanged one is a no-op: 0 none / `set`, 1 spin (mA axis code,
    * mB angle), 2 translate (mA, mB, mC).
@@ -233,6 +235,14 @@ interface NodeBase {
 }
 interface GroupNode extends NodeBase {
   kind: 'group';
+  /**
+   * Moves only rarely (a machine's root during the factory's reveal): its parts keep their static
+   * slots (E8's packing skips it), so a still frame uploads nothing for them; while it moves the
+   * upload range spans them. Contacts still treat it as a mover.
+   */
+  rare: boolean;
+  /** Its instances (and every one below) are clipped to the frame's clip volume. */
+  clip: boolean;
 }
 interface PartNode extends NodeBase {
   kind: 'part';
@@ -422,11 +432,18 @@ export class SceneStore {
   private readonly scratch = mat4.create();
   private readonly v3 = vec3.create();
   version = 0;
+  /**
+   * The clip volume for instances below `clip` groups (world; read by the renderer every frame):
+   * a box with rounded vertical edges of radius r, its plan applying below `band`. Null: nothing
+   * is clipped.
+   */
+  clipVolume: { lo: [number, number, number]; hi: [number, number, number]; r: number; band: number } | null = null;
 
   // ---- registration ----------------------------------------------------------------------
 
-  group(id: string, o: { parent?: string; transform?: Transform; moves?: boolean } = {}): Token {
-    return this.add({ ...this.base('group', id, o.parent, o.transform), moves: o.moves ?? false, kind: 'group' });
+  group(id: string, o: { parent?: string; transform?: Transform; moves?: boolean; rare?: boolean; clip?: boolean } = {}): Token {
+    if (o.rare && !o.moves) throw new Error(`group "${id}": rare needs moves`);
+    return this.add({ ...this.base('group', id, o.parent, o.transform), moves: o.moves ?? false, rare: o.rare ?? false, clip: o.clip ?? false, kind: 'group' });
   }
 
   part(
@@ -530,6 +547,7 @@ export class SceneStore {
       dirty: true,
       parentNode: null,
       stamp: 0,
+      clipped: false,
       motionKind: 0 as const,
       mA: 0,
       mB: 0,
@@ -821,6 +839,8 @@ export class SceneStore {
       lapStart = t;
     };
     const order = this.ordered();
+    // Clip flags flow down from `clip` groups (parents come first in `order`).
+    for (const n of order) n.clipped = (n.kind === 'group' && n.clip) || (n.parentNode?.clipped ?? false);
     // Rest world matrices (without motion): bounds and contacts are taken at rest.
     const restWorld = new Map<string, Float32Array>();
     for (const n of order) {
@@ -833,7 +853,7 @@ export class SceneStore {
     );
     // E8: statics that move (under a moving group, or live parts) take the last static slots,
     // just before the pools, so a frame's rewritten instances form one short range at the end.
-    const moving = new Map(statics.map((n) => [n.id, (n.kind === 'part' && n.live) || this.mover(n) !== null]));
+    const moving = new Map(statics.map((n) => [n.id, (n.kind === 'part' && n.live) || this.animator(n) !== null]));
     statics.sort((a, b) => {
       const ma = moving.get(a.id)!;
       const mb = moving.get(b.id)!;
@@ -1172,6 +1192,51 @@ export class SceneStore {
   }
 
   /** The nearest moving ancestor (or null): parts that move together can share contacts. */
+  /** The nearest moving ancestor that moves every frame (rare groups are skipped): E8's packing. */
+  private animator(n: Node): string | null {
+    let p = n.parent;
+    while (p !== null) {
+      const node = this.nodes.get(p)!;
+      if (node.moves && !(node.kind === 'group' && node.rare)) return node.id;
+      p = node.parent;
+    }
+    return null;
+  }
+
+  /**
+   * The rest AABB (world, without motion) of the parts below a group (DEV checks: the reveal's
+   * machine boxes). Null when the group has no parts.
+   */
+  groupBounds(id: string): { min: [number, number, number]; max: [number, number, number] } | null {
+    this.lookup(id);
+    const restWorld = (n: Node): Float32Array => {
+      const parent = n.parent ? this.nodes.get(n.parent) : undefined;
+      return parent ? mat4.multiply(restWorld(parent), n.rest) : mat4.clone(n.rest);
+    };
+    const min: [number, number, number] = [Infinity, Infinity, Infinity];
+    const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+    const c = vec3.create();
+    const p = vec3.create();
+    let any = false;
+    for (const n of this.nodes.values()) {
+      if (n.kind !== 'part' || !n.id.startsWith(`${id}.`)) continue;
+      const proto = (n.proto ??= buildGeo(n.geo));
+      const m = restWorld(n);
+      for (let k = 0; k < 8; k++) {
+        c[0] = k & 1 ? proto.max[0] : proto.min[0];
+        c[1] = k & 2 ? proto.max[1] : proto.min[1];
+        c[2] = k & 4 ? proto.max[2] : proto.min[2];
+        vec3.transformMat4(c, m, p);
+        for (let a = 0; a < 3; a++) {
+          if (p[a]! < min[a]!) min[a] = p[a]!;
+          if (p[a]! > max[a]!) max[a] = p[a]!;
+        }
+      }
+      any = true;
+    }
+    return any ? { min, max } : null;
+  }
+
   private mover(n: Node): string | null {
     let p = n.parent;
     while (p !== null) {
@@ -1293,9 +1358,9 @@ export class SceneStore {
         n.stamp = stamp;
         if (n.kind === 'part') {
           const k = b.slot.get(n.id)!;
-          this.writeInstance(k, n.world, b.style.get(n.id)!, INSTANCE.visible, b.style2.get(n.id)!, n.mix, n.uShift);
+          this.writeInstance(k, n.world, b.style.get(n.id)!, INSTANCE.visible | (n.clipped ? INSTANCE.clip : 0), b.style2.get(n.id)!, n.mix, n.uShift);
         } else if (n.kind === 'marks' || n.kind === 'sprite') {
-          this.writeInstance(b.slot.get(n.id)!, n.world, 0, INSTANCE.visible, 0, 0, 0);
+          this.writeInstance(b.slot.get(n.id)!, n.world, 0, INSTANCE.visible | (n.clipped ? INSTANCE.clip : 0), 0, 0, 0);
         }
       }
       if (n.kind === 'pool' && (n.poolDirty || n.stamp === stamp)) {
@@ -1324,7 +1389,7 @@ export class SceneStore {
             base + i,
             tmp,
             styleBase + n.styleOf[i]!,
-            i < n.count ? INSTANCE.visible : 0,
+            (i < n.count ? INSTANCE.visible : 0) | (n.clipped ? INSTANCE.clip : 0),
             styleBase + n.style2Of[i]!,
             n.mixOf[i]!,
             n.shiftOf[i]!,
@@ -1393,6 +1458,13 @@ export class SceneStore {
     this.f32[o + 20] = uShift;
     if (k < this.lo) this.lo = k;
     if (k + 1 > this.hi) this.hi = k + 1;
+  }
+
+  /** Ids of the halo sprites below a group (the reveal hides a machine's floor shadow in flight). */
+  haloIds(group: string): string[] {
+    const out: string[] = [];
+    for (const n of this.nodes.values()) if (n.kind === 'sprite' && n.spec.kind === 'halo' && n.id.startsWith(`${group}.`)) out.push(n.id);
+    return out.sort();
   }
 
   /** Ids currently registered (for messages and dev hooks). */

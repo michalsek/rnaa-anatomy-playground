@@ -43,6 +43,9 @@ import { createCameraEase } from '../camera/ease.ts';
 import { fillFragment, fillVertex, marksFragment, marksVertex, spriteFragment, spriteVertex } from './shaders.ts';
 
 const SAMPLES = 4;
+/** No clip volume: a huge box. */
+const NO_CLIP_LO = [-1e9, -1e9, -1e9, 0];
+const NO_CLIP_HI = [1e9, 1e9, 1e9, 1e9];
 /** `GPUTextureUsage.RENDER_ATTACHMENT`; the literal avoids relying on a host global. */
 const RENDER_ATTACHMENT = 0x10;
 const DEPTH_FORMAT = 'depth24plus';
@@ -95,6 +98,7 @@ export interface Renderer {
    * camera is refitted; the canvas keeps its size (overlays change the pads, never the canvas).
    */
   setFrame(frame: FrameSpec): void;
+
   getCamera(): CameraState;
   setCamera(state: CameraState): void;
   setDebug(mode: DebugMode): void;
@@ -169,6 +173,8 @@ export function createRenderer(options: RendererOptions): Renderer {
     debug: word((f) => f.debug),
     paper: word((f) => f.paper),
     lineGain: word((f) => f.lineGain),
+    clipLo: word((f) => f.clipLo),
+    clipHi: word((f) => f.clipHi),
   };
   const palette = root
     .createBuffer(d.arrayOf(d.vec4f, PALETTE_SIZE))
@@ -348,6 +354,8 @@ export function createRenderer(options: RendererOptions): Renderer {
   let basisYaw = NaN;
   let basisElevation = NaN;
   let clear: [number, number, number, number] = [0, 0, 0, 1];
+  const clipLo = new Float32Array(NO_CLIP_LO);
+  const clipHi = new Float32Array(NO_CLIP_HI);
 
   let frameSpec: FrameSpec = {};
   const fitZoomNow = () =>
@@ -445,6 +453,23 @@ export function createRenderer(options: RendererOptions): Renderer {
     frameU32[FW.debug] = debug;
     frameF32.set(clear, FW.paper);
     frameF32[FW.lineGain] = LINE_GAIN[theme];
+    // The store's clip volume (machines in the factory's case), else none.
+    const cv = store.clipVolume;
+    if (cv) {
+      clipLo[0] = cv.lo[0];
+      clipLo[1] = cv.lo[1];
+      clipLo[2] = cv.lo[2];
+      clipLo[3] = cv.r;
+      clipHi[0] = cv.hi[0];
+      clipHi[1] = cv.hi[1];
+      clipHi[2] = cv.hi[2];
+      clipHi[3] = cv.band;
+    } else {
+      clipLo.set(NO_CLIP_LO);
+      clipHi.set(NO_CLIP_HI);
+    }
+    frameF32.set(clipLo, FW.clipLo);
+    frameF32.set(clipHi, FW.clipHi);
     frameBuffer.write(frameData);
 
     const encoder = device.createCommandEncoder();

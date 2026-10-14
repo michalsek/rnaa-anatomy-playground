@@ -42,7 +42,13 @@ export interface LiveHandle {
 
 export interface Live<G> extends LiveHandle {
   graph(): G;
-  ctl: { paused: boolean; speed: number };
+  /**
+   * `paused`: the user's pause; `hold`: the sim waits (the factory's reveal, separate from the
+   * user's pause); either advances it by 0.
+   */
+  ctl: { paused: boolean; speed: number; hold: boolean };
+  /** Rebuild the graph at t (uncapped run), keeping the pause. */
+  restart(t: number): void;
   readout: Readout<G>;
   dev: object;
 }
@@ -62,7 +68,7 @@ function createLive<G extends Graph>(
   let g = build(seed);
   /** The last frame stepped (FrameInfo.frame counts the store's ticks). */
   let lastFrame = -1;
-  const ctl = { paused: false, speed: 1 };
+  const ctl = { paused: false, speed: 1, hold: false };
   const readout = createReadout<G>(100, format, phase, g);
   const now = () => performance.now();
   const restart = (t: number) => {
@@ -73,11 +79,12 @@ function createLive<G extends Graph>(
   return {
     graph: () => g,
     ctl,
+    restart,
     readout,
     step(f) {
       if (f.frame === lastFrame) return;
       lastFrame = f.frame;
-      g.factory.advance(ctl.paused ? 0 : f.dt, ctl.speed);
+      g.factory.advance(ctl.paused || ctl.hold ? 0 : f.dt, ctl.speed);
       readout.publish(g, now());
     },
     dev: {

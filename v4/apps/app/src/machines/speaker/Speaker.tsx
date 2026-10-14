@@ -17,6 +17,8 @@ import { Basket, Cone, Mount, Surround } from './Driver.tsx';
 import { Throat, Wiring } from './Throat.tsx';
 
 interface SpeakerProps {
+  /** The factory's reveal moves the whole machine (its root moves, rarely) and clips it to the case. */
+  reveal?: boolean;
   live: LiveHandle;
   sim: () => SpeakerSim;
   /** The base plate and posts (off: mounting ears, as v2 A). */
@@ -49,7 +51,7 @@ export function Speaker(props: SpeakerProps) {
   const g = sp.geometry;
   const d = driver(g);
   return (
-    <Group id={sp.id} position={[...sp.origin]} contacts={false}>
+    <Group id={sp.id} position={[...sp.origin]} moves={props.reveal === true} rare={props.reveal === true} clip={props.reveal === true} contacts={false}>
       <Frame {...props} />
       <Mount d={d} stand={stand} />
       <Basket d={d} />

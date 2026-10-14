@@ -29,7 +29,8 @@ export const GpuTri = d.struct({
 }); // 48 B
 
 /** Instance flag bits. */
-export const INSTANCE = { visible: 1 } as const;
+/** Instance flags: drawn; clipped to the frame's clip volume (machines in the factory's case). */
+export const INSTANCE = { visible: 1, clip: 2 } as const;
 
 export const Instance = d.struct({
   /**
@@ -163,6 +164,13 @@ export const Frame = d.struct({
   paper: d.vec4f,
   /** Ink gain on line coverage (edges, ticks, mark segments): `LINE_GAIN[theme]`. */
   lineGain: d.f32,
+  /**
+   * The clip volume for instances flagged `clip` (world): a box with rounded vertical edges,
+   * clipLo = min corner and w = the corner radius; clipHi = max corner and w = the height below
+   * which the plan applies (the band's top). Fragments outside are discarded.
+   */
+  clipLo: d.vec4f,
+  clipHi: d.vec4f,
 });
 
 export const sceneLayout = tgpu.bindGroupLayout({

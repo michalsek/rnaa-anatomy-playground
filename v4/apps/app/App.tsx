@@ -1,6 +1,6 @@
 import './src/polyfills.ts';
 import 'react-native-webgpu';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Pressable, StatusBar, StyleSheet, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { TgpuRoot } from 'typegpu';
@@ -10,7 +10,7 @@ import { acquireRoot } from './src/gpuRoot.ts';
 import { Card } from './src/overlay/Card.tsx';
 import { InfoSheet } from './src/overlay/InfoSheet.tsx';
 import { overlayLayout } from './src/overlay/layout.ts';
-import { SCENES } from './src/scenes.tsx';
+import { SCENES, type SceneEntry } from './src/scenes.tsx';
 
 export default function App() {
   return (
@@ -92,6 +92,8 @@ function Main() {
       record: (on: boolean) => setRec(!!on),
       /** The scene's own hook (the centrifuge: time control, see live.ts). */
       sim: scene.dev,
+      /** The factory's reveal: seek(0–1), play(), skip(), restart(), state(). */
+      reveal: scene.reveal,
     };
     return () => {
       delete g.__v4;
@@ -204,6 +206,7 @@ function Main() {
         >
           {`dbg ${debug}`}
         </Chip>
+        {scene.reveal && <RevealChip reveal={scene.reveal} compact={narrow} theme={theme} />}
         {scene.info && !bare && (
           <Chip compact={narrow} theme={theme} label={sheet ? 'Close the figure notes' : 'About this figure'} onPress={() => setSheet(!sheet)}>
             i
@@ -231,6 +234,17 @@ function Main() {
 }
 
 declare const __DEV__: boolean;
+
+/** Open or close the phone (the factory's reveal and conceal); follows the reveal's state. */
+function RevealChip({ reveal, compact, theme }: { reveal: NonNullable<SceneEntry['reveal']>; compact: boolean; theme: Theme }) {
+  useSyncExternalStore(reveal.subscribe, reveal.getSnapshot, reveal.getSnapshot);
+  const open = reveal.opening;
+  return (
+    <Chip compact={compact} theme={theme} label={open ? 'Close the phone' : 'Open the phone'} onPress={() => (open ? reveal.conceal() : reveal.reveal())}>
+      {open ? 'conceal' : 'reveal'}
+    </Chip>
+  );
+}
 
 /** A toolbar button: 44 pt hit area, a hairline chip inside, dimmed while pressed. */
 function Chip({

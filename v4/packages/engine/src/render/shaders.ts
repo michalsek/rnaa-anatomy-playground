@@ -117,6 +117,22 @@ const neighbourFacing = (adj: number, model: d.m4x4f, toward: d.v3f, inv: d.v3f)
 /** A clip position outside the depth range: the primitive is dropped. */
 const HIDDEN = d.vec4f(0, 0, 2, 1);
 
+/**
+ * Whether a world point lies outside the frame's clip volume: below the floor, above the lid, or
+ * outside the case's rounded plan below its band's top.
+ */
+const outsideClip = (p: d.v3f) => {
+  'use gpu';
+  const lo = L.$.frame.clipLo;
+  const hi = L.$.frame.clipHi;
+  const c = std.mul(std.add(lo.xy, hi.xy), 0.5);
+  const half = std.mul(std.sub(hi.xy, lo.xy), 0.5);
+  const k = std.sub(std.abs(std.sub(p.xy, c)), std.sub(half, d.vec2f(lo.w)));
+  const sdf = std.length(std.max(k, d.vec2f(0))) + std.min(std.max(k.x, k.y), 0) - lo.w;
+  // Outside the plan only counts below the band's top (hi.w): above it there is no wall.
+  return (sdf > 0 && p.z < hi.w) || p.z < lo.z || p.z > hi.z;
+};
+
 export const fillVertex = tgpu.vertexFn({
   in: { vid: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
   out: {
@@ -136,6 +152,9 @@ export const fillVertex = tgpu.vertexFn({
     tangent: d.vec3f,
     /** The facing gradient, and the blend toward the second style (E2). */
     facingGrad: d.interpolate('flat', d.vec2f),
+    /** World position (the clip volume) and whether this instance is clipped. */
+    world: d.vec3f,
+    clipOn: d.interpolate('flat', d.u32),
   },
 })((input) => {
   'use gpu';
@@ -212,6 +231,8 @@ export const fillVertex = tgpu.vertexFn({
   const is2 = c === 2;
   const clip = std.select(std.select(c0, c1, is1), c2, is2);
   const normal = std.select(std.select(v0.normal, v1.normal, is1), v2.normal, is2);
+  const local = std.select(std.select(v0.position, v1.position, is1), v2.position, is2);
+  const world = std.mul(inst.model, d.vec4f(local, 1)).xyz;
   const uv = std.select(
     std.select(d.vec2f(v0.u, v0.v), d.vec2f(v1.u, v1.v), is1),
     d.vec2f(v2.u, v2.v),
@@ -279,6 +300,8 @@ export const fillVertex = tgpu.vertexFn({
     extraModes,
     tangent: std.mul(inst.model, d.vec4f(tangent, 0)).xyz,
     facingGrad: d.vec2f(facingGrad, inst.mix),
+    world,
+    clipOn: inst.flags & INSTANCE.clip,
   };
 });
 
@@ -337,6 +360,8 @@ export const fillFragment = tgpu.fragmentFn({
     extraModes: d.interpolate('flat', d.vec2u),
     tangent: d.vec3f,
     facingGrad: d.interpolate('flat', d.vec2f),
+    world: d.vec3f,
+    clipOn: d.interpolate('flat', d.u32),
   },
   out: d.vec4f,
 })((input) => {
@@ -518,6 +543,10 @@ export const fillFragment = tgpu.fragmentFn({
       color = std.mix(color, toneMix(m, m2, k, st.outlineSlot), std.min(std.max(outline, contour) * gain, 1));
     }
   }
+  // The clip volume last (every derivative above ran in uniform control flow).
+  if (input.clipOn !== 0 && outsideClip(input.world)) {
+    std.discard();
+  }
   return d.vec4f(color.xyz, 1);
 });
 
@@ -623,7 +652,9 @@ export const marksVertex = tgpu.vertexFn({
   if (hasNormal && !isContact) {
     alpha = alpha * std.select(std.smoothstep(mark.fade.x, mark.fade.y, facing), 0, facing <= 0);
   }
-  const visible = (inst.flags & INSTANCE.visible) !== 0 && frame.debug !== 2 && alpha > 0;
+  // Clipped instances: a mark is dropped whole when its midpoint leaves the clip volume.
+  const clipped = (inst.flags & INSTANCE.clip) !== 0 && outsideClip(std.mul(std.add(wa, wb), 0.5));
+  const visible = (inst.flags & INSTANCE.visible) !== 0 && frame.debug !== 2 && alpha > 0 && !clipped;
 
   const slot = std.select(mark.slot, d.u32(SLOT.dot), isDot);
   // Pool marks inherit their instance's style material (and its blend, E2).
@@ -735,7 +766,7 @@ export const spriteVertex = tgpu.vertexFn({
     const p = d.vec3f(sp.center.x + q.x + shift.x, sp.center.y + q.y + shift.y, sp.center.z);
     clip = std.mul(frame.viewProjection, std.mul(inst.model, d.vec4f(p, 1)));
     local = d.vec2f(q);
-    alpha = color.w;
+    alpha = color.w * std.clamp(sp.level, 0, 1);
   } else {
     // A screen-facing disc at the centre, pulled toward the viewer by `bias`.
     radius = (sp.radius + sp.grow * sp.level) * frame.pxPerUnit;

@@ -17,6 +17,8 @@ import { METER_CELLS } from './dims.ts';
 declare const __DEV__: boolean;
 
 interface PhoneProps {
+  /** The factory's reveal: the display is the lid, the dispenser moves on its own (and is clipped). */
+  reveal?: boolean;
   live: LiveHandle;
   sim: () => DispenserSim;
   /** Scanner reads landed in the preamp so far (the meter shows them % 4, as the preamp's cells). */
@@ -77,8 +79,8 @@ export function Phone(props: PhoneProps) {
     <Group id="phone" position={[...d.origin]}>
       <Frame {...props} />
       <Case />
-      <Display />
-      <Dispenser beads={d.pools.beads} />
+      <Display reveal={props.reveal === true} />
+      <Dispenser beads={d.pools.beads} reveal={props.reveal === true} />
     </Group>
   );
 }

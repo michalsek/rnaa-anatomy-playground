@@ -28,6 +28,8 @@ import { Arm, Fittings, Motor, Ribbon } from './Head.tsx';
 import { Cable, Preamp } from './Preamp.tsx';
 
 interface ScannerProps {
+  /** The factory's reveal moves the whole machine (its root moves, rarely) and clips it to the case. */
+  reveal?: boolean;
   live: LiveHandle;
   sim: () => ScannerSim;
   /** The floor plate's levelling feet and the preamp's legs. */
@@ -123,7 +125,7 @@ export function Scanner(props: ScannerProps) {
   const { sim, stand = true } = props;
   const sc = sim();
   return (
-    <Group id={sc.id} position={[...sc.origin]} contacts={false}>
+    <Group id={sc.id} position={[...sc.origin]} moves={props.reveal === true} rare={props.reveal === true} clip={props.reveal === true} contacts={false}>
       <Frame {...props} />
       <Base stand={stand} />
       <Pedestal />

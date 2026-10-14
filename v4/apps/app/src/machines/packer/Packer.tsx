@@ -39,6 +39,8 @@ import { Bridge, Cabinet, Deck, Gutter, Lane, Magazine, Pedestals, PusherBody, S
 import { CAB_LAMP, CARTON, LED_IDS, PK, VACUUM_LAMP } from './dims.ts';
 
 interface PackerProps {
+  /** The factory's reveal moves the whole machine (its root moves, rarely) and clips it to the case. */
+  reveal?: boolean;
   live: LiveHandle;
   sim: () => PackerSim;
   /** The stand under the deck (legs, stringers, braces, shelf with the receiver and the pump). */
@@ -250,7 +252,7 @@ export function Packer(props: PackerProps) {
   const { sim, stand = true, floor = 0 } = props;
   const pk = sim();
   return (
-    <Group id={pk.id} position={[...pk.origin]} contacts={false}>
+    <Group id={pk.id} position={[...pk.origin]} moves={props.reveal === true} rare={props.reveal === true} clip={props.reveal === true} contacts={false}>
       <Frame {...props} />
       {stand && <Stand floor={floor} />}
       <Deck />

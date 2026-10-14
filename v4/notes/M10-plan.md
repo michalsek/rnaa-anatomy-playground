@@ -114,6 +114,14 @@ export function createFactoryGraph(l = FACTORY_LAYOUT, o: { seed?: number; contr
 
 **Scrub hook:** `__v4.reveal = { seek(s), play(), skip(), restart(), state() }`, plus a `reveal` chip.
 
+**User redesign (2026-10-14, overrides the rest of §3 where they conflict).** The reveal becomes a phone that opens:
+1. **Closed:** the display sits on the case as its lid, like a normal phone; the machinery is hidden inside. No machine part may show outside the case (lid, band walls, floor).
+2. **Screen lifts:** the display rises from the closed pose to its floating pose (z 560, shift [−80,−24]), uncovering the machinery packed low and squat in the tray.
+3. **Machines expand:** they rise, gain vertical distance and turn into the assembled layout.
+4. **Conceal:** the exact reverse (machines pack back, the screen lowers and closes). Scrub/seek and chips (`reveal`, `conceal`).
+
+Hard rules: rigid moves only (T·R, no scale or morph). A clip volume in the fill and marks shaders discards machine fragments outside the case interior, its top plane at the lid's underside (following the lid); the case and the display are never clipped. Packed poses fit by rotation and placement where possible (tall machines laid down); the clip is the safety net under the lid; nothing may visibly rise out of the floor; cut faces must not show while closed and be hidden or brief during the lift. The sim stays frozen during the reveal and the conceal. The rigid test: pure T·R, exactly the assembled layout at the end, the closed state inside the clip volume (or covered by it).
+
 ## 4. Stands policy (user §6)
 
 For each machine (belts A–D, loop, packer, centrifuge, scanner, elevator, speaker, crusher):
