@@ -37,3 +37,5 @@ export * from './sim/elevator.ts';
 export * from './sim/speaker.ts';
 export * from './sim/arm.ts';
 export * from './sim/packer.ts';
+export * from './sim/dispenser.ts';
+export * from './assembly/factory.ts';

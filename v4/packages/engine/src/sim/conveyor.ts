@@ -10,7 +10,10 @@
  * mapped from the belt frame (s, c, z) by `beltFrame(axis)`. Plain TS, no randomness.
  */
 import type { Clock, Machine } from './clock.ts';
-import { type Fall, createFall, fallAt } from './fall.ts';
+import { type Fall, createFall, fallAt, fallTime } from './fall.ts';
+
+/** The shortest fall onto a belt (`fallTime`'s floor). */
+const MIN_FALL = fallTime(0, 0);
 import { type Item, type ItemKind, PACKET_SIZE, type PoseSource, sizeOf } from './items.ts';
 import { clampOpt, relaxYaw } from './math.ts';
 import { type BeltAxis, type BeltFrame, beltFrame } from './path.ts';
@@ -188,11 +191,19 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
     },
     held: () => heldNow,
     spacing: (kind) => 2 * halfOf(kind) + QUEUE_GAP,
-    canAccept() {
-      // The in point is clear by a queue spacing (falling items count as at the in point).
+    canAccept(lead = 0) {
+      // The in point is clear by a queue spacing. A falling item is at the in point until it
+      // lands; an item handed on `lead` s from now lands no sooner than a shortest fall after
+      // that, by when a falling item that landed first has ridden on (from rest, easing to the
+      // belt's speed). Riding items count where they are (the belt may be holding).
       for (const it of items) {
         const gap = 2 * halfOf(it.item.kind) + QUEUE_GAP;
-        const s = it.phase === 'fall' ? inS : it.s;
+        let s = it.s;
+        if (it.phase === 'fall') {
+          const f = it.fall!;
+          const ride = Math.max(0, lead + MIN_FALL - (1 - f.tau) * f.dur);
+          s = inS + dir * speed * (ride - (1 - Math.exp(-5 * ride)) / 5);
+        }
         if (Math.abs(s - inS) < gap) return false;
       }
       return true;

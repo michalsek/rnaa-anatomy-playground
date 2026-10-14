@@ -4,6 +4,7 @@ import { CF, type Centrifuge } from '../src/sim/centrifuge/index.ts';
 import type { TrayState } from '../src/sim/centrifuge/packets.ts';
 import { mod } from '../src/sim/math.ts';
 import { LINE_LAYOUT, createLine } from '../src/sim/graphs.ts';
+import { FACTORY_LAYOUT, createFactoryGraph } from '../src/assembly/factory.ts';
 import { CONTROLLERS, report, snapshot, topRig } from './rig.ts';
 
 const H = 1 / 120;
@@ -254,6 +255,16 @@ function checkRide(r: SectionARig, seconds: number) {
 describe.each(CONTROLLERS)('§A on the line, fed by the packer (bead source → belt A → packer → belt B), %s controller', (_name, controller) => {
   const rig = () => {
     const g = createLine(LINE_LAYOUT, { controller: controller() });
+    return { f: g.factory, centrifuge: g.centrifuge };
+  };
+  it('§A: no pocket entry while not indexing', () => checkNoEntry(rig(), 150));
+  it('§A: from spin-up, held only falls, to 0, before the next entry; the tray never turns back', () => checkDrain(rig(), 150));
+  it('§A: held packets ride the tray; released packets move forward only', () => checkRide(rig(), 150));
+});
+
+describe.each(CONTROLLERS)('§A on the factory graph (the phone dispenser → … → belt B), %s controller', (_name, controller) => {
+  const rig = () => {
+    const g = createFactoryGraph(FACTORY_LAYOUT, { controller: controller() });
     return { f: g.factory, centrifuge: g.centrifuge };
   };
   it('§A: no pocket entry while not indexing', () => checkNoEntry(rig(), 150));
