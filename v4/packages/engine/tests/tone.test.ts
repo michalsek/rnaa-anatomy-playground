@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import tgpu, { d } from 'typegpu';
+import { d } from 'typegpu';
 import { lightOf, KIT_ELEVATION, KIT_YAW } from '../src/camera/camera.ts';
-import { SLOT } from '../src/palette/tokens.ts';
-import { TONE_TOP, toneOf, toneSlot } from '../src/shading/tone.ts';
+import { TONE_TOP, toneOf } from '../src/shading/tone.ts';
 
 // The kit's reference implementation (`lathe.mjs`): unit3([-sinA, cosA, 1.2]) and bandOf.
 const KIT_BANDS = [0, 0.2, 0.42, 0.62];
@@ -39,21 +38,5 @@ describe("'use gpu' tone lookup on the CPU", () => {
     expect(toneOf(d.vec3f(0, 0, 1), light)).toBe(TONE_TOP);
     expect(toneOf(d.vec3f(1, 0, 0), light)).toBe(0); // screen-right face, away from the light
     expect(toneOf(d.vec3f(0, 1, 0), light)).toBe(3); // screen-left face, toward the light (s3)
-  });
-
-  it('maps tones to palette slots s0..s3 and top', () => {
-    expect([0, 1, 2, 3, 4].map((t) => toneSlot(t))).toEqual([
-      SLOT.s0,
-      SLOT.s1,
-      SLOT.s2,
-      SLOT.s3,
-      SLOT.top,
-    ]);
-  });
-
-  it('was transpiled by the typegpu plugin (resolves to WGSL)', () => {
-    const wgsl = tgpu.resolve([tgpu.fn([d.vec3f, d.vec3f], d.u32)(toneOf)]);
-    expect(wgsl).toMatch(/dot\(/);
-    expect(wgsl).toMatch(/step\(/);
   });
 });

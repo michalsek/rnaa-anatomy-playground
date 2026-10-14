@@ -18,7 +18,7 @@ import {
   viewCamera,
 } from '../camera/camera.ts';
 import { triangleCount, vertexCount } from '../geo/mesh.ts';
-import { buildTopology } from '../geo/topology.ts';
+import { FLAG } from '../geo/topology.ts';
 import {
   MATERIALS,
   PAPER,
@@ -28,7 +28,7 @@ import {
   hexToRgb,
   paletteTable,
 } from '../palette/tokens.ts';
-import { type LineSetSpec, type SceneSpec, partMatrix } from '../scene/m1.ts';
+import { type LineSetSpec, type SceneSpec, partMatrix } from '../scene/spec.ts';
 import {
   Frame,
   GpuTri,
@@ -78,8 +78,8 @@ export interface RendererOptions {
 
 export interface Renderer {
   /**
-   * Size in device pixels. The camera state (target, zoom in CSS px per unit) is kept, so a
-   * user's view survives; call `fit()` or `setView()` to refit.
+   * Size in device pixels. A preset (or fit) camera is refitted to the new size; a camera set
+   * with `setCamera()` is kept as it is.
    */
   resize(width: number, height: number, dpr: number): void;
   /** Fit the scene bounds into the current viewport, keeping the camera's yaw and elevation. */
@@ -98,10 +98,15 @@ export interface Renderer {
 export function createRenderer(options: RendererOptions): Renderer {
   const { root, context, format, scene } = options;
   const device = root.device;
-  const { mesh } = scene;
-  const topology = buildTopology(mesh);
+  const { mesh, topology } = scene;
   const triCount = triangleCount(mesh);
   const vCount = vertexCount(mesh);
+  for (let t = 0; t < triCount; t++) {
+    const tag = (topology.flags[t]! >>> FLAG.lineSetShift) & FLAG.lineSetMask;
+    if (tag > scene.lineSets.length) {
+      throw new Error(`triangle ${t}: line set ${tag} unknown (${scene.lineSets.length} defined)`);
+    }
+  }
 
   // ---- resources -------------------------------------------------------------------------
   const frameBuffer = root.createBuffer(Frame).$usage('uniform');
@@ -174,6 +179,12 @@ export function createRenderer(options: RendererOptions): Renderer {
   // ---- state -----------------------------------------------------------------------------
   const viewport: Viewport = { width: options.width, height: options.height, dpr: options.dpr };
   let camera: CameraState = fitToBounds(scene.bounds, viewport);
+  // True while the camera is a preset's (or the fit); a user camera survives resizes.
+  let onPreset = true;
+  let preset: ViewPreset | null = null;
+  // Line widths scale with zoom relative to the fit zoom, cached per view and resize so they
+  // stay put while orbiting.
+  let refZoom = camera.zoom;
   let debug: DebugMode = 0;
   const matrices = createCameraMatrices();
   let clear: [number, number, number, number] = [0, 0, 0, 1];
@@ -189,13 +200,28 @@ export function createRenderer(options: RendererOptions): Renderer {
     log(`[engine] renderer up on ${PLATFORM}: ${vCount} vertices, ${triCount} triangles, ${format}`);
   }
 
+  const fitZoomNow = () =>
+    fitToBounds(scene.bounds, viewport, { yaw: camera.yaw, elevation: camera.elevation }).zoom;
+  const applyPreset = () => {
+    camera = preset
+      ? viewCamera(scene.bounds, viewport, preset)
+      : fitToBounds(scene.bounds, viewport, { yaw: camera.yaw, elevation: camera.elevation });
+    onPreset = true;
+    refZoom = fitZoomNow();
+  };
   const resize = (width: number, height: number, dpr: number) => {
-    viewport.width = Math.max(1, Math.round(width));
-    viewport.height = Math.max(1, Math.round(height));
+    const w = Math.max(1, Math.round(width));
+    const h = Math.max(1, Math.round(height));
+    if (w === viewport.width && h === viewport.height && dpr === viewport.dpr) return;
+    viewport.width = w;
+    viewport.height = h;
     viewport.dpr = dpr;
+    if (onPreset) applyPreset();
+    else refZoom = fitZoomNow();
   };
   const fit = () => {
-    camera = fitToBounds(scene.bounds, viewport, { yaw: camera.yaw, elevation: camera.elevation });
+    preset = null;
+    applyPreset();
   };
   const copyCamera = (state: CameraState): CameraState => ({
     ...state,
@@ -214,18 +240,15 @@ export function createRenderer(options: RendererOptions): Renderer {
     const { color, depth } = ensureTargets(texture.width, texture.height);
 
     cameraMatrices(camera, viewport, 1000, matrices);
-    // Line widths scale with zoom like a pinch-zoomed SVG: 1 CSS px at the fit zoom.
-    const fitZoom = fitToBounds(scene.bounds, viewport, {
-      yaw: camera.yaw,
-      elevation: camera.elevation,
-    }).zoom;
     frameBuffer.write({
       viewProjection: matrices.viewProjection,
       light: d.vec3f(...matrices.light),
       toward: d.vec3f(...basisOf(camera.yaw, camera.elevation).toward),
       viewport: d.vec2f(viewport.width, viewport.height),
-      pxPerCss: (viewport.dpr * camera.zoom) / fitZoom,
+      // Line widths scale with zoom like a pinch-zoomed SVG: 1 CSS px at the fit zoom.
+      pxPerCss: (viewport.dpr * camera.zoom) / refZoom,
       debug,
+      paper: d.vec4f(...clear),
     });
     parts.write(
       scene.parts.map((p, index) => {
@@ -265,11 +288,13 @@ export function createRenderer(options: RendererOptions): Renderer {
     resize,
     fit,
     setView: (view) => {
-      camera = viewCamera(scene.bounds, viewport, view);
+      preset = view;
+      applyPreset();
     },
     getCamera: () => copyCamera(camera),
     setCamera: (state) => {
       camera = copyCamera(state);
+      onPreset = false;
     },
     setDebug: (mode) => {
       debug = mode;

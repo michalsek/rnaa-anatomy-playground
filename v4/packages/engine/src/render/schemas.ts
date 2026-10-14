@@ -61,6 +61,8 @@ export const Frame = d.struct({
   pxPerCss: d.f32,
   /** 0 = normal, 1 = line classes on paper, 2 = lines off. */
   debug: d.u32,
+  /** The page paper (debug view 1 fills every face with it). */
+  paper: d.vec4f,
 });
 
 export const sceneLayout = tgpu.bindGroupLayout({

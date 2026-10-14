@@ -101,6 +101,7 @@ export function tube({
     }
     rings.push(ring);
   });
+  b.smooth(true);
   for (let k = 0; k + 1 < rings.length; k++) {
     const r0 = rings[k]!;
     const r1 = rings[k + 1]!;
@@ -123,6 +124,7 @@ export function tube({
       else b.triangle(centre, ring[j + 1]!, ring[j]!);
     }
   };
+  b.smooth(false);
   if (caps[0]) cap(0, -1);
   if (caps[1]) cap(line.length - 1, 1);
   return b.build();

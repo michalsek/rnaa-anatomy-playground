@@ -9,6 +9,9 @@ import {
   createRenderer,
 } from '@anatomy/engine';
 
+/** Longest scene step per frame, in seconds. */
+const MAX_DT = 0.1;
+
 export interface CanvasLike {
   width: number;
   height: number;
@@ -89,14 +92,15 @@ export function createShell(
   applyView();
   renderer.setDebug(controls.debug);
 
-  // Scene time: wall time minus the time spent paused.
+  // Scene time: wall time minus the time spent paused. A frame step is clamped to MAX_DT, so
+  // returning from the background (rAF stops there) does not jump the scene forward.
   let paused = controls.paused;
   let last = performance.now();
   let time = 0;
   let raf = 0;
   const loop = (now: number) => {
     if (stopped) return;
-    if (!paused) time += (now - last) / 1000;
+    if (!paused) time += Math.min(Math.max(0, (now - last) / 1000), MAX_DT);
     last = now;
     try {
       renderer.frame(time);
@@ -111,8 +115,8 @@ export function createShell(
   return {
     resize(cssWidth, cssHeight, dpr) {
       const next = applySize(cssWidth, cssHeight, dpr);
+      // The renderer refits a preset camera itself and leaves a user camera alone.
       renderer.resize(next.width, next.height, next.dpr);
-      applyView();
     },
     setTheme: (next) => renderer.setTheme(next),
     setView(index) {

@@ -5,7 +5,8 @@
  *   X = x·sinA − y·cosA
  *   Y = (x·cosA + y·sinA)·sinE − z·cosE
  * times a scale, plus an origin (`iso-kit.mjs#iso`). That frame is a mirror image of a
- * right-handed camera, so triangle winding flips on screen; the renderer does not cull.
+ * right-handed camera, so triangle winding flips on screen: the renderer culls back faces with
+ * front faces clockwise.
  *
  * State is `{ target, yaw, elevation, zoom }` so orbit/pan/zoom can drive it later; the
  * matrices are rebuilt from the state each frame.

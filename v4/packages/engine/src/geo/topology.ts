@@ -2,8 +2,9 @@
  * Triangle adjacency and edge flags for the in-face line shader.
  *
  * Edge i of a triangle is the one opposite corner i: edge 0 = (v1, v2), edge 1 = (v2, v0),
- * edge 2 = (v0, v1). Vertices are welded by part and quantised position, so the duplicated
- * vertices of a seam or a sharp knot still connect, while touching parts never do.
+ * edge 2 = (v0, v1). Vertices are welded by quantised position within one mesh, so the
+ * duplicated vertices of a seam or a sharp knot still connect. Topology is built per prototype
+ * mesh and concatenated with `mergeTopologies`, so separate meshes (even of one part) never weld.
  */
 import { type Mesh, triangleCount } from './mesh.ts';
 
@@ -12,13 +13,17 @@ export const NO_NEIGHBOUR = 0xffffffff;
 /** Triangle flag bits (shared with the shader). */
 export const FLAG = {
   /** Bits 0-2: edge i is a crease (normals split, or a forced mark). */
-  crease: (i: number) => 1 << i,
+  creaseBit: 0,
   /** Bits 3-5: edge i has no neighbour (an open mesh boundary). */
-  boundary: (i: number) => 1 << (3 + i),
-  /** Bit 6: the vertex normals are not the face normal (a curved surface). */
-  smooth: 1 << 6,
+  boundaryBit: 3,
+  /** Bit 6: the triangle lies on a curved surface (declared by the generator). */
+  smoothBit: 6,
   /** Bits 8-15: UV line set id (1-based; 0 = none). */
   lineSetShift: 8,
+  lineSetMask: 0xff,
+  crease: (i: number) => 1 << i,
+  boundary: (i: number) => 1 << (3 + i),
+  smooth: 1 << 6,
 } as const;
 
 export interface Topology {
@@ -31,10 +36,11 @@ export interface Topology {
 }
 
 const QUANTUM = 1e-4;
+/** Vertex normals closer than this (cos 1°) count as one normal; a larger split is a crease. */
 const COS_1DEG = Math.cos(Math.PI / 180);
 
 export function buildTopology(mesh: Mesh): Topology {
-  const { positions: P, normals: N, indices, parts, tags, marks } = mesh;
+  const { positions: P, normals: N, indices, tags, marks, smooth } = mesh;
   const triCount = triangleCount(mesh);
 
   // ---- weld ------------------------------------------------------------------------------
@@ -42,7 +48,7 @@ export function buildTopology(mesh: Mesh): Topology {
   const weld = new Uint32Array(P.length / 3);
   for (let v = 0; v < weld.length; v++) {
     const q = (k: number) => Math.round(P[v * 3 + k]! / QUANTUM);
-    const key = `${parts[v]}:${q(0)},${q(1)},${q(2)}`;
+    const key = `${q(0)},${q(1)},${q(2)}`;
     let id = weldIds.get(key);
     if (id === undefined) {
       id = weldIds.size;
@@ -120,20 +126,53 @@ export function buildTopology(mesh: Mesh): Topology {
   }
 
   for (let t = 0; t < triCount; t++) {
-    const fx = faceNormals[t * 3]!;
-    const fy = faceNormals[t * 3 + 1]!;
-    const fz = faceNormals[t * 3 + 2]!;
-    for (let k = 0; k < 3; k++) {
-      const v = corner(t, k);
-      if (N[v * 3]! * fx + N[v * 3 + 1]! * fy + N[v * 3 + 2]! * fz < COS_1DEG) {
-        flags[t]! |= FLAG.smooth;
-        break;
-      }
-    }
-    flags[t]! |= (tags[t]! & 0xff) << FLAG.lineSetShift;
+    if (smooth[t]) flags[t]! |= FLAG.smooth;
+    const tag = tags[t]!;
+    if (tag > FLAG.lineSetMask) throw new Error(`line set tag ${tag} out of range (max 255)`);
+    flags[t]! |= tag << FLAG.lineSetShift;
   }
 
   return { adj, flags, faceNormals };
 }
 
 export const triangleCountOf = (topo: Topology) => topo.flags.length;
+
+/**
+ * Concatenate per-mesh topologies in the order their meshes were merged. Adjacency indices are
+ * rebased; nothing is welded across meshes. `lineSetOffsets[k]`, if given, is added to mesh k's
+ * non-zero line-set tags (local tags → a merged line-set table).
+ */
+export function mergeTopologies(
+  topologies: readonly Topology[],
+  lineSetOffsets?: readonly number[],
+): Topology {
+  const total = topologies.reduce((sum, topo) => sum + triangleCountOf(topo), 0);
+  const out: Topology = {
+    adj: new Uint32Array(total * 3),
+    flags: new Uint32Array(total),
+    faceNormals: new Float32Array(total * 3),
+  };
+  let t = 0;
+  topologies.forEach((topo, k) => {
+    const count = triangleCountOf(topo);
+    for (let j = 0; j < count * 3; j++) {
+      const a = topo.adj[j]!;
+      out.adj[t * 3 + j] = a === NO_NEIGHBOUR ? NO_NEIGHBOUR : a + t;
+    }
+    const shift = lineSetOffsets?.[k] ?? 0;
+    for (let j = 0; j < count; j++) {
+      const f = topo.flags[j]!;
+      const tag = (f >>> FLAG.lineSetShift) & FLAG.lineSetMask;
+      if (tag === 0 || shift === 0) {
+        out.flags[t + j] = f;
+        continue;
+      }
+      const next = tag + shift;
+      if (next > FLAG.lineSetMask) throw new Error(`line set ${next} out of range (max 255)`);
+      out.flags[t + j] = (f & ~(FLAG.lineSetMask << FLAG.lineSetShift)) | (next << FLAG.lineSetShift);
+    }
+    out.faceNormals.set(topo.faceNormals, t * 3);
+    t += count;
+  });
+  return out;
+}

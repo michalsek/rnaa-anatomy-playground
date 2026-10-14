@@ -34,8 +34,14 @@ function Main() {
     const g = globalThis as { __v4?: unknown };
     g.__v4 = {
       views: scene.views.map((v) => v.name),
-      setView: (which: number | string) =>
-        setView(typeof which === 'number' ? which : scene.views.findIndex((v) => v.name === which)),
+      setView: (which: number | string) => {
+        const index =
+          typeof which === 'number' ? which : scene.views.findIndex((v) => v.name === which);
+        if (!scene.views[index]) {
+          throw new Error(`unknown view ${JSON.stringify(which)}; known: ${scene.views.map((v) => v.name).join(', ')}`);
+        }
+        setView(index);
+      },
       setPaused,
       setDebug,
       setTheme: setPicked,

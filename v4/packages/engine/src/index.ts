@@ -9,4 +9,5 @@ export * from './palette/tokens.ts';
 export * from './render/renderer.ts';
 export * from './shading/lines.ts';
 export * from './scene/m1.ts';
+export * from './scene/spec.ts';
 export * from './shading/tone.ts';

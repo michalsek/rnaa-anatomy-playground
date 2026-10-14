@@ -102,6 +102,14 @@ describe('topology', () => {
     expect(countBits(buildTopology(open), FLAG.boundary)).toBe(2 * 16);
   });
 
+  it('smoothness is declared by the generator, at any step count', () => {
+    // A 1° normal-vs-face guess misses this: at 256 steps the facets turn by only 1.4°.
+    const cylinder = lathe({ profile: [[0, 0], [2, 0], [2, 3], [0, 3]], steps: 256, part: 0 });
+    const topo = buildTopology(cylinder);
+    const smooth = topo.flags.filter((f) => f & FLAG.smooth).length;
+    expect(smooth).toBe(2 * 256); // the side; the flat caps are not smooth
+  });
+
   it('rejects a reversed lathe profile', () => {
     expect(() => lathe({ profile: [...ROTOR_PROFILE].reverse(), part: 0 })).toThrow(/reversed/);
   });

@@ -25,6 +25,11 @@ export interface Mesh {
    * whole quad, or a long thin quad's diagonal would cut notches into its edge lines.
    */
   partners: Int32Array;
+  /**
+   * Per triangle: 1 if the surface is curved there (its vertex normals interpolate across the
+   * face), declared by the generator. The shader runs the smooth-contour term only on these.
+   */
+  smooth: Uint8Array;
 }
 
 export type Vec3 = readonly [number, number, number];
@@ -44,7 +49,9 @@ export class MeshBuilder {
   private tags: number[] = [];
   private marks: number[] = [];
   private partners: number[] = [];
+  private smoothFlags: number[] = [];
   private currentTag = 0;
+  private currentSmooth = 0;
 
   readonly part: number;
 
@@ -63,6 +70,11 @@ export class MeshBuilder {
   /** Line set applied to the triangles that follow (0 = none). */
   tag(set: number) {
     this.currentTag = set;
+  }
+
+  /** Whether the triangles that follow lie on a curved (smooth-shaded) surface. */
+  smooth(on: boolean) {
+    this.currentSmooth = on ? 1 : 0;
   }
 
   /** Force the edge (a, b) to be drawn as a crease-style line. */
@@ -85,6 +97,7 @@ export class MeshBuilder {
     this.indices.push(a, b, c);
     this.tags.push(this.currentTag);
     this.partners.push(-1);
+    this.smoothFlags.push(this.currentSmooth);
     return this.tags.length - 1;
   }
 
@@ -108,6 +121,7 @@ export class MeshBuilder {
       tags: new Uint32Array(this.tags),
       marks: new Uint32Array(this.marks),
       partners: new Int32Array(this.partners),
+      smooth: new Uint8Array(this.smoothFlags),
     };
   }
 }
@@ -124,6 +138,7 @@ export function mergeMeshes(meshes: readonly Mesh[]): Mesh {
     tags: new Uint32Array(sum((m) => m.tags.length)),
     marks: new Uint32Array(sum((m) => m.marks.length)),
     partners: new Int32Array(sum((m) => m.partners.length)),
+    smooth: new Uint8Array(sum((m) => m.smooth.length)),
   };
   let v = 0;
   let i = 0;
@@ -136,6 +151,7 @@ export function mergeMeshes(meshes: readonly Mesh[]): Mesh {
     out.parts.set(m.parts, v);
     for (let j = 0; j < m.indices.length; j++) out.indices[i + j] = m.indices[j]! + v;
     out.tags.set(m.tags, t);
+    out.smooth.set(m.smooth, t);
     for (let j = 0; j < m.marks.length; j++) out.marks[k + j] = m.marks[j]! + v;
     for (let j = 0; j < m.partners.length; j++) {
       const partner = m.partners[j]!;

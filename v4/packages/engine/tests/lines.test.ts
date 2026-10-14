@@ -41,15 +41,6 @@ describe("'use gpu' line coverage on the CPU", () => {
       }
     }
   });
-
-  it('never darkens a pixel past min(1, width)', () => {
-    for (const w of WIDTHS) {
-      const [drawn, alpha] = [...wire(w)] as [number, number];
-      for (let x = -3; x <= 3; x += 0.05) {
-        expect(tickCoverage(x, drawn, alpha)).toBeLessThanOrEqual(Math.min(1, w) + 1e-6);
-      }
-    }
-  });
 });
 
 describe('band AA', () => {

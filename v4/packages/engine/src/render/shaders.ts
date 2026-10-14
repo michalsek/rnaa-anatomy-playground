@@ -10,7 +10,7 @@
  */
 import tgpu, { d, std } from 'typegpu';
 import { SLOT, SLOT_COUNT } from '../palette/tokens.ts';
-import { NO_NEIGHBOUR } from '../geo/topology.ts';
+import { FLAG, NO_NEIGHBOUR } from '../geo/topology.ts';
 import { bandWeights } from '../shading/tone.ts';
 import {
   EDGE_CREASE,
@@ -54,6 +54,26 @@ const edgeLine = (a: d.v2f, b: d.v2f, inside: d.v2f) => {
   }
   // A collapsed edge is never near anything.
   return std.select(d.vec3f(n, c), d.vec3f(0, 0, 1e6), len < 1e-6);
+};
+
+/** z of (b − a) × (c − b): the turn at corner b. */
+const turn = (a: d.v2f, b: d.v2f, c: d.v2f) => {
+  'use gpu';
+  const u = std.sub(b, a);
+  const v = std.sub(c, b);
+  return u.x * v.y - u.y * v.x;
+};
+
+/** Whether the screen quad a-b-c-d turns the same way at all four corners. */
+const isConvexQuad = (a: d.v2f, b: d.v2f, c: d.v2f, e: d.v2f) => {
+  'use gpu';
+  const t0 = turn(e, a, b);
+  const t1 = turn(a, b, c);
+  const t2 = turn(b, c, e);
+  const t3 = turn(c, e, a);
+  const allPos = t0 > 0 && t1 > 0 && t2 > 0 && t3 > 0;
+  const allNeg = t0 < 0 && t1 < 0 && t2 < 0 && t3 < 0;
+  return allPos || allNeg;
 };
 
 const facingOf = (model: d.m4x4f, normal: d.v3f, toward: d.v3f) => {
@@ -132,15 +152,25 @@ export const fillVertex = tgpu.vertexFn({
   const n0 = edgeMode(ptFacing, neighbourFacing(pt.adj.x, part.model, frame.toward), pt.flags, 0);
   const n1 = edgeMode(ptFacing, neighbourFacing(pt.adj.y, part.model, frame.toward), pt.flags, 1);
   const n2 = edgeMode(ptFacing, neighbourFacing(pt.adj.z, part.model, frame.toward), pt.flags, 2);
-  // j = the partner's edge shared with this triangle.
+  // j = the partner's edge shared with this triangle, i = ours.
   const j1 = pt.adj.y === t;
   const j2 = pt.adj.z === t;
   const extraA = std.select(std.select(e1, e2, j1), e0, j2);
   const extraB = std.select(std.select(e2, e0, j1), e1, j2);
+  // The trick assumes the projected quad is convex; on a folded or bow-tie quad (seen edge-on,
+  // or strongly non-planar) the partner's edge lines would cut into this face, so drop them.
+  // Quad order: our far corner, shared end, partner's far corner, other shared end.
+  const i1 = tri.adj.y === tri.partner;
+  const i2 = tri.adj.z === tri.partner;
+  const ownFar = std.select(std.select(p0, p1, i1), p2, i2);
+  const shareA = std.select(std.select(p1, p2, i1), p0, i2);
+  const shareB = std.select(std.select(p2, p0, i1), p1, i2);
+  const ptFar = std.select(std.select(q0, q1, j1), q2, j2);
+  const convex = isConvexQuad(ownFar, shareA, ptFar, shareB);
   const extraModes = std.select(
     d.vec2u(0, 0),
     std.select(std.select(d.vec2u(n1, n2), d.vec2u(n2, n0), j1), d.vec2u(n0, n1), j2),
-    hasPartner,
+    hasPartner && convex,
   );
 
   const is1 = c === 1;
@@ -216,7 +246,7 @@ export const fillFragment = tgpu.fragmentFn({
   const fw = std.fwidth(score);
   const facing = std.dot(n, frame.toward);
   const facingGrad = std.length(d.vec2f(std.dpdx(facing), std.dpdy(facing)));
-  const set = (input.flags >>> 8) & 0xff;
+  const set = (input.flags >>> FLAG.lineSetShift) & FLAG.lineSetMask;
   const lineSet = L.$.lineSets[std.select(set, d.u32(1), set === 0) - 1];
   const x = input.uv.x * lineSet.count - lineSet.phase;
   const xGrad = std.length(d.vec2f(std.dpdx(x), std.dpdy(x)));
@@ -230,7 +260,7 @@ export const fillFragment = tgpu.fragmentFn({
   color = std.mix(color, tone(m, SLOT.top), w.w);
   const debug = frame.debug;
   if (debug === 1) {
-    color = tone(m, SLOT.paper);
+    color = d.vec4f(frame.paper);
   }
 
   if (debug !== 2) {
@@ -294,9 +324,12 @@ export const fillFragment = tgpu.fragmentFn({
     // Smooth contour: on curved faces the limb is where n · toward reaches 0, which can fall
     // inside a facet (or on a sliver), so measure it per pixel from the interpolated normal.
     // Near a limb the facing grows like √distance (the surface turns away quadratically), so
-    // the first-order estimate f / |∇f| is twice the true distance: halve it.
+    // the first-order estimate f / |∇f| is twice the true distance: halve it. Where the facing
+    // instead crosses zero linearly (a saddle, e.g. the inner side of a tube bend), the
+    // estimate is already right, so the halved one draws those contours up to twice as wide:
+    // the faint streaks noted in M1.
     let contour = d.f32(0);
-    if (flagBit(input.flags, 6) === 1) {
+    if (flagBit(input.flags, FLAG.smoothBit) === 1) {
       contour = edgeCoverage((0.5 * facing) / std.max(facingGrad, 1e-6), line.x, line.y);
     }
 

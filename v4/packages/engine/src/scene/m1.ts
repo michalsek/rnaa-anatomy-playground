@@ -3,63 +3,15 @@
  * steel rotor with a raised rib band and a dial on its hub, and a react-blue tube from the box
  * over to the rotor flange. Every line type of the spike appears at least once.
  */
-import { mat4, vec3 } from 'wgpu-matrix';
+import { vec3 } from 'wgpu-matrix';
 import type { Bounds, ViewPreset } from '../camera/camera.ts';
 import { box } from '../geo/box.ts';
 import { lathe, type ProfilePoint } from '../geo/lathe.ts';
 import { type Mesh, mergeMeshes } from '../geo/mesh.ts';
+import { buildTopology, mergeTopologies } from '../geo/topology.ts';
 import { tube } from '../geo/tube.ts';
-import { MATERIAL, type Slot } from '../palette/tokens.ts';
-
-export interface PartSpec {
-  material: number;
-  /** World position of the part's model origin. */
-  position: [number, number, number];
-  /** Euler rotation in degrees, applied X then Y then Z (model = T · Rz · Ry · Rx · spin). */
-  rotation?: [number, number, number];
-  /** Spin about the part's z axis, radians per second (0 = static). */
-  spin: number;
-  /** Line tones and width (CSS px at the fit zoom). */
-  outline: Slot;
-  crease: Slot;
-  width: number;
-}
-
-export interface LineSetSpec {
-  count: number;
-  phase: number;
-  first: number;
-  last: number;
-  majorEvery: number;
-  minor: Slot;
-  major: Slot;
-  width: number;
-  majorWidth: number;
-  fade: [number, number];
-}
-
-export interface SceneSpec {
-  mesh: Mesh;
-  parts: PartSpec[];
-  /** Line set i is referenced by tag i + 1. */
-  lineSets: LineSetSpec[];
-  bounds: Bounds;
-  views: ViewPreset[];
-}
-
-/** Model matrix without spin. */
-export function partMatrix(part: PartSpec, out = mat4.identity()) {
-  const [rx, ry, rz] = (part.rotation ?? [0, 0, 0]).map((deg) => (deg * Math.PI) / 180) as [
-    number,
-    number,
-    number,
-  ];
-  mat4.translation(part.position, out);
-  mat4.rotateZ(out, rz, out);
-  mat4.rotateY(out, ry, out);
-  mat4.rotateX(out, rx, out);
-  return out;
-}
+import { MATERIAL } from '../palette/tokens.ts';
+import { type LineSetSpec, type PartSpec, type SceneSpec, partMatrix } from './spec.ts';
 
 /** Drum on a flanged foot, a raised rib band, a domed shoulder, and a hub with a dial ring. */
 export const ROTOR_PROFILE: readonly ProfilePoint[] = [
@@ -113,7 +65,8 @@ export function m1Scene(): SceneSpec {
     { material: MATERIAL.steel, position: BOX_AT, spin: 0, ...lines },
     { material: MATERIAL.steel, position: ROTOR_AT, spin: 0.35, ...lines },
     { material: MATERIAL.graphite, position: TACH_AT, rotation: [-90, 0, 0], spin: 0, ...lines },
-    { material: MATERIAL.react, position: [0, 0, 0], spin: 0, ...lines },
+    // The subject (react parts) gets the `hi` outline.
+    { material: MATERIAL.react, position: [0, 0, 0], spin: 0, ...lines, outline: 'hi' },
   ];
   const tick = { width: 0.6, majorWidth: 0.6, fade: [0, 0] as [number, number] };
   const lineSets: LineSetSpec[] = [
@@ -124,7 +77,7 @@ export function m1Scene(): SceneSpec {
     // 3: tach, 18 intervals over 270° with the gap at the bottom, a major every 3rd.
     { count: 24, phase: 9, first: 0, last: 18, majorEvery: 3, minor: 'mid', major: 'hi', ...tick },
   ];
-  const mesh = mergeMeshes([
+  const meshes = [
     box({ size: [12, 12, 10], center: [0, 0, 5], part: 0 }),
     lathe({
       profile: ROTOR_PROFILE,
@@ -137,7 +90,9 @@ export function m1Scene(): SceneSpec {
     }),
     lathe({ profile: TACH_PROFILE, steps: 96, part: 2, lineSets: [{ segment: 3, set: 3 }], marks: [4] }),
     tube({ path: TUBE_PATH, radius: TUBE_R, part: 3 }),
-  ]);
+  ];
+  const mesh = mergeMeshes(meshes);
+  const topology = mergeTopologies(meshes.map(buildTopology));
   const bounds = boundsOf(mesh, parts);
 
   const tachFace: [number, number, number] = [TACH_AT[0], TACH_AT[1] + 1.52, TACH_AT[2]];
@@ -159,7 +114,7 @@ export function m1Scene(): SceneSpec {
     { name: '4× rotor limb', yaw: 45, elevation: 30, zoom: 4, focus: limb },
     { name: '4× tube bend', yaw: 45, elevation: 30, zoom: 4, focus: [-1.6, 11, 11.2] },
   ];
-  return { mesh, parts, lineSets, bounds, views };
+  return { mesh, topology, parts, lineSets, bounds, views };
 }
 
 /** World AABB of the mesh with every part at its rest transform (spin is about z, and the

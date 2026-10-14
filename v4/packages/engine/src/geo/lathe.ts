@@ -89,10 +89,16 @@ export function lathe({
   subdivisions = 8,
 }: LatheSpec): Mesh {
   const { knots: profile, segments, knotIndex } = refineProfile(input, subdivisions);
-  const lineSets = inputSets.flatMap(({ segment, set }) =>
-    (segments[segment] ?? []).map((refined) => ({ segment: refined, set })),
-  );
-  const marks = inputMarks.map((knot) => knotIndex[knot]!);
+  const lineSets = inputSets.flatMap(({ segment, set }) => {
+    const refined = segments[segment];
+    if (!refined) throw new Error(`lathe: line set on unknown segment ${segment} (0..${segments.length - 1})`);
+    return refined.map((index) => ({ segment: index, set }));
+  });
+  const marks = inputMarks.map((knot) => {
+    const index = knotIndex[knot];
+    if (index === undefined) throw new Error(`lathe: mark on unknown knot ${knot} (0..${knotIndex.length - 1})`);
+    return index;
+  });
   const b = new MeshBuilder(part);
   const segCount = profile.length - 1;
   // Swept volume ∫ r² dz along the profile: positive when the outside is on the right of the
@@ -143,6 +149,8 @@ export function lathe({
     });
     const [lo, hi] = rings as [number[], number[]];
     b.tag(setOf.get(seg) ?? 0);
+    // Curved unless it is a flat annulus (both rings' normals point along the axis).
+    b.smooth(Math.abs(knotNormal(seg, seg)[0]) > 1e-9 || Math.abs(knotNormal(seg, seg + 1)[0]) > 1e-9);
     for (let k = 0; k < steps; k++) b.quad(lo[k]!, lo[k + 1]!, hi[k + 1]!, hi[k]!);
     // A forced ring is recorded once, on the segment that ends at the marked knot (or starts
     // at it for the first knot).

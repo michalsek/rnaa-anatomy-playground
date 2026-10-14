@@ -5,6 +5,7 @@
  * exactly where their faces end. These functions run per pixel and on the CPU in tests.
  */
 import { d, std } from 'typegpu';
+import { FLAG } from '../geo/topology.ts';
 
 /** Bit `bit` of a flags word (std.extractBits has no CPU implementation for tests). */
 export const flagBit = (flags: number, bit: number) => {
@@ -60,9 +61,9 @@ export const edgeMode = (ownFacing: number, adjFacing: number, flags: number, i:
   'use gpu';
   let mode = d.u32(EDGE_NONE);
   if (ownFacing > 0) {
-    if (flagBit(flags, d.u32(3) + d.u32(i)) === 1 || adjFacing <= 0) {
+    if (flagBit(flags, d.u32(FLAG.boundaryBit) + d.u32(i)) === 1 || adjFacing <= 0) {
       mode = d.u32(EDGE_OUTLINE);
-    } else if (flagBit(flags, d.u32(i)) === 1) {
+    } else if (flagBit(flags, d.u32(FLAG.creaseBit) + d.u32(i)) === 1) {
       mode = d.u32(EDGE_CREASE);
     }
   }
