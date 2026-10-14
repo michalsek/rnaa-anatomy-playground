@@ -48,6 +48,8 @@ packages/engine/src
              contacts (triangle crossings); mark helpers (bolt circles, polylines)
   scene/     SceneStore (groups/parts/pools/marks, tokens, build → batches, flatten → instances);
              M1 profiles and line sets
+  sim/       M4: the centrifuge sim (v2 port + the §A spin-up fix): fixed 1/120 s step, seedable,
+             packets/slats/outputs callbacks, CF constants (spout, belt, feeder)
   shading/   'use gpu' tone rules (bands, plan, tube stripes) + AA weights, line coverage
   render/    vertex pulling, instance/style/mark/gradient tables, in-face lines (+ UV sectors),
              gradient tone, marks pipeline, sprites (halo, glow discs; multiply/screen by
@@ -57,13 +59,16 @@ apps/app
   src/blocks/                  React blocks: Scene, Group/Machine (contacts default), Box,
                                Extrude, Lathe, Tube, Belt, Instances, Marks, Halo, Glow,
                                useFrame, useNode (render null)
-  src/machines/centrifuge/     M3: the static centrifuge from v2 (dims.ts + one module per
-                               assembly; views.ts: fit + 4 crops, card text)
-  src/overlay/Card.tsx         the kit's figure card (fig, title, hint, readout)
+  src/machines/centrifuge/     the centrifuge from v2 (dims.ts + one module per assembly;
+                               views.ts: fit + 4 crops, card text); M4: live.ts (sim, playback,
+                               readout, dev hook) and one useFrame in Centrifuge.tsx
+  src/overlay/Card.tsx         the kit's figure card (fig, title, hint, live readout leaf)
+  src/overlay/readout.ts       readout store (≤ 10 Hz, phase changes at once)
   src/gallery/                 M2 gallery (rows m1, ext, lathe, inst, marks, contact, fx) + M1
                                row; views.ts holds layout and view presets (no components)
   src/platform/{web,native}/   hosts for #platform/*, picked by metro.config.js
-  src/shell/                   rAF loop: store.tick (dt ≤ 0.1 s) → renderer.frame → present?.()
+  src/shell/                   rAF loop: store.tick (dt ≤ 0.1 s; 0 while paused) → renderer.frame
+                               → present?.()
   src/Stage.tsx                <Canvas> + layout → configure → shell (rebuilt on Fast Refresh)
   src/gpuRoot.ts               the TypeGPU root in module state (survives Fast Refresh)
 ```
@@ -81,6 +86,10 @@ classes: outline red, contour magenta, crease blue, ticks green, marks and conta
 console: `__v4.setScene('m1')`, `__v4.setView('close cage')`, `__v4.look({ focus: [x, y, z],
 zoom: 8 })`, `__v4.setDebug(1)`, `__v4.setPaused(true)`, `__v4.setTheme('dark')`,
 `__v4.setPoolCount('inst.packets', 12)`, `__v4.setChrome(false)` (hide the toolbar for
-captures), `__v4.store()`; `__v4.views` / `__v4.scenes` list the names. DEV builds keep the last
+captures), `__v4.store()`; `__v4.views` / `__v4.scenes` list the names. On the centrifuge,
+`__v4.sim` controls time: `seek(t)` (deterministic: reset, run, pause), `play()`, `pause()`,
+`speed(0.25–4)`, `seed(n)`, `status()`, `log()` (phase changes), `release(false)` (belt refuses
+packets). DEV builds keep the last
 50 engine log lines in `globalThis.__v4logs` (per-phase rebuild ms). Notes:
-[notes/M1.md](notes/M1.md), [notes/M2.md](notes/M2.md), [notes/M3.md](notes/M3.md).
+[notes/M1.md](notes/M1.md), [notes/M2.md](notes/M2.md), [notes/M3.md](notes/M3.md),
+[notes/M4.md](notes/M4.md).

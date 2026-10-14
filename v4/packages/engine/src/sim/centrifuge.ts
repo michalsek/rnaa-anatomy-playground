@@ -424,8 +424,9 @@ export function createCentrifugeSim(o: { seed?: number } = {}): CentrifugeSim {
       } else if (it.stage === 'ride' && it.p[0] > BELT.x0 - 1) {
         it.p[0] -= BELT_SPEED * dt;
         it.p[1] += (BELT.y - it.p[1]) * Math.min(1, dt * 8);
-        // Square up on the belt (v2 snaps to 0 at the hand-over).
-        const square = Math.round(it.yaw / (Math.PI / 2)) * (Math.PI / 2);
+        // Turn to lie along the belt, like v2's belt packets (v2 snaps to 0 at the hand-over;
+        // the box is symmetric, so the nearer of 0 and π).
+        const square = Math.round(it.yaw / Math.PI) * Math.PI;
         it.yaw += (square - it.yaw) * Math.min(1, dt * 8);
       } else {
         it.stage = 'tip';
@@ -459,6 +460,9 @@ export function createCentrifugeSim(o: { seed?: number } = {}): CentrifugeSim {
     const now = s.t;
     // The belt's quantum phase, unwrapped into S (the period is known, so the rate is exact).
     const ph = beltPhase();
+    // S starts at the phase itself (v2 started it at 0, so its lock aimed at an arbitrary offset
+    // and packets landed on a slat; phase 0 is the hand-over point midway between two slats).
+    if (s.prevP === null) s.S = ph;
     let dp = s.prevP === null ? 0 : ph - s.prevP;
     if (dp < -0.5) dp += 1;
     if (dp > 0.5) dp -= 1;
