@@ -16,7 +16,7 @@ describe('factory clock', () => {
   it('advance clamps a long frame and drops the rest (no catch-up burst)', () => {
     const f = createFactory();
     let steps = 0;
-    f.add({ id: 'count', step: () => steps++, alive: () => 0 });
+    f.add({ id: 'count', step: () => steps++, alive: () => 0, status: () => ({}) });
     expect(f.advance(10)).toBe(4);
     expect(steps).toBe(4);
     expect(f.clock.t).toBeCloseTo(4 * H, 9);

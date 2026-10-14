@@ -145,3 +145,68 @@ export function stadium(o: { L: number; R: number; zc: number; dir: 1 | -1 }): S
 export function tilt(axis: BeltAxis, ns: number, nz: number, yawSign = 1): number {
   return yawSign * (axis === 'x' ? Math.atan2(ns, nz) : Math.atan2(-ns, nz));
 }
+
+/** A point on a vertical loop: machine-local y and z, the outward normal and the travel tangent (in y, z). */
+export interface LiftPoint {
+  run: Run;
+  y: number;
+  z: number;
+  ny: number;
+  nz: number;
+  ty: number;
+  tz: number;
+  /** The angle about +x that turns +y onto the normal (0 on the front run, π on the back run). */
+  roll: number;
+}
+
+export interface Lift {
+  /** Loop length at radius R. */
+  readonly total: number;
+  /** The straight runs' length (z1 − z0), the wrap radius, the axis's y. */
+  readonly L: number;
+  readonly R: number;
+  readonly yc: number;
+  /** Arc length where the front run ends (the head wrap starts) and where the back run starts. */
+  readonly uHead: number;
+  readonly uHeadEnd: number;
+  /**
+   * The point at arc length u (wrapped), from the boot's tangent on the front run (+y side,
+   * travelling up) over the head (toward −y) and down the back run, at radius r (default R).
+   */
+  at(u: number, r?: number, out?: LiftPoint): LiftPoint;
+}
+
+export const liftPoint = (): LiftPoint => ({ run: 'top', y: 0, z: 0, ny: 1, nz: 0, ty: 0, tz: 1, roll: 0 });
+
+/**
+ * A vertical stadium (a bucket elevator's chain, E4): two sprockets on axes along x at heights
+ * z0 (boot) and z1 (head), radius R, axes at y = yc. The front run is at yc + R going up. It is
+ * `stadium` turned on its side: the stadium's s is z − z0 and its height is y ("top" = the front
+ * run, "head" = over the head sprocket, "bottom" = the back run, "tail" = round the boot).
+ */
+export function verticalStadium(o: { z0: number; z1: number; R: number; yc: number }): Lift {
+  const L = o.z1 - o.z0;
+  if (!(L > 0 && o.R > 0)) throw new Error('verticalStadium: needs z1 > z0 and R > 0');
+  const st = stadium({ L, R: o.R, zc: o.yc, dir: 1 });
+  const p = pathPoint();
+  return {
+    total: st.total,
+    L,
+    R: o.R,
+    yc: o.yc,
+    uHead: st.uHead,
+    uHeadEnd: st.uHeadEnd,
+    at(u, r = o.R, out = liftPoint()) {
+      st.at(u, r, p);
+      out.run = p.run;
+      out.y = p.z;
+      out.z = o.z0 + p.s;
+      out.ny = p.nz;
+      out.nz = p.ns;
+      out.ty = p.tz;
+      out.tz = p.ts;
+      out.roll = Math.atan2(out.nz, out.ny);
+      return out;
+    },
+  };
+}

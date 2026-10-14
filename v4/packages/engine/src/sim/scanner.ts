@@ -26,8 +26,9 @@ import type { Loop, LoopGeometry } from './loop.ts';
 import { mod, smooth, wrapHalf } from './math.ts';
 import { type Located, type OutPort, type V3, createOut } from './ports.ts';
 
-/** v2's design frame → the scanner's local frame (pivot foot at the origin). */
-const W = (x: number, y: number, z: number): V3 => [x + 30, y - 32, z];
+/** v2's design frame → the scanner's local frame (pivot foot at the origin); the blocks use it too. */
+export const scannerW = (x: number, y: number, z: number): V3 => [x + 30, y - 32, z];
+const W = scannerW;
 
 /** Segments of the flex ribbon: a cubic in plan from the arm's side to the bracket's +y face (v2 `ribbon`). */
 export const RIBBON_N = 18;
@@ -75,13 +76,6 @@ export const SC = {
   /** Where the head reads (v2 `ports.read`): over the loop's near margin at the belt top. */
   read: W(-30, 63, 92),
 } as const;
-
-/**
- * Pool sizes the blocks need: packets on their way out of the preamp (one per 4 quanta, ≈ 2.3 s,
- * while a push takes 1.1 s: at most one, plus one of slack) and pulses in flight (≈ 1.8 s each,
- * one per 0.57 s quantum: at most 4).
- */
-export const SCANNER_POOLS = { packets: 2, pulses: 6 } as const;
 
 /** The push's speed when the packet leaves the lip (units/s, along −y). */
 const PUSH_V = ((SC.push.from - SC.push.to) * SC.push.power) / SC.push.T;
@@ -182,6 +176,12 @@ export interface Scanner extends Machine, Located, PoseSource {
   outputs(o: ScannerOutputs): ScannerOutputs;
   /** The ribbon's length the pulse timing uses (at rest). */
   readonly ribbonLength: number;
+  /**
+   * Pool sizes the blocks need (read at mount), from the loop's quantum: packets on their way out
+   * of the preamp (one per 4 quanta while a push takes 1.1 s) and pulses in flight (one per
+   * quantum while a pulse takes ≈ 1.8 s), each plus one of slack.
+   */
+  readonly pools: { readonly packets: number; readonly pulses: number };
 }
 
 export function createScanner(clock: Readonly<Clock>, ledger: Ledger, o: ScannerOptions): Scanner {
@@ -214,6 +214,7 @@ export function createScanner(clock: Readonly<Clock>, ledger: Ledger, o: Scanner
     outs: { out },
     stats,
     ribbonLength: RIBBON_LEN,
+    pools: { packets: Math.ceil(SC.push.T / (SC.perPacket * period)) + 1, pulses: Math.ceil(PULSE_T / period) + 1 },
     step(h) {
       const q = loop.quanta();
       if (q.count !== count) {

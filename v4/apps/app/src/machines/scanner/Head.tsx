@@ -11,7 +11,7 @@
 import { RIBBON_N, type SegmentSpec } from '@anatomy/engine';
 import { Box, Extrude, Glow, Group, Instances, Lathe, Marks } from '../../blocks/blocks.tsx';
 import { FX, type V3, closed, corners, disc, faceScrews, screws, turned } from '../kit.ts';
-import { ARM, BOSS, BRACKET, RAMP, SC, phi, polar } from './dims.ts';
+import { ARM, BOSS, BRACKET, RAMP, SC, phi, v2Polar } from './dims.ts';
 
 const [Z0, Z1] = SC.armZ;
 /** The lamp's dome (v2 lens: a ball of r 1.7 on the base), smooth. */
@@ -39,17 +39,17 @@ export function Motor() {
       <Marks id="pivotBase-screws" material="graphite" {...screws([0, 1, 2].map((i) => [3.4 * Math.cos(i * 2.09 + 0.9), 3.4 * Math.sin(i * 2.09 + 0.9)] as [number, number]), 88, 0.6, 0.3)} />
       <Lathe id="cartridge" material="graphite" profile={disc(3, 88, 94)} seams={[91]} />
       <Extrude id="bottom" material="graphite" plan={plate} z={86} height={2.5} />
-      <Marks id="bottom-screws" material="graphite" {...screws([polar(17.5, -30), polar(17.5, 30)], 88.5, 0.7, 0.3)} />
+      <Marks id="bottom-screws" material="graphite" {...screws([v2Polar(17.5, -30), v2Polar(17.5, 30)], 88.5, 0.7, 0.3)} />
       <Extrude id="magnetA" material="graphite" outline="lo" plan={{ sector: { r0: 9, r1: 16, a0: phi(-1), a1: phi(-30) } }} z={88.5} height={1.5} />
       <Extrude id="magnetB" material="graphite" outline="lo" plan={{ sector: { r0: 9, r1: 16, a0: phi(30), a1: phi(1) } }} z={88.5} height={1.5} />
       {([[16.5, -41], [16.5, 41], [18.2, 0]] as const).map(([r, a], i) => (
-        <Lathe key={`s${i}`} id={`standoff${i}`} material="graphite" profile={disc(1.1, 88.5, 98.5)} steps={16} position={[...polar(r, a), 0]} />
+        <Lathe key={`s${i}`} id={`standoff${i}`} material="graphite" profile={disc(1.1, 88.5, 98.5)} steps={16} position={[...v2Polar(r, a), 0]} />
       ))}
       {[-39, 39].map((a, i) => (
-        <Lathe key={`c${i}`} id={`stop${i}`} material="graphite" outline="lo" profile={disc(0.8, 90, 98.5)} steps={14} position={[...polar(12.5, a), 0]} />
+        <Lathe key={`c${i}`} id={`stop${i}`} material="graphite" outline="lo" profile={disc(0.8, 90, 98.5)} steps={14} position={[...v2Polar(12.5, a), 0]} />
       ))}
       <Extrude id="top" material="graphite" plan={plate} z={98.5} height={2.5} />
-      <Marks id="top-screws" material="graphite" {...screws([polar(16.5, -41), polar(16.5, 41), polar(18.2, 0)], 101, 0.8, 0.32)} />
+      <Marks id="top-screws" material="graphite" {...screws([v2Polar(16.5, -41), v2Polar(16.5, 41), v2Polar(18.2, 0)], 101, 0.8, 0.32)} />
     </Group>
   );
 }

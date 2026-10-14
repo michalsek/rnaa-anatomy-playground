@@ -19,6 +19,7 @@ import {
   type ScannerPageGraph,
   CENTRIFUGE_LAYOUT,
   LINE_LAYOUT,
+  SC,
   createConveyorPage,
   createCrusherPage,
   createLine,
@@ -172,6 +173,6 @@ export const crusherLive = createLive(
 /** v2's scanner page: the readout as v2's (`quanta read 0 · packets lifted 0`; no elevator yet). */
 export const scannerLive = createLive(
   (seed) => createScannerPage({ seed }),
-  (g: ScannerPageGraph) => `quanta read ${g.scanner.stats.reads} · buffer ${g.scanner.stats.delivered % 4}/4 · ${g.scanner.stats.sent} packets out`,
+  (g: ScannerPageGraph) => `quanta read ${g.scanner.stats.reads} · buffer ${g.scanner.stats.delivered % SC.perPacket}/${SC.perPacket} · ${g.scanner.stats.sent} packets out`,
   () => 'running',
 );

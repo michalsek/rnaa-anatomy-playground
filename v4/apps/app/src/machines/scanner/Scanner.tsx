@@ -11,7 +11,6 @@ import {
   type PartHandle,
   type PoolHandle,
   RIBBON_N,
-  SCANNER_POOLS,
   type ScannerOutputs,
   type Scanner as ScannerSim,
   type SpriteHandle,
@@ -52,11 +51,14 @@ function Frame({ live, sim }: ScannerProps) {
   const cells = useNodes<PartHandle>(CELL_IDS);
   const pieces = useNodes<PartHandle>(PIECE_IDS);
   const packets = usePacketPoses('packets', sim);
-  // Scratch, made once per mount.
+  // Scratch and the pulse callback, made once per mount (pool sizes from the sim at mount).
   const [s] = useState(() => {
     const o: ScannerOutputs = { head: 0, theta: 0, lamp: 0, cells: CELLS.map(() => 0) };
-    const pulses = new Float64Array(SCANNER_POOLS.pulses);
+    const pulses = new Float64Array(sim().pools.pulses);
     let n = 0;
+    const take = (_: number, d: number) => {
+      if (n < pulses.length) pulses[n++] = d;
+    };
     return {
       o,
       pts: new Float64Array(2 * RIBBON_N + 2),
@@ -67,9 +69,7 @@ function Frame({ live, sim }: ScannerProps) {
       },
       collect(sc: ScannerSim) {
         n = 0;
-        sc.pulses((_, d) => {
-          if (n < pulses.length) pulses[n++] = d;
-        });
+        sc.pulses(take);
       },
     };
   });
@@ -135,7 +135,7 @@ export function Scanner(props: ScannerProps) {
       </Group>
       <Preamp stand={stand} />
       <Cable />
-      <PacketPool capacity={SCANNER_POOLS.packets} />
+      <PacketPool capacity={sc.pools.packets} />
     </Group>
   );
 }

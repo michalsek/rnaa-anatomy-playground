@@ -33,3 +33,5 @@ export * from './sim/math.ts';
 export * from './geo/helix.ts';
 export * from './sim/crusher.ts';
 export * from './sim/scanner.ts';
+export * from './sim/elevator.ts';
+export * from './sim/speaker.ts';

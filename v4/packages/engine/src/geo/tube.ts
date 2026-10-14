@@ -166,7 +166,8 @@ export function tube({
       const uu = unit(sub(lerp(a.u, c.u), scale(t, dot(lerp(a.u, c.u), t))));
       return { p: lerp(a.p, c.p), t, u: uu, v: cross(t, uu), s };
     };
-    const eps = 1e-6;
+    // Drop samples nearer a cut than the topology's weld grid (1e-4) could tell apart.
+    const eps = 1e-3;
     frames = [at(s0), ...frames.filter((x) => x.s > s0 + eps && x.s < s1 - eps), at(s1)];
     join = [s0 > eps, s1 < length - eps];
   }

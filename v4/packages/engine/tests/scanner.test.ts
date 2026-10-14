@@ -7,7 +7,7 @@ import { report, snapshot } from './rig.ts';
 const H = 1 / 120;
 const outputs = (): ScannerOutputs => ({ head: 0, theta: 0, lamp: 0, cells: [0, 0, 0, 0] });
 
-describe('scanner on the line (loop → scanner → belt D → sink)', () => {
+describe('scanner on the line (loop → scanner → belt D → elevator)', () => {
   it('reads once per quantum, and makes one packet per 4 landed pulses; conserves items (120 s)', () => {
     const g = createLine(LINE_LAYOUT);
     const f = g.factory;
@@ -30,8 +30,8 @@ describe('scanner on the line (loop → scanner → belt D → sink)', () => {
     // A pulse takes ≈ 1.8 s to land: at most 4 in flight at 0.57 s a quantum.
     expect(maxInFlight).toBeLessThanOrEqual(4);
     expect(s.sent).toBeGreaterThan(45);
-    expect(g.sinkD!.taken).toBeGreaterThan(40);
-    report(`scanner: ${s.reads} reads, ${s.delivered} landed, ${s.made} made, ${s.sent} sent, ${g.sinkD!.taken} reached the sink\n`);
+    expect(g.elevator!.stats.taken).toBeGreaterThan(40);
+    report(`scanner: ${s.reads} reads, ${s.delivered} landed, ${s.made} made, ${s.sent} sent, ${g.elevator!.stats.taken} reached the elevator\n`);
   });
 
   it('greys a parcel at the instant of a read (one source: the loop read point)', () => {
@@ -98,7 +98,7 @@ describe('scanner on the line (loop → scanner → belt D → sink)', () => {
     for (let i = 0; i < 60 * 120; i++) {
       g.factory.run(H);
       seen.clear();
-      for (const [m, src] of [['scanner', g.scanner!], ['beltD', g.beltD!], ['sinkD', g.sinkD!]] as const) {
+      for (const [m, src] of [['scanner', g.scanner!], ['beltD', g.beltD!]] as const) {
         src.poses((_, item, x, y, z) => seen.set(item.id, [m, x + src.origin[0], y + src.origin[1], z + src.origin[2]]));
       }
       for (const [id, p] of seen) {
@@ -115,8 +115,8 @@ describe('scanner on the line (loop → scanner → belt D → sink)', () => {
       }
     }
     expect(handOffs).toBeGreaterThan(20);
-    // Under 1.5 per step (180 units/s: the drop off belt D's head into the sink is the fastest).
-    expect(worst).toBeLessThan(1.5);
+    // Under 0.5 per step (the push leaves the lip at 24 u/s, belt D runs at 28).
+    expect(worst).toBeLessThan(0.5);
     expect(worstHand).toBeLessThan(0.5);
     report(`scanner → belt D: ${handOffs} hand-offs, worst step ${worst.toFixed(3)}, at a hand-off ${worstHand.toFixed(3)}\n`);
   });

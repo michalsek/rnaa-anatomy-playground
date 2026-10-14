@@ -7,18 +7,18 @@
  * v2's `polar(r, deg)` (about the pivot, deg 0 = −y, turning toward −x) is the angle −90 − deg
  * counter-clockwise from +x: `phi`. Plain module (no components).
  */
-import { SC, SCANNER_CABLE, type SegmentSpec } from '@anatomy/engine';
+import { SC, SCANNER_CABLE, type SegmentSpec, scannerW } from '@anatomy/engine';
 import { type V3, closed } from '../kit.ts';
 
 export { SC, SCANNER_CABLE };
 
-/** v2 design frame → local. */
-export const W = (x: number, y: number, z: number): V3 => [x + 30, y - 32, z];
+/** v2 design frame → local (the engine's, shared with the sim). */
+export const W = scannerW;
 
 /** v2 `polar(r, deg)` as a standard angle (degrees CCW from +x). */
 export const phi = (deg: number) => -90 - deg;
-/** v2 `polar(r, deg)` → local (x, y). */
-export const polar = (r: number, deg: number): [number, number] => [-r * Math.sin((deg * Math.PI) / 180), -r * Math.cos((deg * Math.PI) / 180)];
+/** v2 `polar(r, deg)` → local (x, y) (not kit.ts `polar(deg, r, z)`). */
+export const v2Polar = (r: number, deg: number): [number, number] => [-r * Math.sin((deg * Math.PI) / 180), -r * Math.cos((deg * Math.PI) / 180)];
 
 /** v2 plan(x0, y0, x1, y1) in local coordinates. */
 const plan = (x0: number, y0: number, x1: number, y1: number) => {

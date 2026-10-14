@@ -7,13 +7,16 @@
  * - `line`: source → belt B → centrifuge → audio loop → belt C → crusher, at the final layout's
  *   positions (notes/M5-M11-plan.md §2.1, from v2 `assembly/build.mjs`);
  * - `crusher`: v2's crusher page: a source drops garbage onto a short belt C that feeds the crusher.
- * - `line` also runs the read path (M7): the scanner reads the loop, belt D carries its packets to
- *   a sink where the elevator will stand; `scanner`: v2's scanner page (a source over the loop).
+ * - `line` also runs the read path (M7) and the output path (M8): the scanner reads the loop, belt
+ *   D carries its packets to the elevator, which lifts them to the speaker; `scanner`: v2's scanner
+ *   page (a source over the loop); `output`: a source over a short belt D, the elevator, the speaker.
  */
 import { type Factory, createFactory } from './clock.ts';
 import { type Conveyor, createConveyor } from './conveyor.ts';
 import { CF, type Centrifuge, createCentrifuge } from './centrifuge/index.ts';
 import { CR, type Crusher, createCrusher } from './crusher.ts';
+import { type Elevator, createElevator, elevatorGeometry } from './elevator.ts';
+import { type Speaker, createSpeaker } from './speaker.ts';
 import { fallTime } from './fall.ts';
 import { type Loop, createLoop, loopGeometry, syncToLoop } from './loop.ts';
 import { SCANNER_OUT, type Scanner, createScanner, scannerReadAt } from './scanner.ts';
@@ -32,10 +35,11 @@ export interface LineGraph {
   beltC: Conveyor | null;
   crusher: Crusher | null;
   sink: Sink | null;
-  /** The read path (the line's layout): the scanner, belt D and the sink at its end. */
+  /** The read path (the line's layout): the scanner, belt D; the output path: the elevator and the speaker. */
   scanner: Scanner | null;
   beltD: Conveyor | null;
-  sinkD: Sink | null;
+  elevator: Elevator | null;
+  speaker: Speaker | null;
 }
 
 /** Belt D's run: from under the scanner's hand-on point (local) along −y to `headY` (world). */
@@ -51,17 +55,21 @@ export interface LineLayout {
   audio: { origin: V3; length: number; inAt: number; readAt: number };
   /** Belt C and the crusher; without them a sink takes the garbage. */
   garbage?: { beltC: { origin: V3; length: number; inAt: number }; crusher: V3 };
-  /** The scanner and belt D; with them the loop's read point snaps to the scanner (`scannerReadAt`). */
-  read?: { scanner: V3; beltD: BeltDLayout };
+  /**
+   * The scanner, belt D, the elevator at belt D's head and the speaker under its spout; with them
+   * the loop's read point snaps to the scanner (`scannerReadAt`) and `audio.readAt` is unused.
+   */
+  read?: { scanner: V3; beltD: BeltDLayout; elevator: V3; speaker: V3 };
 }
 
 /** Belt D's surface: the preamp's lip (v2 A: top 24). */
 const TOP_D = SCANNER_OUT.at[2];
 
 /**
- * Belt D under a scanner at `scanner` (world), running −y to its head drum at `headY`: the packet
- * leaves the lip moving at the push's speed and lands where that motion takes it in the belt's
- * shortest fall (the in point, 1 inside the tail), so it barely bends.
+ * Belt D under a scanner at `scanner` (world), running −y to its head drum at `headY` (where it
+ * hands on, over the elevator's chute): the packet leaves the lip moving at the push's speed and
+ * lands where that motion takes it in the belt's shortest fall (the in point, 1 inside the tail),
+ * so it barely bends.
  */
 export function beltDUnder(scanner: V3, headY: number): BeltDLayout {
   const { at, v } = SCANNER_OUT;
@@ -79,6 +87,22 @@ const TOP_AUDIO = 92;
 const TOP_C = CR.drop[2];
 const C_END = CR.drop[1];
 
+/** The elevator's in-feed chute starts this far past belt D's head drum (v2 A: ELEV_Y + 51 = belt D's head). */
+const ELEV_BACK = 51;
+/** The elevator's lift and spout reach on the line (v2 A), and the speaker's baffle height. */
+const ELEV_LIFT = 210;
+const ELEV_REACH = 40;
+const SPEAKER_HEIGHT = 220;
+/** The speaker sits so its ledge's end is 2 past the spout's centre (v2 A: speaker = spout − [62, 0]). */
+const SPEAKER_BACK = 62;
+
+/** The elevator under belt D's head and the speaker under the elevator's spout (world). */
+function outputAt(beltDHead: V3): { elevator: V3; speaker: V3 } {
+  const elevator: V3 = [beltDHead[0], beltDHead[1] - ELEV_BACK, 0];
+  const spout = elevatorGeometry({ lift: ELEV_LIFT, reach: ELEV_REACH }).spout;
+  return { elevator, speaker: [elevator[0] + spout[0] - SPEAKER_BACK, elevator[1] + spout[1], 0] };
+}
+
 /** The final layout (§2.1): world positions, from v2 A's own derivations. */
 export const LINE_LAYOUT: LineLayout = (() => {
   const centri: V3 = [100, 120 - 51.2, 0];
@@ -88,18 +112,21 @@ export const LINE_LAYOUT: LineLayout = (() => {
   const beltC: V3 = [audioHead, out[1] - 22, 0];
   const lengthC = 110;
   const scanner: V3 = [30, out[1] - 38, 0];
+  const beltD = beltDUnder(scanner, -175);
   return {
     centrifuge: centri,
     // Head drum and rails stop before the funnel lip (v2 A: CENTRI.y − 49).
     beltB: { origin: beltBOrigin, length: centri[1] - 49 - beltBOrigin[1], inAt: 2 },
-    // Tail drum 12 past the spout's hand-on point; parcels land under it; read point at the scanner.
+    // Tail drum 12 past the spout's hand-on point; parcels land under it. readAt is v2's; with the
+    // scanner (`read`) the read point snaps to it instead.
     audio: { origin: [audioHead, out[1], 0], length: out[0] + 12 - audioHead, inAt: out[0] - audioHead, readAt: 30 - audioHead },
     // Belt C runs under the loop's head drum (garbage lands 22 along it) and ends at the crusher's
     // feed point (v2 A put the crusher 30 past its end, 4 more than the crusher's own drop).
     garbage: { beltC: { origin: beltC, length: lengthC, inAt: 22 }, crusher: [audioHead, beltC[1] + lengthC - C_END, 0] },
     // The scanner 38 behind the loop's centreline (v2 A: its head over the near margin); belt D
-    // from under its lip to the elevator's chute (v2 A: ELEV_Y + 51 = −175).
-    read: { scanner, beltD: beltDUnder(scanner, -175) },
+    // from under its lip to the elevator's chute (v2 A: ELEV_Y + 51 = −175); the speaker under the
+    // elevator's spout.
+    read: { scanner, beltD, ...outputAt(beltD.origin) },
   };
 })();
 
@@ -152,20 +179,46 @@ export function createLine(layout: LineLayout = LINE_LAYOUT, o: { seed?: number 
     sink = factory.add(createSink(clock, ledger, { id: 'sink', origin: a.origin, floorZ: 0 }));
     factory.link(audio, 'drop', sink);
   }
-  const { beltD, sinkD } = scanner && rd ? readPath(factory, scanner, rd.beltD) : { beltD: null, sinkD: null };
-  return { factory, source, beltB, centrifuge, audio, beltC, crusher, sink, scanner, beltD, sinkD };
+  let beltD: Conveyor | null = null;
+  let elevator: Elevator | null = null;
+  let speaker: Speaker | null = null;
+  if (scanner && rd) {
+    beltD = factory.add(createBeltD(factory, rd.beltD, 'hand'));
+    factory.link(scanner, 'out', beltD);
+    ({ elevator, speaker } = outputPath(factory, beltD, rd, { prefill: true }));
+  }
+  return { factory, source, beltB, centrifuge, audio, beltC, crusher, sink, scanner, beltD, elevator, speaker };
 }
 
-/** Belt D from the scanner, tipping off its head drum into a sink (the elevator's stand-in, M8). */
-function readPath(factory: Factory, scanner: Scanner, d: BeltDLayout) {
+/**
+ * Belt D (−y, v2 A: speed 28, top 24): `tip` ends off its head drum (into a crate), `hand` hands
+ * on at the head drum's axis at belt height (over the elevator's chute, v2 A: `tip: false`).
+ */
+function createBeltD(factory: Factory, d: BeltDLayout, end: 'tip' | 'hand') {
+  return createConveyor(factory.clock, {
+    id: 'beltD',
+    origin: d.origin,
+    axis: 'y',
+    dir: -1,
+    length: d.length,
+    top: TOP_D,
+    width: 18,
+    speed: RATES.beltDSpeed,
+    inAt: d.inAt,
+    outAt: 0,
+    tip: end === 'tip',
+  });
+}
+
+/** The output path after belt D (added after it, in step order): belt D → elevator → speaker. */
+function outputPath(factory: Factory, beltD: Conveyor, at: { elevator: V3; speaker: V3 }, o: { prefill: boolean }) {
   const { clock, ledger } = factory;
-  const beltD = factory.add(
-    createConveyor(clock, { id: 'beltD', origin: d.origin, axis: 'y', dir: -1, length: d.length, top: TOP_D, width: 18, speed: RATES.beltDSpeed, inAt: d.inAt, outAt: 0 }),
-  );
-  const sinkD = factory.add(createSink(clock, ledger, { id: 'sinkD', origin: d.origin, floorZ: 0 }));
-  factory.link(scanner, 'out', beltD);
-  factory.link(beltD, 'out', sinkD);
-  return { beltD, sinkD };
+  if (beltD.geometry.tip) throw new Error('outputPath: belt D must hand on at its head (tip: false)');
+  const elevator = factory.add(createElevator(clock, ledger, { id: 'elevator', origin: at.elevator, lift: ELEV_LIFT, reach: ELEV_REACH, prefill: o.prefill }));
+  const speaker = factory.add(createSpeaker(clock, ledger, { id: 'speaker', origin: at.speaker, height: SPEAKER_HEIGHT }));
+  factory.link(beltD, 'out', elevator);
+  factory.link(elevator, 'out', speaker);
+  return { elevator, speaker };
 }
 
 export interface ScannerPageGraph {
@@ -182,7 +235,8 @@ export interface ScannerPageGraph {
 /**
  * v2's scanner page (`parts/scanner/build.mjs`): the audio loop (L 170) fed a packet every
  * RATES.scannerFeed s from a hopper over its in point, the scanner behind it (loop origin +
- * [90, −38]), belt D from the scanner's lip (shortened: the elevator comes in M8).
+ * [90, −38]), belt D from the scanner's lip (shortened, tipping into a crate: the elevator and
+ * the speaker have their own page, `output`).
  */
 export function createScannerPage(o: { seed?: number } = {}): ScannerPageGraph {
   const factory = createFactory();
@@ -212,7 +266,10 @@ export function createScannerPage(o: { seed?: number } = {}): ScannerPageGraph {
   const sink = factory.add(createSink(clock, ledger, { id: 'sink', origin: aOrigin, floorZ: 0 }));
   factory.link(source, 'out', audio);
   factory.link(audio, 'drop', sink);
-  const { beltD, sinkD } = readPath(factory, scanner, beltDUnder(at, at[1] - 60));
+  const beltD = factory.add(createBeltD(factory, beltDUnder(at, at[1] - 60), 'tip'));
+  const sinkD = factory.add(createSink(clock, ledger, { id: 'sinkD', origin: beltD.origin, floorZ: 0 }));
+  factory.link(scanner, 'out', beltD);
+  factory.link(beltD, 'out', sinkD);
   return { factory, source, audio, scanner, beltD, sinkD, sink };
 }
 
@@ -283,4 +340,44 @@ export function createCrusherPage(o: { seed?: number } = {}): CrusherPageGraph {
   factory.link(source, 'out', beltC);
   factory.link(beltC, 'out', crusher);
   return { factory, source, beltC, crusher };
+}
+
+export interface OutputPageGraph {
+  factory: Factory;
+  source: Source;
+  beltD: Conveyor;
+  elevator: Elevator;
+  speaker: Speaker;
+}
+
+/**
+ * The output path on its own (no v2 page; v2 A's layout): a source drops an audio packet every
+ * RATES.outputFeed s (the line's rate: one per 4 quanta) from a hopper onto a 60-long belt D,
+ * which hands on over the elevator's chute; the elevator lifts it to the speaker. The elevator's
+ * column at the origin.
+ */
+export function createOutputPage(o: { seed?: number } = {}): OutputPageGraph {
+  const factory = createFactory();
+  const { clock, ledger } = factory;
+  const head: V3 = [0, ELEV_BACK, 0];
+  const length = 60;
+  const d: BeltDLayout = { origin: head, length, inAt: length - 8 };
+  const at = outputAt(head);
+  const source = factory.add(
+    createSource(clock, ledger, {
+      id: 'source',
+      origin: head,
+      from: [0, d.inAt, TOP_D + 24],
+      every: RATES.outputFeed,
+      delay: 0.4,
+      burst: 1,
+      rest: 0,
+      kinds: ['audio'],
+      seed: o.seed ?? 0,
+    }),
+  );
+  const beltD = factory.add(createBeltD(factory, d, 'hand'));
+  factory.link(source, 'out', beltD);
+  const { elevator, speaker } = outputPath(factory, beltD, at, { prefill: true });
+  return { factory, source, beltD, elevator, speaker };
 }

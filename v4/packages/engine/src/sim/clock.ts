@@ -22,7 +22,7 @@ export interface Machine {
   /** Items alive inside the machine (the conservation count). */
   alive(): number;
   /** A plain summary for the dev hook (`__v4.sim.status(id)`). */
-  status?(): object;
+  status(): object;
 }
 
 export interface Factory {

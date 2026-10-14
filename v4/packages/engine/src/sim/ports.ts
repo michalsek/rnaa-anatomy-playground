@@ -86,10 +86,20 @@ export function createOut(owner: Located, name: string, o: { asks: boolean }): O
   };
 }
 
-/** Link `a.outs[port]` to `b`'s input (a strict receiver needs a sender that asks). */
+/** Receivers that already have a sender that asks (`canAccept` doesn't reserve: one per receiver). */
+const asked = new WeakSet<Receiver>();
+
+/**
+ * Link `a.outs[port]` to `b`'s input (a strict receiver needs a sender that asks; a receiver
+ * takes at most one sender that asks).
+ */
 export function link<A extends Located & { outs: Record<string, OutPort> }>(a: A, port: keyof A['outs'] & string, b: Located & Receiver) {
   const out = a.outs[port];
   if (!out) throw new Error(`${a.id}: no output "${port}"`);
   if (b.strict && !out.asks) throw new Error(`${a.id}.${port} → ${b.id}: a strict receiver needs a sender that asks first (a belt with hold: true)`);
+  if (out.asks) {
+    if (asked.has(b)) throw new Error(`${a.id}.${port} → ${b.id}: ${b.id} already has a sender that asks (canAccept doesn't reserve: one per receiver)`);
+    asked.add(b);
+  }
   out.connect(b);
 }

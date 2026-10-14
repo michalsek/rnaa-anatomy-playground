@@ -19,6 +19,10 @@ export const RATES = {
   binDump: 10,
   /** Belt D (scanner → elevator), world units/s (v2 A: 28). */
   beltDSpeed: 28,
+  /** The elevator's chain, world units/s (v2: 30; one cradle every 1.23 s at lift 210, ≈ 0.8/s). */
+  elevatorSpeed: 30,
+  /** The output scene's feed: one audio packet every `outputFeed` s (the line's ≈ 4 quanta: 2.28 s). */
+  outputFeed: 2.28,
   /** The scanner scene's feed: one packet every `scannerFeed` s onto the loop (v2's scanner page: 2.2). */
   scannerFeed: 2.2,
   /** The crusher scene's feed: one garbage packet every `crusherFeed` s (v2's standalone page: 2.4). */

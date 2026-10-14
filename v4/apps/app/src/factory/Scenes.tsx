@@ -99,7 +99,6 @@ function LineOf({ live }: { live: Live<LineGraph> }) {
       {g.sink && <SinkBin live={live} sim={() => live.graph().sink!} crate={[[dx + 1, -9, 0], [dx + 21, 9, 12]]} />}
       {g.scanner && <Scanner live={live} sim={() => live.graph().scanner!} />}
       {g.beltD && <Top id="beltD" live={live} sim={() => live.graph().beltD!} />}
-      {g.sinkD && <BeltDEnd live={live} sim={() => live.graph().sinkD!} belt={() => live.graph().beltD!} />}
     </>
   );
 }
