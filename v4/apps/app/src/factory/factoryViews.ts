@@ -37,9 +37,10 @@ const atDrop = (b: Box3): Box3 => {
  * the top, the user's §10 answer); `phone` the display with the dispenser under it.
  */
 export const FACTORY_LOCAL_VIEWS: readonly LocalView[] = [
-  { name: 'fit', of: 'phone', frame: [[-180, -380, -8], [180, 380, 282]], card: 'factory' },
-  { name: 'phone', of: 'phone', frame: [[-260, -404, 437], [100, 356, 566]], card: 'factory' },
-  { name: 'case', of: 'phone', frame: [[-180, -380, -8], [180, 380, 36]], card: 'factory' },
+  // M12: the case is 780.8 deep (an iPhone screen's aspect; was 760).
+  { name: 'fit', of: 'phone', frame: [[-180, -390.4, -8], [180, 390.4, 282]], card: 'factory' },
+  { name: 'phone', of: 'phone', frame: [[-260, -414.4, 437], [100, 366.4, 566]], card: 'factory' },
+  { name: 'case', of: 'phone', frame: [[-180, -390.4, -8], [180, 390.4, 36]], card: 'factory' },
   // ---- the hand-offs, in flow order (v2 z-*) ----
   /** v2 `z-dispenser-A`: the dispenser's valve and nozzle, the bead's fall, belt A's in point. */
   { name: 'dispenser-A', of: 'phone', frame: atDrop([[-22, -18, 222], [24, 18, 466]]), card: 'dispenser' },

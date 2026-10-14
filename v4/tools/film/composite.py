@@ -4,8 +4,9 @@ covers the simulator's screen; its status bar stays).
     python3 -I tools/film/composite.py <dir>            # needs p1.mkv, p1_last.png, p2.mov, p2-summary.json
 
 Part 1's last frame is the background; the simulator's screen (the recording, its first moving frame
-on) goes into the rectangle it covers at the splash camera (`geo.screen` from `__v4.film.state()`),
-masked with rounded display corners. The last `ZOOM` seconds zoom about the output's centre until the
+on) goes into the rectangle it covers at the splash camera (`geo.screen` from `__v4.film.state()`:
+the glass G, since the glass has the iPhone screen's shape), masked with the glass's shape inset 1 px
+(Part 1's glass outline stays). The last `ZOOM` seconds zoom about the output's centre until the
 simulator's 16:9 band fills it (S^E(u), E the smootherstep; it arrives as the dissolve begins); the
 last `XFADE` seconds dissolve into Part 1's first frames. Every frame is resampled straight from the sources with separable Lanczos-3
 matrices (antialiased when shrinking) at the exact sub-pixel affine map: no 8K intermediate and no
@@ -25,8 +26,8 @@ D = sys.argv[1]
 FPS = 60
 ZOOM = 2.0
 XFADE = 0.5
-# The simulator display's corner radius (pt), for the inner screen's mask.
-SCREEN_RADIUS_PT = 55.0
+# The mask's inset from the glass's edge (output px): Part 1's glass outline stays.
+MASK_INSET = 1.0
 OUT_W, OUT_H = 1920, 1080
 
 summary = json.load(open(f'{D}/p2-summary.json'))
@@ -37,7 +38,7 @@ scr = geo['screen']
 s = geo['scale']  # output px per simulator px at the splash
 S = geo['S']
 band = geo['bandOut']
-mask_r = SCREEN_RADIUS_PT * DPR * s
+mask_r = geo['glassR'] - MASK_INSET
 print(f'screen {scr}  scale {s:.6f}  S {S:.6f}  band {band}  mask r {mask_r:.2f}')
 
 
@@ -89,7 +90,7 @@ def rounded_rect_coverage(k, box):
     X = (np.arange(x0, x1) + 0.5 - 960) / k + 960
     Y = (np.arange(y0, y1) + 0.5 - 540) / k + 540
     cx, cy = scr['x'] + scr['w'] / 2, scr['y'] + scr['h'] / 2
-    hx, hy = scr['w'] / 2 - mask_r, scr['h'] / 2 - mask_r
+    hx, hy = scr['w'] / 2 - MASK_INSET - mask_r, scr['h'] / 2 - MASK_INSET - mask_r
     qx = np.maximum(np.abs(X - cx) - hx, 0)[None, :]
     qy = np.maximum(np.abs(Y - cy) - hy, 0)[:, None]
     outside = np.hypot(qx, qy) - mask_r
@@ -201,6 +202,8 @@ enc.stdin.close()
 enc.wait()
 if j < n_c2:
     raise SystemExit(f'the recording ran out at C2 frame {j} of {n_c2}')
-moving = [n for n, i in enumerate(kept) if changed[i] > 30]
+# The app's last moving frame (the logo stops at `done`): later the recorder only shows the codec's
+# key-frame flicker (under 100 px), so count real motion only.
+moving = [n for n, i in enumerate(kept) if changed[i] > 100]
 json.dump({'tgo': tgo, 'last_moving_kept': moving[-1], 'colour_fit': fit, 'n_c2': n_c2, 'zoom_from': z0, 'xfade_from': x0f, 'S': S, 'mask_r': mask_r}, open(f'{D}/tail.json', 'w'), indent=1)
 print('tail.mkv done')

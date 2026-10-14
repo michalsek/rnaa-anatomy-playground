@@ -135,8 +135,13 @@ export function factoryLayout(k: FactoryKnobs): Omit<FactoryLayout, 'phone' | 's
   };
 }
 
-/** The phone's case (v2 A: the low tray), the display at 560 shifted back, the neck 72. */
-export const PHONE_CASE: CaseDims = { w: 360, d: 760, r: 44, depth: 280, cut: 36, t: 6, back: 8 };
+/**
+ * The phone's case (v2 A: the low tray), the display at 560 shifted back, the neck 72. M12: the
+ * display's glass (the case inset 0.8) has an iPhone 18 Pro screen's shape, 402 × 874 pt with
+ * 61 pt corners (just inside the simulator's continuous corner): 358.4 × 779.21, r 54.38 (v2: 760
+ * deep, r 44), so the loop video's splash fills the simulator's screen exactly.
+ */
+export const PHONE_CASE: CaseDims = { w: 360, d: 358.4 * (874 / 402) + 1.6, r: 61 * (358.4 / 402) + 0.8, depth: 280, cut: 36, t: 6, back: 8 };
 
 /** v2 A's phone (`assembly/build.mjs` CASE) over a layout's input path: the dispenser over belt A's in point. */
 export function phoneOver(input: InputLayout): PhoneLayout {

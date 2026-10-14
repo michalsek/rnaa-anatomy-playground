@@ -139,14 +139,12 @@ export function glassRect(state: CameraState, vp: { width: number; height: numbe
 }
 
 /**
- * The simulator's splash (C0): the glass *covers* the screen (the user: a plain full-screen splash,
- * no case, paper or bevel), so only the screen art shows: the glass's height fill times `cover`,
- * its centre lifted `dy` points (negative: lowered). The rendered island sits where the
- * simulator's Dynamic Island is (centre 32 pt down), so the status bar the screen art draws in film
- * mode (traced from the simulator's, `machines/phone/statusBar.ts`) sits beside it as on a phone;
- * the art's edge line, its corners and the home indicator fall outside the screen (tests).
+ * The simulator's splash (C0): the glass fills the simulator's screen exactly. The glass has the
+ * iPhone screen's shape (M12: `PHONE_CASE`), so containing it is covering it: no case, paper or
+ * bevel shows, and the rendered status bar, Dynamic Island and home indicator sit where the
+ * simulator's are. `cover` multiplies the height fill, `dy` lifts the glass (points).
  */
-export const SIM_SPLASH = { cover: 1.2322, dy: -89.36 } as const;
+export const SIM_SPLASH = { cover: 1, dy: 0 } as const;
 
 export function simCamera(glass: Glass, simCss: { width: number; height: number }, o: { cover: number; dy: number } = SIM_SPLASH): CameraState {
   return screenCamera(glass, { fill: 'height', size: o.cover * simCss.height, dy: o.dy });

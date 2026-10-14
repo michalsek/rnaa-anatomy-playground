@@ -4,17 +4,16 @@
  *
  * - Part 1 (web, frame-stepped over CDP): the open factory at F held, the M11 tour without its
  *   reveal, the conceal, a move to the top-down camera C1 over the closed glass, a hold.
- * - Part 2 (the iOS simulator, real time): armed at C0 (the glass covers the screen, the rendered
- *   island under the simulator's Dynamic Island, the logo at Part 1's last angle), then the splash,
+ * - Part 2 (the iOS simulator, real time): armed at C0 (the glass, an iPhone screen's shape, fills the
+ *   simulator's screen exactly; the logo at Part 1's last angle), then the splash,
  *   the pull-out (a phone inside the phone), the tilt to F, the reveal (the sim held at 0) and the
  *   settle.
  *
  * The timeline advances on the scene's dt in `FilmDriver`'s frame hook and writes the camera
  * through the shell; the eases read the film clock (`setClock`) and lines are drawn in
  * proportion to the 16:9 band (`setLines`). The app reads `snapshot()` (bare, chrome off,
- * light, the film frame; the screen art draws the iOS status bar and the Dynamic Island,
- * `SCREEN_STATUS_BAR`). The simulator's own status bar can't be hidden on iOS 27 with scenes, so
- * it stays and the rendered one continues into it. Every `__v4.film` call is synchronous except
+ * light, the film frame). The screen art is an iPhone's (`SCREEN_STATUS_BAR`): the simulator's own
+ * status bar can't be hidden on iOS 27 with scenes, so it stays and the rendered one continues into it. Every `__v4.film` call is synchronous except
  * `step()` (Hermes' `debugger-evaluate` does not await).
  */
 import {

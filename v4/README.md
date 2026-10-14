@@ -213,7 +213,9 @@ the last 50 engine log lines in `globalThis.__v4logs` (per-phase rebuild ms). No
 - **Part 2, iOS:** the camera pulls back into a phone inside the phone, tilts and opens it.
 - **Seam B:** the output zooms back into it and dissolves into Part 1's start.
 
-DEV `__v4.film`: `enable({ platform: 'web' | 'sim' })` (bare, no chips, light, the 16:9 film frame, lines in
-proportion to it, the screen's iOS status bar and Dynamic Island), `part1()`, `step()` (web: one 1/60 s
+The phone's display has an iPhone 18 Pro screen's shape (402 × 874 pt, 61 pt corners) and an iPhone's
+screen art: a status bar traced from the simulator's, the Dynamic Island, the home indicator
+(`SCREEN_STATUS_BAR`). At the splash its glass fills the simulator's screen exactly. DEV `__v4.film`: `enable({ platform: 'web' | 'sim' })` (bare, no chips, light, the 16:9 film frame, lines in
+proportion to it), `part1()`, `step()` (web: one 1/60 s
 frame, resolves when drawn), `arm({ logo })`, `go()`, `state()`, `disable()`. Commands and numbers:
 [notes/M12.md](notes/M12.md).

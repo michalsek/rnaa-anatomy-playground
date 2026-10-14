@@ -5,7 +5,7 @@ import { createCameraEase } from '../src/camera/ease.ts';
 import { FILM, type Glass, cameraLerp, filmBand, filmFrame, filmGeometry, filmLineScale, projectCss, screenCamera, simCamera, smootherstep } from '../src/camera/film.ts';
 
 /** The closed phone's glass (M12 plan §0.2). */
-const GLASS: Glass = { w: 358.4, d: 758.4, r: 43.2, z: 41 };
+const GLASS: Glass = { w: 358.4, d: 358.4 * (874 / 402), r: 61 * (358.4 / 402), z: 41 };
 const toPixels = (m: Float32Array, p: [number, number, number], w: number, h: number) => {
   const c = vec3.transformMat4(p, m);
   return [((c[0]! + 1) / 2) * w, ((1 - c[1]!) / 2) * h] as const;
@@ -17,54 +17,28 @@ const corners = (s: CameraState, vp: { width: number; height: number; dpr: numbe
   );
 
 describe('film (M12)', () => {
-  it('screenCamera: the glass fills G on web (1920 × 1080 @2); the simulator splash covers its screen (402 × 874 @3), island up', () => {
+  it('screenCamera: the glass fills G on web (1920 × 1080 @2) and the simulator\'s screen exactly (402 × 874 @3), island up', () => {
     const web = { width: 3840, height: 2160, dpr: 2 };
     const c1 = screenCamera(GLASS, { fill: 'height', size: 1000 });
     const [a, b, c, d] = corners(c1, web);
-    // G = (723.71, 40, 472.58, 1000) at 1080p = ×2 in device px.
-    expect(a[0]).toBeCloseTo(723.71 * 2, 1);
+    // G: 1000 high from y 40, the screen's aspect, centred.
+    const gw = (1000 * 402) / 874;
+    expect(a[0]).toBeCloseTo((1920 - gw), 1);
     expect(a[1]).toBeCloseTo(80, 2);
-    expect(d[0] - a[0]).toBeCloseTo(472.58 * 2, 1);
+    expect(d[0] - a[0]).toBeCloseTo(gw * 2, 1);
     expect(d[1] - a[1]).toBeCloseTo(2000, 2);
     // −y (the island's side) is at the top; +x is right: no roll, no mirror.
     expect(b[0]).toBeGreaterThan(a[0]);
     expect(c[1]).toBeGreaterThan(a[1]);
-    // The simulator's splash covers the screen: the screen (402 × 874 pt) lies inside the art's
-    // edge line (347 × 747, r 37.5, 1.5 pt clear); the home indicator is off it.
+    // The simulator's splash: the glass's corners on the screen's corners.
     const sim = { width: 1206, height: 2622, dpr: 3 };
-    const css = { width: 402, height: 874 };
-    const c0 = simCamera(GLASS, css);
-    const toScreen = (x: number, y: number) => projectCss(c0, css, [x, y, GLASS.z]);
-    const [cx, cy] = toScreen(0, 0);
-    const z = c0.zoom;
-    const hw = 173.5 * z - 1.5;
-    const hh = 373.5 * z - 1.5;
-    const rr = 37.5 * z;
-    for (const [px, py] of [[0, 0], [402, 0], [0, 874], [402, 874]] as const) {
-      const dx = Math.max(0, Math.abs(px - cx) - (hw - rr));
-      const dy = Math.max(0, Math.abs(py - cy) - (hh - rr));
-      expect(Math.abs(px - cx)).toBeLessThan(hw);
-      expect(Math.abs(py - cy)).toBeLessThan(hh);
-      expect(Math.hypot(dx, dy)).toBeLessThan(rr);
-    }
-    const s = 347 / 130;
-    // The rendered island under the simulator's Dynamic Island (centre 32 pt down, 126 × 37 pt).
-    const island = toScreen(0, -747 / 2 + 9.5 * s);
-    expect(Math.abs(island[0] - 201)).toBeLessThan(1e-9);
-    expect(Math.abs(island[1] - 32)).toBeLessThan(0.1);
-    expect(31 * s * z).toBeLessThan(126);
-    expect(9 * s * z).toBeLessThan(37.3);
-    const homeTop = toScreen(0, 747 / 2 - 6.1 * s - 1.1 * s)[1];
-    expect(homeTop).toBeGreaterThan(874);
-    // The island's side is up on the simulator too.
-    expect(toScreen(0, -100)[1]).toBeLessThan(cy);
-    // In the output the simulator's screen lies inside the glass G.
+    const c0 = simCamera(GLASS, { width: 402, height: 874 });
+    const [sa, sb, sc, sd] = corners(c0, sim);
+    for (const [got, want] of [[sa[0], 0], [sa[1], 0], [sb[0], 1206], [sc[1], 2622], [sd[0], 1206], [sd[1], 2622]] as const) expect(Math.abs(got - want)).toBeLessThan(0.01);
+    // In the output the simulator's screen is G, and G's corner radius is the glass's.
     const geo = filmGeometry(GLASS, sim);
-    expect(geo.screen.x).toBeGreaterThan(geo.G.x);
-    expect(geo.screen.y).toBeGreaterThan(geo.G.y);
-    expect(geo.screen.x + geo.screen.w).toBeLessThan(geo.G.x + geo.G.w);
-    expect(geo.screen.y + geo.screen.h).toBeLessThan(geo.G.y + geo.G.h);
-    expect(geo.screen.w / geo.screen.h).toBeCloseTo(402 / 874, 9);
+    for (const k of ['x', 'y', 'w', 'h'] as const) expect(geo.screen[k]).toBeCloseTo(geo.G[k], 6);
+    expect(geo.glassR / geo.G.w).toBeCloseTo(61 / 402, 6);
   });
 
   it('filmFrame: the same rectangle relative to the band on web and simulator; the band is centred on the output; S fills it', () => {
@@ -90,7 +64,7 @@ describe('film (M12)', () => {
     expect(geo.bandOut.y + geo.bandOut.h / 2).toBeCloseTo(540, 6);
     expect(geo.bandOut.w / geo.bandOut.h).toBeCloseTo(16 / 9, 9);
     expect(geo.S * geo.bandOut.w).toBeCloseTo(1920, 6);
-    expect(geo.G.x).toBeCloseTo(723.71, 2);
+    expect(geo.G.x).toBeCloseTo((1920 - (1000 * 402) / 874) / 2, 6);
     // Lines in proportion to the band: web 1, simulator 402/1920.
     expect(filmLineScale({ width: 1920, height: 1080 })).toBe(1);
     expect(filmLineScale({ width: 402, height: 874 })).toBeCloseTo(402 / 1920, 12);

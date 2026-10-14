@@ -1,6 +1,6 @@
 """Trace the iOS simulator's status bar into polygons for the rendered phone screen (M12).
 
-    python3 -I tools/film/trace-status-bar.py <sim-screenshot.png> <out.ts> --ty 9.2312 --zoom 1.299937
+    python3 -I tools/film/trace-status-bar.py <sim-screenshot.png> <out.ts> [--ty 0 --zoom 1.12165]
 
 The screenshot is the simulator at film mode's splash camera C0 (`__v4.film.arm`), its status bar
 pinned with `xcrun simctl status_bar <udid> override --time 9:41 --dataNetwork wifi --wifiMode active
@@ -24,15 +24,18 @@ from scipy import ndimage
 args = sys.argv[1:]
 src, out = args[0], args[1]
 opt = lambda name, d: float(args[args.index(name) + 1]) if name in args else d
-TY = opt('--ty', 9.2312)
-ZOOM = opt('--zoom', 1.299937)
+TY = opt("--ty", 0.0)
+ZOOM = opt("--zoom", 402 / 358.4)
 DPR, W_PT, H_PT = 3.0, 402.0, 874.0
 Y0, Y1 = 50, 150  # the status bar's rows (sim px)
 
 L = np.asarray(Image.open(src).convert('L'), dtype=float)
+X0, X1 = 100, 1106  # clear of the screen's corners (the case's rim shows there unmasked)
 band = L[Y0:Y1]
 bg = float(np.median(band))
 cov = np.clip((band - bg) / (255.0 - bg), 0, 1)
+cov[:, :X0] = 0
+cov[:, X1:] = 0
 ink = cov > 0.5
 labels, n = ndimage.label(ink)
 

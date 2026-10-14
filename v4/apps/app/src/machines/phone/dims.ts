@@ -95,15 +95,22 @@ export const METER_CELLS = 4;
 /** Whether the screen shows the meter (M11, the user: hidden; the code stays). */
 export const SCREEN_METER = false;
 /**
- * M12: the iOS status bar on the screen (`statusBar.ts`, traced from the simulator's), so the loop
- * video's splash continues into the simulator's real one. 'film': only in film mode (at the normal
- * `phone` view it would sit well below the rendered island, where the splash framing puts it).
+ * M12: the screen as an iPhone 18 Pro's (the glass is its 402 × 874 pt screen): the iOS status bar
+ * (`statusBar.ts`, traced from the simulator's), the Dynamic Island (flat black, 94.8 × 36.8 pt,
+ * centre 32.3 pt down, measured in the simulator's recording) and the home indicator (134 × 5 pt,
+ * 8 pt up), at the simulator's places; no inner edge line. false: v2's screen art (the island
+ * with its camera dot, the edge line, v2's home indicator).
  */
-export const SCREEN_STATUS_BAR: boolean | 'film' = 'film';
-/**
- * M12: with the status bar, the island is drawn as the simulator's Dynamic Island (flat black,
- * no camera dot): 94.8 × 36.8 pt, centre 32.3 pt down in the recording at the splash camera C0
- * (zoom 1.42002 pt/unit), so the hardware island the simulator draws over the recording hides it.
- * Screen-art units: size, centre y, corner radius (a stadium).
- */
-export const FILM_ISLAND = { w: 66.78, h: 25.94, y: -347.9 } as const;
+export const SCREEN_STATUS_BAR = true;
+
+/** The iPhone screen's elements in the screen art's plane (world units; the glass centred at 0). */
+export function iphoneScreen(p: PhoneLayout = PHONE) {
+  const gw = p.case.w - 1.6;
+  const gd = p.case.d - 1.6;
+  const u = gw / 402; // world units per point
+  return {
+    u,
+    island: { w: 94.8 * u, h: 36.8 * u, y: -gd / 2 + 32.33 * u },
+    home: { w: 134 * u, h: 5 * u, y: gd / 2 - 10.5 * u },
+  };
+}
