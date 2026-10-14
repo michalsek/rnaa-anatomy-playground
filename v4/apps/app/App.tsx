@@ -1,6 +1,6 @@
 import './src/polyfills.ts';
 import 'react-native-webgpu';
-import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Pressable, StatusBar, StyleSheet, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { TgpuRoot } from 'typegpu';
@@ -119,6 +119,9 @@ function Main() {
     };
   }, []);
 
+  // Orbit, pan, zoom or a double tap on the stage stops the tour.
+  const stopTour = useCallback(() => scene.tour?.stop(), [scene]);
+
   // A stable element: theme, view or debug toggles re-render the Scene but not the ~175 blocks.
   const content = useMemo(() => <scene.Content />, [scene]);
 
@@ -147,7 +150,7 @@ function Main() {
         accessibilityLabel={bare ? `${card.title}. ${card.label}` : undefined}
       >
         {root && (
-          <Scene key={scene.name} root={root} views={scene.views} controls={controls} storeRef={storeRef}>
+          <Scene key={scene.name} root={root} views={scene.views} controls={controls} storeRef={storeRef} onCameraInput={stopTour}>
             {content}
           </Scene>
         )}

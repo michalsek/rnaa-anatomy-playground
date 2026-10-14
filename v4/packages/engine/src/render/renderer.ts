@@ -100,7 +100,13 @@ export interface Renderer {
   setFrame(frame: FrameSpec): void;
 
   getCamera(): CameraState;
-  setCamera(state: CameraState): void;
+  /**
+   * A free camera (orbit, pan, zoom; kept over resizes until the next view); `ease`: settle there
+   * from the current camera (scripts: any yaw, elevation and zoom).
+   */
+  setCamera(state: CameraState, o?: { ease?: boolean }): void;
+  /** The line-width reference zoom: the fit at the view's angles (orbit's zoom limits are relative to it). */
+  refZoom(): number;
   setDebug(mode: DebugMode): void;
   setTheme(theme: Theme): void;
   /**
@@ -536,12 +542,19 @@ export function createRenderer(options: RendererOptions): Renderer {
       else refZoom = fitZoomNow();
     },
     getCamera: () => copyCamera(camera),
-    setCamera: (state) => {
-      easing = false;
-      ease.cancel();
-      camera = copyCamera(state);
+    setCamera: (state, o) => {
+      if (o?.ease && scene) {
+        ease.to(camera, refZoom, state, refZoom);
+        easing = true;
+        easeLast = now();
+      } else {
+        easing = false;
+        ease.cancel();
+        camera = copyCamera(state);
+      }
       onPreset = false;
     },
+    refZoom: () => refZoom,
     setDebug: (mode) => {
       debug = mode;
     },

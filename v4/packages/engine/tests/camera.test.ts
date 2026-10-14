@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { vec3 } from 'wgpu-matrix';
+import { ORBIT, orbitBy, panBy, zoomAbout } from '../src/camera/orbit.ts';
 import {
   type Bounds,
+  type CameraState,
+  DEG,
+  basisOf,
   KIT_ELEVATION,
   KIT_YAW,
   cameraMatrices,
@@ -110,5 +114,39 @@ describe('camera frame (pads, 16:9)', () => {
       expect((l + r) / 2).toBeCloseTo(rect.x + rect.w / 2, 0);
       expect((t + b) / 2).toBeCloseTo(rect.y + rect.h / 2, 0);
     }
+  });
+});
+
+describe('free camera (orbit, pan, zoom; M11)', () => {
+  const start = (): CameraState => ({ target: [10, -20, 30], yaw: 45 * DEG, elevation: 30 * DEG, zoom: 2 });
+  /** A world point's CSS px offset from the viewport's centre (y down) for a camera. */
+  const screen = (s: CameraState, p: [number, number, number]) => {
+    const b = basisOf(s.yaw, s.elevation);
+    const d = [0, 1, 2].map((i) => p[i]! - s.target[i]!);
+    return [s.zoom * (d[0]! * b.right[0] + d[1]! * b.right[1] + d[2]! * b.right[2]), -s.zoom * (d[0]! * b.up[0] + d[1]! * b.up[1] + d[2]! * b.up[2])];
+  };
+
+  it('orbits about the target with the elevation clamped to 10–80°', () => {
+    const s = orbitBy(start(), 40, -1000, start());
+    expect(s.target).toEqual([10, -20, 30]);
+    expect(s.elevation).toBeCloseTo(ORBIT.minElevation, 9);
+    expect(orbitBy(start(), 0, 1000, start()).elevation).toBeCloseTo(ORBIT.maxElevation, 9);
+    expect(s.yaw).toBeCloseTo(45 * DEG - 40 * ORBIT.perPx, 9);
+  });
+
+  it('pans the world with the finger and zooms about a point that stays put, within 0.5–12× the reference', () => {
+    const p: [number, number, number] = [60, 15, 5];
+    const a = screen(start(), p);
+    const moved = panBy(start(), 17, -9, start());
+    const b = screen(moved, p);
+    expect(b[0]! - a[0]!).toBeCloseTo(17, 6);
+    expect(b[1]! - a[1]!).toBeCloseTo(-9, 6);
+    const z = zoomAbout(start(), 3, a[0]!, a[1]!, 1, start());
+    expect(z.zoom).toBeCloseTo(6, 9);
+    const c = screen(z, p);
+    expect(c[0]).toBeCloseTo(a[0]!, 6);
+    expect(c[1]).toBeCloseTo(a[1]!, 6);
+    expect(zoomAbout(start(), 100, 0, 0, 1, start()).zoom).toBe(ORBIT.maxZoom);
+    expect(zoomAbout(start(), 0.01, 0, 0, 1, start()).zoom).toBe(ORBIT.minZoom);
   });
 });

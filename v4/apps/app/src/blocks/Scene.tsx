@@ -11,6 +11,7 @@ export function Scene({
   views,
   controls,
   storeRef,
+  onCameraInput,
   children,
 }: {
   root: TgpuRoot;
@@ -18,6 +19,8 @@ export function Scene({
   controls: ShellControls;
   /** Exposes the store (dev hooks). */
   storeRef?: RefObject<SceneStore | null>;
+  /** The user moved the camera (orbit, pan, zoom, double tap). */
+  onCameraInput?: () => void;
   children?: ReactNode;
 }) {
   const store = useMemo(() => createSceneStore(), []);
@@ -32,7 +35,7 @@ export function Scene({
 
   return (
     <SceneContext.Provider value={value}>
-      <Stage root={root} store={store} views={views} controls={controls} />
+      <Stage root={root} store={store} views={views} controls={controls} onCameraInput={onCameraInput} />
       {children}
     </SceneContext.Provider>
   );

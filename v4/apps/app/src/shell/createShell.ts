@@ -2,6 +2,7 @@
 // rAF loop that calls the engine's frame() (one submit) followed by `context.present?.()`.
 import type { TgpuRoot } from 'typegpu';
 import {
+  type CameraState,
   type CanvasContext,
   type DebugMode,
   type FrameSpec,
@@ -56,6 +57,13 @@ export interface Shell {
   setPaused(paused: boolean): void;
   setDebug(mode: DebugMode): void;
   setFrame(frame: FrameSpec): void;
+  /** The current camera (a copy), and a free one (orbit, pan, zoom; `ease` for scripts). */
+  camera(): CameraState;
+  setCamera(state: CameraState, o?: { ease?: boolean }): void;
+  /** The line-width reference (fit) zoom: orbit's zoom limits are relative to it. */
+  refZoom(): number;
+  /** Ease back to the current view's preset (double tap). */
+  resetView(): void;
   stop(): void;
 }
 
@@ -189,6 +197,10 @@ export function createShell(
     },
     setDebug: (mode) => renderer.setDebug(mode),
     setFrame: (frame) => renderer.setFrame(frame),
+    camera: () => renderer.getCamera(),
+    setCamera: (state, o) => renderer.setCamera(state, o),
+    refZoom: () => renderer.refZoom(),
+    resetView: () => applyView({ ease: true }),
     stop() {
       stopped = true;
       cancelAnimationFrame(raf);
