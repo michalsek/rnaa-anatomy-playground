@@ -61,9 +61,13 @@ export function Card({
       <Text style={[corner, styles.fig, { color: ink.text }]}>{text.fig}</Text>
       <Text style={[corner, styles.title]}>{text.title.toUpperCase()}</Text>
       <View style={styles.row}>
-        <Text style={[corner, styles.hint]}>{text.hint.toUpperCase()}</Text>
+        <Text numberOfLines={1} style={[corner, styles.hint]}>
+          {text.hint.toUpperCase()}
+        </Text>
         {typeof text.readout === 'string' ? (
-          <Text style={[corner, styles.readout, { color: ink.text }]}>{text.readout}</Text>
+          <Text numberOfLines={1} style={[corner, styles.readout, { color: ink.text }]}>
+            {text.readout}
+          </Text>
         ) : (
           <LiveReadout source={text.readout} style={[corner, styles.readout, { color: ink.text }]} />
         )}
@@ -90,7 +94,9 @@ function LiveReadout({ source, style }: { source: ReadoutSource; style: StylePro
   }, [phase]);
   return (
     <>
-      <Text style={style}>{line}</Text>
+      <Text numberOfLines={1} style={style}>
+        {line}
+      </Text>
       <Text style={styles.offscreen} accessibilityLiveRegion="polite" aria-live="polite">
         {phase}
       </Text>
@@ -108,8 +114,9 @@ const styles = StyleSheet.create({
   title: { top: 18, right: 20, letterSpacing: 1.05 },
   // Hint left, readout right; a readout that doesn't fit wraps to the line below (still right).
   row: { position: 'absolute', left: 20, right: 20, bottom: BOTTOM, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', columnGap: 24, rowGap: ROW_GAP },
-  hint: { position: 'relative', letterSpacing: 1.05 },
-  readout: { position: 'relative', marginLeft: 'auto', fontVariant: ['tabular-nums'] },
+  // One line each (ellipsis past the row's width; a portrait phone would wrap each to two).
+  hint: { position: 'relative', letterSpacing: 1.05, flexShrink: 1, maxWidth: '100%' },
+  readout: { position: 'relative', marginLeft: 'auto', fontVariant: ['tabular-nums'], flexShrink: 1, maxWidth: '100%' },
   // Visually hidden but still read by assistive tech.
   offscreen: { position: 'absolute', width: 1, height: 1, overflow: 'hidden', opacity: 0, left: 0, bottom: 0 },
 });

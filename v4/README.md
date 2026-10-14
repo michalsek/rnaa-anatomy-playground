@@ -55,12 +55,15 @@ packages/engine/src
              pools with blend/shift/axis scale; M1 profiles and line sets
   sim/       M5: the shared sim, plain TS on one fixed 1/120 s step: clock (factory, advance/run,
              link in step order), ports (receivers, strict receivers, asking senders, local → world
-             → local), items (kinds, sizes, ledger, PoseFn), math, path (belt frame, stadium loop),
+             → local), items (kinds, sizes, ledger, PoseFn), math, path (belt frame, stadium loop, vertical stadium),
              fall, conveyor (top: hop, hold, tip), loop (cleats, bails, read greying, drop,
              quanta/phaseAt/canTake, syncToLoop), source, sink, crusher (M6), scanner (M7: reads on
-             the loop's read point, `scannerReadAt`, pulses, cells, the push onto belt D), rates
-             (the tunable rates), graphs (line with belt D, centrifuge, v2 conveyor-, crusher- and
-             scanner-page layouts); `Machine.status()` for the dev hook;
+             the loop's read point, `scannerReadAt`, pulses, cells, the push onto belt D), elevator
+             (M8: cradles on a vertical stadium, boot queue, cubic fling, hidden transit, spout),
+             speaker (M8: ledge, throat, cone impulse, meter with peak hold), rates (the tunable
+             rates), graphs (line with belt D → elevator → speaker, centrifuge, v2 conveyor-,
+             crusher- and scanner-page layouts, the output page); `Machine.status()` (required)
+             for the dev hook; sims expose their pool sizes (`pools`);
              centrifuge/ = packets (throat, pockets, release path, §A invariants) + controller (the
              swappable spin model: default and ramp)
   shading/   'use gpu' tone rules (bands, plan, tube stripes) + AA weights, line coverage
@@ -84,13 +87,21 @@ apps/app
   src/machines/scanner/        the read arm from v2 (Base, Head (VCM, moving arm, ribbon, lamp),
                                Preamp (cells, lip, cable pieces); one frame hook in Scanner.tsx;
                                `stand` prop, default on; dims.ts, views.ts)
+  src/machines/elevator/       the bucket elevator from v2 (Boot, Tower (posts, girts, gussets, chain
+                               bands with scrolling pins), Head (frame, turning wheel, discharge,
+                               drive); five cradle plate pools; one frame hook in Elevator.tsx;
+                               `stand` prop, default on; dims.ts)
+  src/machines/speaker/        the speaker from v2 (Driver (mount, basket, surround, cone + cap on
+                               live groups), Throat (mouth, ledge, 6 live LEDs, wiring); one frame
+                               hook in Speaker.tsx; `stand` prop, default on; dims.ts)
+  src/machines/Opening.tsx     openings in faces (void-gradient insets: slots, mouths, feed holes)
   src/machines/poses.ts        usePacketPoses: the one sim → packet pool writer
   src/machines/conveyor/       Top.tsx (single-sided belt) and Loop.tsx (the audio belt) from
                                v2 conveyor.mjs, Parts.tsx (belt body, lamp, motor, label, nut),
                                dims.ts (belt-coordinate kit); `legs` prop (default on)
   src/factory/                 live.ts (a graph per scene, playback, readout, `__v4.sim`; every
                                machine block calls `live.step` first), Scenes.tsx (line,
-                               centrifuge, crusher, scanner, conveyor), views.ts
+                               centrifuge, crusher, scanner, output, conveyor), views.ts
   src/overlay/Card.tsx         the kit's figure card (fig, title; hint and live readout share a
                                wrapping bottom row; the stage leaves room for two lines)
   src/overlay/readout.ts       readout store (≤ 10 Hz, phase changes at once)
@@ -110,13 +121,16 @@ view presets live in plain modules (`dims.ts`, `views.ts`). Then a prop edit pat
 the store and GPU device survive and the scene rebuilds warm.
 
 The toolbar row above the card: scene (`line` default: source → belt B → centrifuge → audio
-loop → belt C → crusher, and the scanner reading the loop → belt D → a crate, at the final
-layout; `centrifuge`: the centrifuge with short belts; `crusher`: v2's crusher page; `scanner`:
-v2's scanner page; `conveyor`: v2's conveyor page; `gallery`, `m1`), view preset (line: `fit`,
+loop → belt C → crusher, and the scanner reading the loop → belt D → the elevator → the speaker,
+at the final layout; `centrifuge`: the centrifuge with short belts; `crusher`: v2's crusher page; `scanner`:
+v2's scanner page; `output`: a source over belt D, the elevator, the speaker; `conveyor`: v2's
+conveyor page; `gallery`, `m1`), view preset (line: `fit`,
 `centrifuge-audio`, `funnel`, `release`, `read`, `head`, `audio-C`, `C-crusher`, `crusher`,
-`scanner-read`, `scanner-D`, `arm`, `preamp`, `D-end`; centrifuge: `fit`, `rotor`, `instr`,
+`scanner-read`, `scanner-D`, `arm`, `preamp`, `D-elevator`, `elevator`, `elevator-head`,
+`elevator-speaker`, `speaker`; centrifuge: `fit`, `rotor`, `instr`,
 `drive`, `funnel`; crusher: `fit`, `hopper`, `spring`, `drive`, `ctl`, `bin`; scanner: `fit`,
-`arm`, `preamp`, `scanner`, `D`), pause, debug view (`dbg 1` = line
+`arm`, `preamp`, `scanner`, `D`; output: `fit`, `boot`, `head`, `spout`, `speaker`, `meter`; the
+speaker views are turned (yaw −45): from the standard camera the elevator's head hides it), pause, debug view (`dbg 1` = line
 classes: outline red, contour magenta, crease blue, ticks green, marks and contacts cyan;
 `dbg 2` = lines off), theme. In dev builds the same is scriptable from a debugger or the browser
 console: `__v4.setScene('m1')`, `__v4.setView('close cage')`, `__v4.look({ focus: [x, y, z],
@@ -126,12 +140,13 @@ captures), `__v4.store()`; `__v4.views` / `__v4.scenes` list the names. In the l
 centrifuge, crusher, scanner and conveyor scenes `__v4.sim` controls the scene's graph: `seek(t)` (deterministic:
 rebuild, run, pause), `play()`, `pause()`, `speed(0.25–4)`, `seed(n)` (integer), `status(id)`
 (`machines()` lists the ids), `log()` (the centrifuge's phase changes), `ledger()`
-(created/alive/consumed), `release(false)` (the loop refuses packets). `__v4perf()` reports fps,
+(created/alive/consumed), `release(false)` (the loop refuses packets). `__v4sizes()` (DEV) returns the window, stage, canvas and texture sizes (rotation diagnosis).
+`__v4perf()` reports fps,
 rAF gaps, tick, flatten + upload and frame CPU over the last 300 frames. The rates (source,
-HOLD, loop and belt speeds, belt D's speed, the crusher's bin dump and feed, the scanner page's
-feed) are `RATES` in
+HOLD, loop and belt speeds, belt D's speed, the elevator's chain speed, the crusher's bin dump and
+feed, the scanner and output pages' feeds) are `RATES` in
 `packages/engine/src/sim/rates.ts`. DEV builds keep
 the last 50 engine log lines in `globalThis.__v4logs` (per-phase rebuild ms). Notes:
 [notes/M1.md](notes/M1.md), [notes/M2.md](notes/M2.md), [notes/M3.md](notes/M3.md),
 [notes/M4.md](notes/M4.md), [notes/M5.md](notes/M5.md), [notes/M6.md](notes/M6.md),
-[notes/M7.md](notes/M7.md). Test timelines print with `V4_TIMELINE=1 pnpm test`.
+[notes/M7.md](notes/M7.md), [notes/M8.md](notes/M8.md). Test timelines print with `V4_TIMELINE=1 pnpm test`.

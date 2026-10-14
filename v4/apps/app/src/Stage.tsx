@@ -1,7 +1,7 @@
 // Adapted from BoneTideOSS (MIT, Konrad Reczko), `GameScreen.tsx`: configure the WebGPU context
 // once there is a layout, start the shell, and forward later layouts as resizes.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { type LayoutChangeEvent, PixelRatio, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, type LayoutChangeEvent, PixelRatio, StyleSheet, Text, View } from 'react-native';
 import { Canvas, type CanvasRef } from 'react-native-webgpu';
 import type { TgpuRoot } from 'typegpu';
 import type { CanvasContext, SceneStore, ViewPreset } from '@anatomy/engine';
@@ -11,6 +11,8 @@ import {
   type ShellSize,
   createShell,
 } from './shell/createShell.ts';
+
+declare const __DEV__: boolean;
 
 export function Stage({
   root,
@@ -43,6 +45,10 @@ export function Stage({
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
     const size = { width, height, dpr: PixelRatio.get() };
+    if (__DEV__) {
+      const w = Dimensions.get('window');
+      console.log(`[stage] layout ${width.toFixed(1)}×${height.toFixed(1)} @${size.dpr} (window ${w.width}×${w.height})`);
+    }
     layoutRef.current = size;
     shellRef.current?.resize(size.width, size.height, size.dpr);
     setHasLayout(true);
@@ -56,8 +62,9 @@ export function Stage({
     if (!hasLayout || !size || !canvas) return undefined;
     setFatal(null);
     let shell: Shell;
+    let context: CanvasContext | null = null;
     try {
-      const context: CanvasContext | null = canvas.getContext('webgpu');
+      context = canvas.getContext('webgpu');
       if (!context) throw new Error('No WebGPU canvas context.');
       const format = navigator.gpu.getPreferredCanvasFormat();
       context.configure({ device: root.device, format, alphaMode: 'opaque' });
@@ -77,6 +84,20 @@ export function Stage({
       return undefined;
     }
     shellRef.current = shell;
+    const ctx = context;
+    if (__DEV__ && ctx) {
+      // Rotation diagnosis (M7 review): JS window and stage sizes against the canvas and the
+      // texture the context hands out.
+      (globalThis as { __v4sizes?: () => object }).__v4sizes = () => {
+        const tex = ctx.getCurrentTexture();
+        return {
+          window: Dimensions.get('window'),
+          stage: layoutRef.current,
+          canvas: { width: ctx.canvas.width, height: ctx.canvas.height },
+          texture: { width: tex.width, height: tex.height },
+        };
+      };
+    }
     return () => {
       shell.stop();
       if (shellRef.current === shell) shellRef.current = null;
