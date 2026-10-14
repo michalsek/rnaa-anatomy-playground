@@ -5,12 +5,14 @@ import { M1Row } from './gallery/M1Row.tsx';
 import { GALLERY_VIEWS, M1_VIEWS } from './gallery/views.ts';
 import { Centrifuge } from './machines/centrifuge/Centrifuge.tsx';
 import { CENTRIFUGE_CARD, CENTRIFUGE_VIEWS } from './machines/centrifuge/views.ts';
+import type { ReadoutSource } from './overlay/readout.ts';
 
 export interface CardText {
   fig: string;
   title: string;
   hint: string;
-  readout: string;
+  /** A fixed line, or a live source (only the readout leaf subscribes to it). */
+  readout: string | ReadoutSource;
   /** Accessible label of the figure. */
   label: string;
 }

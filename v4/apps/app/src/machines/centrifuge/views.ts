@@ -1,7 +1,7 @@
 /**
  * Centrifuge views and card text. Crops are machine-local boxes matching the v2 QA crops
- * (`qa/z-rotor`, `z-instr`, `z-drive`, `z-funnel`); `lines` caps the line scale there, since a
- * crop of the whole page would otherwise ink lines many times their fit width.
+ * (`qa/z-rotor`, `z-instr`, `z-drive`, `z-funnel`). Lines scale with the zoom, like v2's
+ * magnified crops.
  */
 import type { ViewPreset } from '@anatomy/engine';
 

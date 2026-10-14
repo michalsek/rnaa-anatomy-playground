@@ -28,8 +28,11 @@ export interface ShellSize {
 /** What the UI controls; the shell applies it at start and whenever it changes. */
 export interface ShellControls {
   theme: Theme;
-  /** Index into the scene's views, or an ad-hoc preset (dev hook `__v4.look`). */
-  view: number | ViewPreset;
+  /**
+   * A view of the scene by name (an unknown name falls back to the first view), or an ad-hoc
+   * preset (dev hook `__v4.look`).
+   */
+  view: string | ViewPreset;
   paused: boolean;
   debug: DebugMode;
 }
@@ -37,7 +40,9 @@ export interface ShellControls {
 export interface Shell {
   resize(cssWidth: number, cssHeight: number, dpr: number): void;
   setTheme(theme: Theme): void;
-  setView(view: number | ViewPreset): void;
+  setView(view: string | ViewPreset): void;
+  /** Re-apply the current view (the scene's view list changed, e.g. a `views.ts` edit). */
+  refreshView(): void;
   setPaused(paused: boolean): void;
   setDebug(mode: DebugMode): void;
   stop(): void;
@@ -50,7 +55,8 @@ export function createShell(
   format: GPUTextureFormat,
   size: ShellSize,
   store: SceneStore,
-  views: readonly ViewPreset[],
+  /** Read on every view change, so an edited view list doesn't need a new shell. */
+  views: () => readonly ViewPreset[],
   controls: ShellControls,
   onFatal: (message: string) => void,
 ): Shell {
@@ -87,7 +93,8 @@ export function createShell(
   });
   let view = controls.view;
   const applyView = () => {
-    const preset = typeof view === 'number' ? views[view] : view;
+    const list = views();
+    const preset = typeof view === 'string' ? (list.find((v) => v.name === view) ?? list[0]) : view;
     if (preset) renderer.setView(preset);
     else renderer.fit();
   };
@@ -129,6 +136,7 @@ export function createShell(
       view = next;
       applyView();
     },
+    refreshView: applyView,
     setPaused(next) {
       paused = next;
     },

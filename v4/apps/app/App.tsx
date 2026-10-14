@@ -28,7 +28,8 @@ function Main() {
   const [sceneIndex, setSceneIndex] = useState(0);
   const scene = SCENES[sceneIndex]!;
   const storeRef = useRef<SceneStore | null>(null);
-  const [view, setView] = useState<number | ViewPreset>(0);
+  // The view by name (resolved by the shell, first view as the fallback), or an ad-hoc preset.
+  const [view, setView] = useState<string | ViewPreset>(scene.views[0]?.name ?? 'fit');
   const [paused, setPaused] = useState(false);
   const [debug, setDebug] = useState<DebugMode>(0);
   const [chrome, setChrome] = useState(true);
@@ -47,7 +48,7 @@ function Main() {
           throw new Error(`unknown scene ${JSON.stringify(name)}; known: ${SCENES.map((x) => x.name).join(', ')}`);
         }
         setSceneIndex(index);
-        setView(0);
+        setView(SCENES[index]!.views[0]?.name ?? 'fit');
       },
       setPoolCount: (id: string, n: number) => {
         const store = storeRef.current;
@@ -58,13 +59,11 @@ function Main() {
       /** An ad-hoc camera: `__v4.look({ focus: [x, y, z], zoom: 4 })` (angles in degrees). */
       look: (p: Partial<ViewPreset>) =>
         setView({ name: 'look', yaw: 45, elevation: 30, zoom: 1, ...p }),
-      setView: (which: number | string) => {
-        const index =
-          typeof which === 'number' ? which : scene.views.findIndex((v) => v.name === which);
-        if (!scene.views[index]) {
-          throw new Error(`unknown view ${JSON.stringify(which)}; known: ${scene.views.map((v) => v.name).join(', ')}`);
+      setView: (name: string) => {
+        if (!scene.views.some((v) => v.name === name)) {
+          throw new Error(`unknown view ${JSON.stringify(name)}; known: ${scene.views.map((v) => v.name).join(', ')}`);
         }
-        setView(index);
+        setView(name);
       },
       setPaused,
       setDebug,
@@ -102,7 +101,8 @@ function Main() {
     bottom: insets.bottom + side,
     left: insets.left + side,
   };
-  const viewName = typeof view === 'number' ? (scene.views[view]?.name ?? 'fit') : view.name;
+  const viewIndex = typeof view === 'string' ? Math.max(0, scene.views.findIndex((v) => v.name === view)) : -1;
+  const viewName = typeof view === 'string' ? (scene.views[viewIndex]?.name ?? 'fit') : view.name;
   return (
     <View style={[styles.fill, { backgroundColor: CARD[theme].page }]}>
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
@@ -124,8 +124,9 @@ function Main() {
           theme={theme}
           label={`Scene: ${scene.name}. Next scene`}
           onPress={() => {
-            setSceneIndex((sceneIndex + 1) % SCENES.length);
-            setView(0);
+            const next = (sceneIndex + 1) % SCENES.length;
+            setSceneIndex(next);
+            setView(SCENES[next]!.views[0]?.name ?? 'fit');
           }}
         >
           {scene.name}
@@ -134,7 +135,7 @@ function Main() {
           compact={narrow}
           theme={theme}
           label={`View: ${viewName}. Next view`}
-          onPress={() => setView(typeof view === 'number' ? (view + 1) % scene.views.length : 0)}
+          onPress={() => setView(scene.views[(viewIndex + 1) % scene.views.length]?.name ?? 'fit')}
         >
           {viewName}
         </Chip>

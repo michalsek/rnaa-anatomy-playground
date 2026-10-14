@@ -4,6 +4,8 @@ Reduced motion is out of scope (user decision, 2026-10-14). Step 1 removes the u
 
 *2026-10-14. Planning-agent output, filed by the orchestrator with the day estimates removed. Work in step order with checkpoints; verify by eye. This plan follows M2-M4-plan §1 (census) and §2 (M3 row).*
 
+> **Superseded:** the tach phase, crank and needle angles below are replaced by [M3.md](M3.md) "Deviations" (face frames: tach phase 15, crank arm 25°, sync tick and needle 54°).
+
 *Sources of truth for geometry:*
 - *`v2-factory/parts/centrifuge/centrifuge.mjs` (final);*
 - *`build.mjs` (stubs).*

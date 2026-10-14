@@ -213,25 +213,33 @@ const Mark = d.struct({ a: d.vec3f, size: d.f32, b: d.vec3f, instance: d.u32,
 ### M2.6 SceneStore (`packages/engine/src/scene/store.ts`)
 
 ```ts
+// As built (updated after M3; M2's `reduced`/`motion` flags were dropped with reduced motion).
 type Token = number;
-interface StyleSpec { material: Material; outline?: Slot; crease?: Slot; width?: number; tone?: 'bands' | 'plan' | 'tube' }
+interface StyleSpec { material: Material; outline?: Slot; crease?: Slot; width?: number;
+  tone?: 'bands' | 'plan' | 'tube' | 'gradient'; gradient?: { from: Vec3; to: Vec3; stops: [Fx, Fx, Fx]; mid?: number } }
 interface SceneStore {
   group(id: string, o: { parent?: string; transform?: Transform; moves?: boolean }): Token;
   part(id: string, o: { parent?: string; geo: GeoSpec; style: StyleSpec; transform?: Transform; contacts?: boolean }): Token;
-  pool(id: string, o: { parent?: string; geo: GeoSpec; styles: StyleSpec[]; capacity: number; marks?: MarksSpec }): Token;
-  marks(id: string, o: { parent?: string } & MarksSpec): Token;   // MarksSpec = { material, dots?, segments? }
+  pool(id: string, o: { parent?: string; geo: GeoSpec; styles: StyleSpec[]; capacity: number; marks?: MarksSpec; transform?: Transform }): Token;
+  marks(id: string, o: { parent?: string; transform?: Transform } & MarksSpec): Token;   // MarksSpec = { material, dots?, segments? }
+  sprite(id: string, o: { parent?: string; transform?: Transform } & SpriteSpec): Token; // halo | disc (glow)
   remove(id: string, token: Token): void;     // no-op unless token is current (StrictMode, Fast Refresh)
-  node(id: string): GroupHandle | PoolHandle; // throws `unknown id "x"; known under "m": …`
-  onFrame(cb: (f: { t: number; dt: number; reduced: boolean }) => void): () => void;
+  node(id: string): GroupHandle | PoolHandle | SpriteHandle; // throws `unknown id "x"; known under "m": …`
+  group$(id: string): GroupHandle; pool$(id: string): PoolHandle; sprite$(id: string): SpriteHandle;
+  onFrame(cb: (f: { t: number; dt: number }) => void): () => void;
   tick(t: number, dt: number): void;
-  motion: { reduced: boolean };
   readonly version: number;                   // bumps on structural change
-  build(): SceneBuild;                        // merged mesh + topology, batches, styles, lineSets, marks, bounds (pools excluded)
+  build(): SceneBuild;                        // batches, styles, lineSets, marks, gradients, sprites, bounds (pools excluded)
   flatten(): { f32: Float32Array; used: number; dirty: boolean };
+  sprites(): { buffer: ArrayBuffer; count: number; dirty: boolean };
 }
-interface GroupHandle { readonly id: string; set(t: Transform): void; spin(axis: 'x' | 'y' | 'z', rad: number): void } // local = rest·R
-interface PoolHandle { readonly id: string; readonly capacity: number; count: number;
-  pose(i: number, p: Vec3, yaw?: number): void; style(i: number, k: number): void }
+interface GroupHandle { readonly id: string; set(t: Transform): void;   // local = rest · motion
+  spin(axis: 'x' | 'y' | 'z', rad: number): void; translate(x: number, y: number, z: number): void }
+interface PoolHandle { readonly id: string; readonly capacity: number /* live */; count: number;
+  pose(i: number, p: Vec3, yaw?: number, pitch?: number, roll?: number): void;
+  pose(i: number, x: number, y: number, z: number, yaw?: number, pitch?: number, roll?: number): void;
+  style(i: number, k: number): void }
+interface SpriteHandle { readonly id: string; level: number }
 ```
 
 - Ids are dotted and full; duplicates throw.

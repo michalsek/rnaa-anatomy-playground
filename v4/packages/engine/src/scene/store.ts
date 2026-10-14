@@ -121,10 +121,13 @@ export interface GroupHandle {
   set(t: Transform): void;
   /** Motion = a rotation about a local axis. */
   spin(axis: 'x' | 'y' | 'z', rad: number): void;
+  /** Motion = a translation (no allocation; for per-frame slides). */
+  translate(x: number, y: number, z: number): void;
 }
 
 export interface PoolHandle {
   readonly id: string;
+  /** Read live: a re-registered pool may have another capacity. */
   readonly capacity: number;
   /** Instances 0..count−1 are drawn. */
   count: number;
@@ -134,6 +137,8 @@ export interface PoolHandle {
    * the instance's own x). Unchanged values do not mark the store dirty.
    */
   pose(i: number, p: Vec3, yaw?: number, pitch?: number, roll?: number): void;
+  /** The same with scalar coordinates (no array per call). */
+  pose(i: number, x: number, y: number, z: number, yaw?: number, pitch?: number, roll?: number): void;
   /** Instance style: an index into the pool's `styles`. */
   style(i: number, k: number): void;
 }
@@ -184,8 +189,14 @@ interface NodeBase {
   parentNode: Node | null;
   /** Flatten pass that last recomputed `world`. */
   stamp: number;
-  /** The last `spin` (axis code, angle): an unchanged spin is a no-op. */
-  spun: [number, number] | null;
+  /**
+   * The last motion call, so an unchanged one is a no-op: 0 none / `set`, 1 spin (mA axis code,
+   * mB angle), 2 translate (mA, mB, mC).
+   */
+  motionKind: 0 | 1 | 2;
+  mA: number;
+  mB: number;
+  mC: number;
 }
 interface GroupNode extends NodeBase {
   kind: 'group';
@@ -232,16 +243,19 @@ const DEFAULT_FADE = [0.04, 0.42] as const;
 /** Mark material: use the instance's style material (pool marks). */
 const MARK_INHERIT = 0xffff;
 
+const ZERO3: Vec3 = [0, 0, 0];
+const RAD = Math.PI / 180;
+
 export function transformMatrix(t: Transform | undefined, out = mat4.identity()) {
   mat4.identity(out);
   if (!t) return out;
   const scale = t.scale ?? 1;
   if (!(scale > 0) || !Number.isFinite(scale)) throw new Error(`transform: bad scale ${scale}`);
-  const [rx, ry, rz] = (t.rotation ?? [0, 0, 0]).map((deg) => (deg * Math.PI) / 180) as [number, number, number];
-  mat4.translation(t.position ?? [0, 0, 0], out);
-  mat4.rotateZ(out, rz, out);
-  mat4.rotateY(out, ry, out);
-  mat4.rotateX(out, rx, out);
+  const r = t.rotation ?? ZERO3;
+  mat4.translation(t.position ?? ZERO3, out);
+  if (r[2] !== 0) mat4.rotateZ(out, r[2] * RAD, out);
+  if (r[1] !== 0) mat4.rotateY(out, r[1] * RAD, out);
+  if (r[0] !== 0) mat4.rotateX(out, r[0] * RAD, out);
   if (scale !== 1) mat4.uniformScale(out, scale, out);
   return out;
 }
@@ -439,7 +453,10 @@ export class SceneStore {
       dirty: true,
       parentNode: null,
       stamp: 0,
-      spun: null,
+      motionKind: 0 as const,
+      mA: 0,
+      mB: 0,
+      mC: 0,
     };
   }
 
@@ -521,17 +538,33 @@ export class SceneStore {
       set: (t) => {
         const n = get();
         const m = transformMatrix(t, this.scratch);
-        if (n.motion && sameMatrix(n.motion, m)) return;
+        if (n.motionKind === 0 && n.motion && sameMatrix(n.motion, m)) return;
         n.motion = mat4.copy(m, n.motion ?? undefined);
-        n.spun = null;
+        n.motionKind = 0;
         touch(n);
       },
       spin: (axis, rad) => {
         const n = get();
         const code = AXIS_CODE[axis];
-        if (n.spun && n.spun[0] === code && n.spun[1] === rad) return;
+        if (n.motionKind === 1 && n.mA === code && n.mB === rad) return;
         n.motion = mat4.axisRotation(AXES[axis], rad, n.motion ?? undefined);
-        n.spun = [code, rad];
+        n.motionKind = 1;
+        n.mA = code;
+        n.mB = rad;
+        touch(n);
+      },
+      translate: (x, y, z) => {
+        const n = get();
+        if (n.motionKind === 2 && n.mA === x && n.mB === y && n.mC === z) return;
+        const m = (n.motion ??= mat4.create());
+        mat4.identity(m);
+        m[12] = x;
+        m[13] = y;
+        m[14] = z;
+        n.motionKind = 2;
+        n.mA = x;
+        n.mB = y;
+        n.mC = z;
         touch(n);
       },
     };
@@ -539,19 +572,44 @@ export class SceneStore {
 
   private poolHandle(id: string): PoolHandle {
     const get = () => this.lookup(id) as PoolNode;
-    const check = (n: PoolNode, i: number) => {
-      if (!(i >= 0 && i < n.capacity) || !Number.isInteger(i)) {
-        throw new Error(`pool "${id}": instance ${i} out of range (capacity ${n.capacity})`);
-      }
-    };
     const touch = (n: PoolNode) => {
       n.poolDirty = true;
       this.dirtyAny = true;
     };
-    const capacity = get().capacity;
+    const write = (i: number, x: number, y: number, z: number, yaw: number, pitch: number, roll: number) => {
+      const n = get();
+      if (!(i >= 0 && i < n.capacity) || !Number.isInteger(i)) {
+        throw new Error(`pool "${id}": instance ${i} out of range (capacity ${n.capacity})`);
+      }
+      const q = n.poses;
+      const o = i * POSE_FLOATS;
+      // Compare at float32 precision (what the array stores).
+      const f = Math.fround;
+      if (
+        q[o] === f(x) && q[o + 1] === f(y) && q[o + 2] === f(z) &&
+        q[o + 3] === f(yaw) && q[o + 4] === f(pitch) && q[o + 5] === f(roll)
+      ) {
+        return;
+      }
+      q[o] = x;
+      q[o + 1] = y;
+      q[o + 2] = z;
+      q[o + 3] = yaw;
+      q[o + 4] = pitch;
+      q[o + 5] = roll;
+      touch(n);
+    };
+    function pose(i: number, p: Vec3, yaw?: number, pitch?: number, roll?: number): void;
+    function pose(i: number, x: number, y: number, z: number, yaw?: number, pitch?: number, roll?: number): void;
+    function pose(i: number, a: Vec3 | number, b = 0, c = 0, d = 0, e = 0, g = 0): void {
+      if (typeof a === 'number') write(i, a, b, c, d, e, g);
+      else write(i, a[0], a[1], a[2], b, c, d);
+    }
     return {
       id,
-      capacity,
+      get capacity() {
+        return get().capacity;
+      },
       get count() {
         return get().count;
       },
@@ -565,30 +623,12 @@ export class SceneStore {
           touch(n);
         }
       },
-      pose: (i, p, yaw = 0, pitch = 0, roll = 0) => {
-        const n = get();
-        check(n, i);
-        const q = n.poses;
-        const o = i * POSE_FLOATS;
-        // Compare at float32 precision (what the array stores).
-        const f = Math.fround;
-        if (
-          q[o] === f(p[0]) && q[o + 1] === f(p[1]) && q[o + 2] === f(p[2]) &&
-          q[o + 3] === f(yaw) && q[o + 4] === f(pitch) && q[o + 5] === f(roll)
-        ) {
-          return;
-        }
-        q[o] = p[0];
-        q[o + 1] = p[1];
-        q[o + 2] = p[2];
-        q[o + 3] = yaw;
-        q[o + 4] = pitch;
-        q[o + 5] = roll;
-        touch(n);
-      },
+      pose,
       style: (i, k) => {
         const n = get();
-        check(n, i);
+        if (!(i >= 0 && i < n.capacity) || !Number.isInteger(i)) {
+          throw new Error(`pool "${id}": instance ${i} out of range (capacity ${n.capacity})`);
+        }
         if (!(k >= 0 && k < n.styles.length)) throw new Error(`pool "${id}": style ${k} unknown`);
         if (n.styleOf[i] === k) return;
         n.styleOf[i] = k;

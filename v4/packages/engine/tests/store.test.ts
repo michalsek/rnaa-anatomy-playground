@@ -88,4 +88,29 @@ describe('SceneStore', () => {
     const x = vec3.transformMat4([1, 0, 0], modelOf(f32, 0));
     expect([...x].map((v) => Math.round(v * 1e5) / 1e5 + 0)).toEqual([0, 0, -1]);
   });
+
+  it('scalar pose equals the array pose; translate is a cheap set; capacity is read live', () => {
+    const store = createSceneStore();
+    store.group('g', { moves: true });
+    const token = store.pool('g.pool', { parent: 'g', geo, styles: [style], capacity: 2 });
+    store.build();
+    const pool = store.pool$('g.pool');
+    pool.count = 2;
+    pool.pose(0, [1, 2, 3], 0.4);
+    pool.pose(1, 1, 2, 3, 0.4);
+    const group = store.group$('g');
+    group.translate(0, 0, 8.3);
+    const { f32 } = store.flatten();
+    expect([...modelOf(f32, 1)]).toEqual([...modelOf(f32, 0)]);
+    expect(modelOf(f32, 0)[14]).toBeCloseTo(3 + 8.3, 5);
+    group.translate(0, 0, 8.3);
+    pool.pose(1, 1, 2, 3, 0.4);
+    expect(store.flatten().dirty).toBe(false);
+    group.set({ position: [0, 0, 8.3] });
+    expect(store.flatten().dirty).toBe(true);
+    // Re-registering the pool with another capacity: an old handle sees the new one.
+    store.remove('g.pool', token);
+    store.pool('g.pool', { parent: 'g', geo, styles: [style], capacity: 5 });
+    expect(pool.capacity).toBe(5);
+  });
 });

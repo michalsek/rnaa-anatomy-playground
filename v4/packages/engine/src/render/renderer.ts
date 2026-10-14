@@ -119,6 +119,24 @@ export function createRenderer(options: RendererOptions): Renderer {
 
   // ---- static resources --------------------------------------------------------------------
   const frameBuffer = root.createBuffer(Frame).$usage('uniform');
+  // The frame uniform is written from one preallocated block each frame (no object per frame).
+  const frameData = new ArrayBuffer(d.sizeOf(Frame));
+  const frameF32 = new Float32Array(frameData);
+  const frameU32 = new Uint32Array(frameData);
+  const word = (pick: (f: d.Infer<typeof Frame>) => unknown) => d.memoryLayoutOf(Frame, pick).offset / 4;
+  const FW = {
+    viewProjection: word((f) => f.viewProjection),
+    light: word((f) => f.light),
+    toward: word((f) => f.toward),
+    right: word((f) => f.right),
+    up: word((f) => f.up),
+    viewport: word((f) => f.viewport),
+    pxPerCss: word((f) => f.pxPerCss),
+    pxPerUnit: word((f) => f.pxPerUnit),
+    debug: word((f) => f.debug),
+    paper: word((f) => f.paper),
+    lineGain: word((f) => f.lineGain),
+  };
   const palette = root
     .createBuffer(d.arrayOf(d.vec4f, PALETTE_SIZE))
     .$usage('storage');
@@ -285,11 +303,13 @@ export function createRenderer(options: RendererOptions): Renderer {
   // Line widths scale with zoom relative to the fit zoom, cached per view and resize so they
   // stay put while orbiting.
   let refZoom = camera.zoom;
-  // A preset's cap on that line scale (crops of a big machine would otherwise ink very thick).
-  let lineCap = Infinity;
   let debug: DebugMode = 0;
   let theme: Theme = options.theme;
   const matrices = createCameraMatrices();
+  // The camera basis, recomputed only when the angles change.
+  let basis: ReturnType<typeof basisOf> | null = null;
+  let basisYaw = NaN;
+  let basisElevation = NaN;
   let clear: [number, number, number, number] = [0, 0, 0, 1];
 
   const fitZoomNow = () =>
@@ -301,7 +321,6 @@ export function createRenderer(options: RendererOptions): Renderer {
       : fitToBounds(bounds, viewport, { yaw: camera.yaw, elevation: camera.elevation });
     onPreset = true;
     refZoom = fitZoomNow();
-    lineCap = preset?.lines ?? Infinity;
   }
 
   const setTheme = (next: Theme) => {
@@ -348,21 +367,25 @@ export function createRenderer(options: RendererOptions): Renderer {
     if (sprites.dirty && sprites.count) s.sprites.write(sprites.buffer);
 
     cameraMatrices(camera, viewport, 1000, matrices);
-    const basis = basisOf(camera.yaw, camera.elevation);
-    frameBuffer.write({
-      viewProjection: matrices.viewProjection,
-      light: d.vec3f(...matrices.light),
-      toward: d.vec3f(...basis.toward),
-      right: d.vec3f(...basis.right),
-      up: d.vec3f(...basis.up),
-      viewport: d.vec2f(viewport.width, viewport.height),
-      // Line widths scale with zoom like a pinch-zoomed SVG: 1 CSS px at the fit zoom.
-      pxPerCss: viewport.dpr * Math.min(camera.zoom / refZoom, lineCap),
-      pxPerUnit: viewport.dpr * camera.zoom,
-      debug,
-      paper: d.vec4f(...clear),
-      lineGain: LINE_GAIN[theme],
-    });
+    if (basis === null || basisYaw !== camera.yaw || basisElevation !== camera.elevation) {
+      basis = basisOf(camera.yaw, camera.elevation);
+      basisYaw = camera.yaw;
+      basisElevation = camera.elevation;
+    }
+    frameF32.set(matrices.viewProjection, FW.viewProjection);
+    frameF32.set(matrices.light, FW.light);
+    frameF32.set(basis.toward, FW.toward);
+    frameF32.set(basis.right, FW.right);
+    frameF32.set(basis.up, FW.up);
+    frameF32[FW.viewport] = viewport.width;
+    frameF32[FW.viewport + 1] = viewport.height;
+    // Line widths scale with zoom like a pinch-zoomed SVG: 1 CSS px at the fit zoom.
+    frameF32[FW.pxPerCss] = viewport.dpr * (camera.zoom / refZoom);
+    frameF32[FW.pxPerUnit] = viewport.dpr * camera.zoom;
+    frameU32[FW.debug] = debug;
+    frameF32.set(clear, FW.paper);
+    frameF32[FW.lineGain] = LINE_GAIN[theme];
+    frameBuffer.write(frameData);
 
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({

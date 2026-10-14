@@ -10,25 +10,11 @@ import { d, std } from 'typegpu';
 
 /** Score thresholds, from `lathe.mjs` (`BANDS`). */
 export const BANDS = [0, 0.2, 0.42, 0.62] as const;
-/** Tone index of the top tone; 0..3 are shades s0..s3. */
-export const TONE_TOP = 4;
-
-/** Facing class 0..4 of a normal against a unit light direction. */
-export const toneOf = (normal: d.v3f, light: d.v3f) => {
-  'use gpu';
-  const score = std.dot(std.normalize(normal), light);
-  const count =
-    std.step(BANDS[0], score) +
-    std.step(BANDS[1], score) +
-    std.step(BANDS[2], score) +
-    std.step(BANDS[3], score);
-  return d.u32(count);
-};
-
 /**
  * Anti-aliased band weights: `w_k` is how far the score is past threshold k, measured in
  * screen pixels (`fw` = fwidth of the score), so band edges get a one-pixel ramp. Blend:
- * s0 → s1 (w.x) → s2 (w.y) → s3 (w.z) → top (w.w). With fw = 0 this is `toneOf`.
+ * s0 → s1 (w.x) → s2 (w.y) → s3 (w.z) → top (w.w). With fw → 0 the count of weights at 1 is
+ * the kit's band (0..3 shades, 4 the top tone).
  */
 export const bandWeights = (score: number, fw: number) => {
   'use gpu';

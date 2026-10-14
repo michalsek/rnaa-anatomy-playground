@@ -185,9 +185,6 @@ export const corners = (lo: Vec3, hi: Vec3) => ({
   center: [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2] as V3,
 });
 
-/** Lathe steps by the triangle budget: 24 around for small radii, else the default. */
-export const stepsFor = (r: number) => (r < 3 ? 24 : undefined);
-
 // ---- marks -------------------------------------------------------------------------------------
 
 /** A circle as a closed polyline (12+ points), on a face with normal `normal`. */

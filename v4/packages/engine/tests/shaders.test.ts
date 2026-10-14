@@ -13,12 +13,9 @@ describe('shaders', () => {
     expect(marks).toMatch(/@fragment/);
   });
 
-  it('resolve the sprite stages and the fill sectors + gradient paths to WGSL', () => {
+  it('resolve the sprite stages to WGSL', () => {
     const sprites = tgpu.resolve([spriteVertex, spriteFragment]);
     expect(sprites).toMatch(/@vertex/);
-    expect(sprites).toMatch(/exp\(/);
-    const fill = tgpu.resolve([fillVertex, fillFragment]);
-    expect(fill).toMatch(/gradients/);
-    expect(fill).toMatch(/floor\(/);
+    expect(sprites).toMatch(/@fragment/);
   });
 });

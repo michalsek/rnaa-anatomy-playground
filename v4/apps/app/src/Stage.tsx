@@ -27,8 +27,12 @@ export function Stage({
   const shellRef = useRef<Shell | null>(null);
   // The shell starts from the latest controls; later changes go through the setters below.
   const controlsRef = useRef(controls);
+  // The view list goes to the shell through a ref: an edited list re-applies the view without
+  // restarting the shell.
+  const viewsRef = useRef(views);
   useEffect(() => {
     controlsRef.current = controls;
+    viewsRef.current = views;
   });
   // The latest layout lives in a ref (resizes must not restart the shell); `hasLayout` only
   // gates the first start.
@@ -64,7 +68,7 @@ export function Stage({
         format,
         size,
         store,
-        views,
+        () => viewsRef.current,
         controlsRef.current,
         setFatal,
       );
@@ -77,11 +81,12 @@ export function Stage({
       shell.stop();
       if (shellRef.current === shell) shellRef.current = null;
     };
-  }, [root, hasLayout, store, views]);
+  }, [root, hasLayout, store]);
 
   const { theme, view, paused, debug } = controls;
   useEffect(() => shellRef.current?.setTheme(theme), [theme]);
   useEffect(() => shellRef.current?.setView(view), [view]);
+  useEffect(() => shellRef.current?.refreshView(), [views]);
   useEffect(() => shellRef.current?.setPaused(paused), [paused]);
   useEffect(() => shellRef.current?.setDebug(debug), [debug]);
 

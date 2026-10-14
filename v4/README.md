@@ -40,7 +40,7 @@ Android: `pnpm android` (config only so far, not built).
 ```
 packages/engine/src
   camera/    2:1 dimetric ortho camera (kit projection), fit (to part box corners), view presets
-             (optional `frame` box to fit, `lines` line-scale cap)
+             (optional `frame` box to fit)
   palette/   light/dark tokens (from the v2 kit) → GPU palette table (material slots, then FX
              colours: halo, glow, void, strobe); CARD tokens and MONO for the overlay
   geo/       JSON GeoSpecs → cached prototypes: box/extrude (plans, seams), lathe (seams, poles,

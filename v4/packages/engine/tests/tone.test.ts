@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { d } from 'typegpu';
 import { lightOf, KIT_ELEVATION, KIT_YAW } from '../src/camera/camera.ts';
-import { TONE_TOP, planLit, planWeights, toneOf, tubeStripes } from '../src/shading/tone.ts';
+import { bandWeights, planLit, planWeights, tubeStripes } from '../src/shading/tone.ts';
 
 // The kit's reference implementation (`lathe.mjs`): unit3([-sinA, cosA, 1.2]) and bandOf.
 const KIT_BANDS = [0, 0.2, 0.42, 0.62];
@@ -20,6 +20,14 @@ const kitTone = (n: number[]) => {
 };
 
 const camLight = () => d.vec3f(...lightOf({ yaw: KIT_YAW, elevation: KIT_ELEVATION }));
+/** The shader's band: with no AA ramp (tiny fwidth) the number of weights at 1 (0..3 shades, 4 top). */
+const bandOf = (n: number[], light: d.v3f) => {
+  const len = Math.hypot(...n);
+  const score = (n[0]! * light.x + n[1]! * light.y + n[2]! * light.z) / len;
+  const w = bandWeights(score, 1e-6);
+  for (const x of [w.x, w.y, w.z, w.w]) expect(x === 0 || x === 1).toBe(true);
+  return w.x + w.y + w.z + w.w;
+};
 
 describe("'use gpu' tone lookup on the CPU", () => {
   it('matches the kit band for normals all around a lathe and up its profile', () => {
@@ -28,16 +36,19 @@ describe("'use gpu' tone lookup on the CPU", () => {
       for (const nz of [-0.6, -0.2, 0, 0.3, 0.7]) {
         const r = Math.sqrt(1 - nz * nz);
         const n = [r * Math.cos((a * Math.PI) / 180), r * Math.sin((a * Math.PI) / 180), nz];
-        expect(toneOf(d.vec3f(n[0]!, n[1]!, n[2]!), light)).toBe(kitTone(n));
+        // A normal exactly on a band threshold (score 0 at 45°) is a tie in both; skip it.
+        const score = (n[0]! * light.x + n[1]! * light.y + n[2]! * light.z) / Math.hypot(...n);
+        if (KIT_BANDS.some((b) => Math.abs(score - b) < 1e-5)) continue;
+        expect(bandOf(n, light)).toBe(kitTone(n));
       }
     }
   });
 
   it('gives a box the classic Anatomy faces: lit top, darkest right side', () => {
     const light = camLight();
-    expect(toneOf(d.vec3f(0, 0, 1), light)).toBe(TONE_TOP);
-    expect(toneOf(d.vec3f(1, 0, 0), light)).toBe(0); // screen-right face, away from the light
-    expect(toneOf(d.vec3f(0, 1, 0), light)).toBe(3); // screen-left face, toward the light (s3)
+    expect(bandOf([0, 0, 1], light)).toBe(4); // the top tone
+    expect(bandOf([1, 0, 0], light)).toBe(0); // screen-right face, away from the light
+    expect(bandOf([0, 1, 0], light)).toBe(3); // screen-left face, toward the light (s3)
   });
 });
 
