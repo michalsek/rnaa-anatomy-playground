@@ -16,11 +16,13 @@ import {
   type Factory,
   type FrameInfo,
   type LineGraph,
+  type ScannerPageGraph,
   CENTRIFUGE_LAYOUT,
   LINE_LAYOUT,
   createConveyorPage,
   createCrusherPage,
   createLine,
+  createScannerPage,
 } from '@anatomy/engine';
 import { type Readout, createReadout } from '../overlay/readout.ts';
 
@@ -110,7 +112,7 @@ function createLive<G extends Graph>(
   };
 }
 
-const mainOf = (g: Graph & { crusher?: Crusher | null }) => (g.centrifuge ? 'centrifuge' : g.crusher ? 'crusher' : 'audio');
+const mainOf = (g: Graph & { crusher?: Crusher | null; scanner?: unknown }) => (g.centrifuge ? 'centrifuge' : g.scanner ? 'scanner' : g.crusher ? 'crusher' : 'audio');
 
 /** A machine's dev summary (`Machine.status`), with the sim time. */
 function describe(g: Graph, id: string): unknown {
@@ -137,8 +139,9 @@ export const lineLive = createLive(
   (seed) => createLine(LINE_LAYOUT, { seed }),
   (g) => {
     const q = g.audio.quanta();
-    const out = g.crusher ? disposed(g.crusher) : `${g.audio.stats.dropped} out`;
-    return `held ${g.centrifuge.tray.held()}/10 · ${g.centrifuge.controller.phase} · q ${q.count} · ${(1 / q.period).toFixed(2)}/s · ${out}`;
+    const out = g.crusher ? `${g.crusher.stats().count} disposed` : `${g.audio.stats.dropped} out`;
+    const audio = g.scanner ? ` · ${g.scanner.stats.sent} audio` : '';
+    return `held ${g.centrifuge.tray.held()}/10 · ${g.centrifuge.controller.phase} · q ${q.count}${audio} · ${out}`;
   },
 );
 
@@ -164,4 +167,11 @@ export const crusherLive = createLive(
   (seed) => createCrusherPage({ seed }),
   (g: CrusherPageGraph) => disposed(g.crusher),
   (g) => g.crusher.stats().bin,
+);
+
+/** v2's scanner page: the readout as v2's (`quanta read 0 · packets lifted 0`; no elevator yet). */
+export const scannerLive = createLive(
+  (seed) => createScannerPage({ seed }),
+  (g: ScannerPageGraph) => `quanta read ${g.scanner.stats.reads} · buffer ${g.scanner.stats.delivered % 4}/4 · ${g.scanner.stats.sent} packets out`,
+  () => 'running',
 );

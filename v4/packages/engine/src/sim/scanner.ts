@@ -76,6 +76,13 @@ export const SC = {
   read: W(-30, 63, 92),
 } as const;
 
+/**
+ * Pool sizes the blocks need: packets on their way out of the preamp (one per 4 quanta, ≈ 2.3 s,
+ * while a push takes 1.1 s: at most one, plus one of slack) and pulses in flight (≈ 1.8 s each,
+ * one per 0.57 s quantum: at most 4).
+ */
+export const SCANNER_POOLS = { packets: 2, pulses: 6 } as const;
+
 /** The push's speed when the packet leaves the lip (units/s, along −y). */
 const PUSH_V = ((SC.push.from - SC.push.to) * SC.push.power) / SC.push.T;
 /** Where (local, the packet's bottom centre) and how fast a packet is handed on: belt D starts under it. */

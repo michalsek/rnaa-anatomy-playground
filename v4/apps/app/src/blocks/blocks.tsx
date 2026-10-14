@@ -393,3 +393,17 @@ export function useNode<H extends GroupHandle | PartHandle | PoolHandle | Sprite
     };
   }, [store, full]);
 }
+
+/** Lazy getters for a fixed list of nodes below the current group (pieces, cells): one hook. */
+export function useNodes<H extends GroupHandle | PartHandle | PoolHandle | SpriteHandle>(relIds: readonly string[]): () => readonly H[] {
+  const { store, path } = useScene();
+  const key = relIds.join('|');
+  return useMemo(() => {
+    let handles: H[] | null = null;
+    const ids = key.split('|');
+    return () => {
+      handles ??= ids.map((id) => store.node(joinId(path, id)) as H);
+      return handles;
+    };
+  }, [store, path, key]);
+}

@@ -140,3 +140,24 @@ describe('silhouette (CPU run of the shader edgeMode)', () => {
     expect(edgeMode(-0.5, 0.5, FLAG.crease(0), 0)).toBe(0);
   });
 });
+
+describe('tube pieces (range)', () => {
+  const path: [number, number, number][] = [[0, 0, 0], [20, 0, 0], [20, 15, 0], [20, 15, 30]];
+  it('meet ring to ring, with no outline along a cut (only the true ends are caps)', () => {
+    const whole = tube({ path, radius: 1, sides: 12, bend: 4 });
+    const a = tube({ path, radius: 1, sides: 12, bend: 4, range: [0, 26] });
+    const b = tube({ path, radius: 1, sides: 12, bend: 4, range: [26, 1e9] });
+    // B's first ring (its first vertices: no cap there) is one of A's rings (same frames: the whole tube's).
+    const near = (m: Mesh, x: number, y: number, z: number) => {
+      let best = Infinity;
+      for (let v = 0; v < m.positions.length / 3; v++) best = Math.min(best, Math.hypot(m.positions[v * 3]! - x, m.positions[v * 3 + 1]! - y, m.positions[v * 3 + 2]! - z));
+      return best;
+    };
+    for (let j = 0; j < 13; j++) expect(near(a, b.positions[j * 3]!, b.positions[j * 3 + 1]!, b.positions[j * 3 + 2]!)).toBeLessThan(1e-5);
+    // The cut has no boundary edges; the caps close the ends (whole: closed, no boundary).
+    expect(countBits(buildTopology(whole), FLAG.boundary)).toBe(0);
+    expect(countBits(buildTopology(a), FLAG.boundary)).toBe(0);
+    expect(countBits(buildTopology(b), FLAG.boundary)).toBe(0);
+    expect(triangleCount(a) + triangleCount(b)).toBeGreaterThan(triangleCount(whole));
+  });
+});

@@ -20,13 +20,23 @@ export const LINE_VIEWS: ViewPreset[] = [
   at('C-crusher', [[-122, 196, 0], [-58, 290, 40]]),
   /** The crusher alone (with its drawer's travel). */
   at('crusher', [[-128, 202, 0], [-50, 298, 38]]),
+  /** v2 `z-scanner-read`: the arm over the loop, the preamp and the cable. */
+  at('scanner-read', [[-60, 78, 0], [56, 128, 106]]),
+  /** v2 `z-scanner-D`: the preamp's lip and the start of belt D. */
+  at('scanner-D', [[-66, 60, 8], [-22, 104, 44]]),
+  /** The read head: the arm, ribbon and lamp. */
+  at('arm', [[10, 72, 84], [52, 116, 106]]),
+  /** The preamp's cells and lip. */
+  at('preamp', [[-58, 82, 0], [-30, 106, 34]]),
+  /** Belt D's end (the elevator's place, M8). */
+  at('D-end', [[-70, -205, 0], [-24, -150, 36]]),
 ];
 
 export const LINE_CARD = {
   fig: 'Line',
-  title: 'Centrifuge → render loop → disposer',
-  hint: 'packets → rings → one per quantum → render loop → crusher',
-  label: 'Packets ride belt B into the centrifuge, which drains them one per render quantum onto the audio belt; spent ones ride belt C to the crusher.',
+  title: 'Centrifuge → render loop → read arm',
+  hint: 'rings → one per quantum → read → crusher · belt D',
+  label: 'Packets ride belt B into the centrifuge, which drains them one per render quantum onto the audio belt; the read arm reads each quantum and sends one audio packet per four down belt D; spent packets ride belt C to the crusher.',
 } as const;
 
 export const CONVEYOR_VIEWS: ViewPreset[] = [
