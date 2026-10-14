@@ -186,6 +186,7 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
   let count = 0;
   let fill = 0;
   let laneNext = 0;
+  let chipSeq = 0;
   let nextRelease = 0;
 
   // Scratch: the sliding flakes per lane (no allocation per step).
@@ -392,7 +393,17 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
             f.mode = 'land';
             f.tl = t;
             fill = Math.min(1, fill + 1 / (CAP * PER));
-            chips.push({ x: f.x, y: f.y, a: f.th, s: f.s * 0.9, born: t });
+            // A chip where it settled: spread about the landing point (a heap, not a row per lane).
+            const cx = f.x + (hash01(chipSeq, 1) - 0.5) * 7;
+            const cy = f.y + (hash01(chipSeq, 2) - 0.5) * 10;
+            chipSeq++;
+            chips.push({
+              x: Math.min(pilePlan.x1 - 1, Math.max(pilePlan.x0 + 1, cx)),
+              y: Math.min(pilePlan.y1 - 1, Math.max(pilePlan.y0 + 1, cy)),
+              a: f.th,
+              s: f.s * 0.9,
+              born: t,
+            });
             if (chips.length > CHIPS_MAX) chips.shift();
           }
         } else if (f.mode === 'land' && t - f.tl > 0.3) flakes.splice(i, 1);
