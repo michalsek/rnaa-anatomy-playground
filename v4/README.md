@@ -206,7 +206,8 @@ the last 50 engine log lines in `globalThis.__v4logs` (per-phase rebuild ms). No
 
 ## The loop video (M12)
 
-`loop-light-60.mp4` (16:9, 60 fps, light, silent; made from scripts, not kept in the repo):
+`loop-light-60.mp4` (16:9, 60 fps, light, silent; made from scripts, not kept in the repo; `final-light-60.mp4`
+adds an outro that zooms out onto a Claude Code window whose simulator panel plays it):
 - **Part 1, web:** the open factory, the M11 tour, the conceal, and the camera going top-down onto the closed
   phone's screen.
 - **Seam A:** the screen becomes the iOS simulator's.
