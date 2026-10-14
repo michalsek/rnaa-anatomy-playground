@@ -44,24 +44,39 @@ packages/engine/src
   palette/   light/dark tokens (from the v2 kit) → GPU palette table (material slots, then FX
              colours: halo, glow, void, strobe); CARD tokens and MONO for the overlay
   geo/       JSON GeoSpecs → cached prototypes: box/extrude (plans, seams), lathe (seams, poles,
-             spline spans), tube (open/closed, tangents), belt; topology per prototype;
+             spline spans), tube (open/closed, tangents), belt, band (a conveyor belt loop whose u
+             is the sim's arc length: slats as a line set); topology per prototype;
              contacts (triangle crossings); mark helpers (bolt circles, polylines)
-  scene/     SceneStore (groups/parts/pools/marks, tokens, build → batches, flatten → instances);
-             M1 profiles and line sets
-  sim/       M4: the centrifuge sim (v2 port + the §A spin-up fix): fixed 1/120 s step, seedable,
-             packets/slats/outputs callbacks, CF constants (spout, belt, feeder)
+  scene/     SceneStore (groups/parts/pools/marks, tokens, build → batches, flatten → instances
+             and the rewritten range; moving slots last); live parts (PartHandle: mix, uShift),
+             pools with blend/shift/axis scale; M1 profiles and line sets
+  sim/       M5: the shared sim, plain TS on one fixed 1/120 s step: clock (factory, advance/run),
+             ports (receivers, links, local → world → local), items (kinds, ledger), path (belt
+             frame, stadium loop), fall, conveyor (top: hop, hold, tip), loop (cleats, bails,
+             read greying, drop, quanta/phaseAt/canTake), source, sink, rates (the tunable rates),
+             graphs (line, centrifuge and v2 conveyor-page layouts); centrifuge/ = packets (throat,
+             pockets, release path, §A invariants) + controller (the swappable spin model)
   shading/   'use gpu' tone rules (bands, plan, tube stripes) + AA weights, line coverage
-  render/    vertex pulling, instance/style/mark/gradient tables, in-face lines (+ UV sectors),
-             gradient tone, marks pipeline, sprites (halo, glow discs; multiply/screen by
-             theme), MSAA 4× + depth, one encoder/submit per frame
+  render/    vertex pulling, instance (96 B: + style2/mix blend, uShift)/style/mark/gradient
+             tables, in-face lines (+ UV sectors, per-instance scroll), gradient tone, marks
+             pipeline, sprites (halo, glow discs; multiply/screen by theme), MSAA 4× + depth, one
+             encoder/submit per frame, dirty-range instance upload, DEV perf ring
   platform/  #platform/* contract (+ Node stub for tests)
 apps/app
   src/blocks/                  React blocks: Scene, Group/Machine (contacts default), Box,
                                Extrude, Lathe, Tube, Belt, Instances, Marks, Halo, Glow,
                                useFrame, useNode (render null)
+  src/machines/kit.ts          shared authoring helpers (frames, discs, corners, rings, screws)
+  src/machines/Packets.tsx     the packet pool every machine uses (5 kinds, straps)
   src/machines/centrifuge/     the centrifuge from v2 (dims.ts + one module per assembly;
-                               views.ts: fit + 4 crops, card text); M4: live.ts (sim, playback,
-                               readout, dev hook) and one useFrame in Centrifuge.tsx
+                               views.ts: fit + 4 crops, card text); one useFrame in
+                               Centrifuge.tsx; `stand` prop (default on)
+  src/machines/conveyor/       Top.tsx (single-sided belt) and Loop.tsx (the audio belt) from
+                               v2 conveyor.mjs, Parts.tsx (belt body, lamp, motor, label, nut),
+                               dims.ts (belt-coordinate kit); `legs` prop (default on)
+  src/factory/                 live.ts (a graph per scene, playback, readout, `__v4.sim`; every
+                               machine block calls `live.step` first), Scenes.tsx (line,
+                               centrifuge, conveyor), views.ts
   src/overlay/Card.tsx         the kit's figure card (fig, title, hint, live readout leaf)
   src/overlay/readout.ts       readout store (≤ 10 Hz, phase changes at once)
   src/gallery/                 M2 gallery (rows m1, ext, lathe, inst, marks, contact, fx) + M1
@@ -79,17 +94,22 @@ Rule for Fast Refresh: component modules (`*.tsx`) export only components; const
 view presets live in plain modules (`dims.ts`, `views.ts`). Then a prop edit patches in place:
 the store and GPU device survive and the scene rebuilds warm.
 
-The toolbar row above the card: scene (`centrifuge` default, `gallery`, `m1`), view preset
-(centrifuge: `fit`, `rotor`, `instr`, `drive`, `funnel`), pause, debug view (`dbg 1` = line
+The toolbar row above the card: scene (`line` default: source → belt B → centrifuge → audio
+loop at the final layout; `centrifuge`: the same with short belts; `conveyor`: v2's conveyor
+page; `gallery`, `m1`), view preset (line: `fit`, `centrifuge-audio`, `funnel`, `release`,
+`read`, `head`; centrifuge: `fit`, `rotor`, `instr`, `drive`, `funnel`), pause, debug view (`dbg 1` = line
 classes: outline red, contour magenta, crease blue, ticks green, marks and contacts cyan;
 `dbg 2` = lines off), theme. In dev builds the same is scriptable from a debugger or the browser
 console: `__v4.setScene('m1')`, `__v4.setView('close cage')`, `__v4.look({ focus: [x, y, z],
 zoom: 8 })`, `__v4.setDebug(1)`, `__v4.setPaused(true)`, `__v4.setTheme('dark')`,
 `__v4.setPoolCount('inst.packets', 12)`, `__v4.setChrome(false)` (hide the toolbar for
-captures), `__v4.store()`; `__v4.views` / `__v4.scenes` list the names. On the centrifuge,
-`__v4.sim` controls time: `seek(t)` (deterministic: reset, run, pause), `play()`, `pause()`,
-`speed(0.25–4)`, `seed(n)`, `status()`, `log()` (phase changes), `release(false)` (belt refuses
-packets). DEV builds keep the last
-50 engine log lines in `globalThis.__v4logs` (per-phase rebuild ms). Notes:
+captures), `__v4.store()`; `__v4.views` / `__v4.scenes` list the names. In the line,
+centrifuge and conveyor scenes `__v4.sim` controls the scene's graph: `seek(t)` (deterministic:
+rebuild, run, pause), `play()`, `pause()`, `speed(0.25–4)`, `seed(n)` (integer), `status(id)`
+(`machines()` lists the ids), `log()` (the centrifuge's phase changes), `ledger()`
+(created/alive/consumed), `release(false)` (the loop refuses packets). `__v4perf()` reports fps,
+rAF gaps, tick, flatten + upload and frame CPU over the last 300 frames. The rates (source,
+HOLD, loop and belt speeds) are `RATES` in `packages/engine/src/sim/rates.ts`. DEV builds keep
+the last 50 engine log lines in `globalThis.__v4logs` (per-phase rebuild ms). Notes:
 [notes/M1.md](notes/M1.md), [notes/M2.md](notes/M2.md), [notes/M3.md](notes/M3.md),
-[notes/M4.md](notes/M4.md).
+[notes/M4.md](notes/M4.md), [notes/M5.md](notes/M5.md).
