@@ -1,5 +1,4 @@
 import { type ReactNode, type RefObject, useEffect, useMemo } from 'react';
-import { AccessibilityInfo } from 'react-native';
 import type { TgpuRoot } from 'typegpu';
 import { type SceneStore, type ViewPreset, createSceneStore } from '@anatomy/engine';
 import { Stage } from '../Stage.tsx';
@@ -29,22 +28,7 @@ export function Scene({
       if (storeRef.current === store) storeRef.current = null;
     };
   }, [store, storeRef]);
-  const value = useMemo(() => ({ store, path: null }), [store]);
-
-  // Reduced motion (RN-web maps it to the media query).
-  useEffect(() => {
-    let live = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((on) => {
-      if (live) store.motion.reduced = on;
-    });
-    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', (on) => {
-      store.motion.reduced = on;
-    });
-    return () => {
-      live = false;
-      sub.remove();
-    };
-  }, [store]);
+  const value = useMemo(() => ({ store, path: null, contacts: true }), [store]);
 
   return (
     <SceneContext.Provider value={value}>

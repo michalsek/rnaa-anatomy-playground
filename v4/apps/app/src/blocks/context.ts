@@ -5,6 +5,8 @@ export interface SceneContextValue {
   store: SceneStore;
   /** Full id of the enclosing group (null at the scene root). */
   path: string | null;
+  /** Default for parts below that don't say: draw contact lines (`<Group contacts={false}>`). */
+  contacts: boolean;
 }
 
 export const SceneContext = createContext<SceneContextValue | null>(null);

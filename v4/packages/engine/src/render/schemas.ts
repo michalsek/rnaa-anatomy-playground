@@ -40,8 +40,8 @@ export const Instance = d.struct({
 }); // 80 B
 export const INSTANCE_FLOATS = 20;
 
-/** Tone rules. */
-export const TONE_RULE = { bands: 0, plan: 1, tube: 2 } as const;
+/** Tone rules. `gradient`: a 3-stop FX gradient along a model-space line (the funnel void). */
+export const TONE_RULE = { bands: 0, plan: 1, tube: 2, gradient: 3 } as const;
 
 export const Style = d.struct({
   material: d.u32,
@@ -50,10 +50,21 @@ export const Style = d.struct({
   toneRule: d.u32,
   /** Edge line width in CSS px at the fit zoom. */
   width: d.f32,
-  _p0: d.u32,
+  /** Index into the gradient table (tone rule `gradient`). */
+  gradient: d.u32,
   _p1: d.u32,
   _p2: d.u32,
 }); // 32 B
+
+/** A linear gradient in a part's model space: `start` → `end`, 3 FX stops, the middle at `mid`. */
+export const Gradient = d.struct({
+  start: d.vec3f,
+  mid: d.f32,
+  end: d.vec3f,
+  _p: d.u32,
+  fx: d.vec3u,
+  _q: d.u32,
+}); // 48 B
 
 export const LineSet = d.struct({
   count: d.f32,
@@ -66,7 +77,13 @@ export const LineSet = d.struct({
   width: d.f32,
   majorWidth: d.f32,
   fade: d.vec2f,
+  /** LINE_KIND: ticks, or filled sectors (`duty` of each period) in the FX colour `fill`. */
+  kind: d.u32,
+  duty: d.f32,
+  fill: d.u32,
 });
+
+export const LINE_KIND = { lines: 0, sectors: 1 } as const;
 
 /**
  * Mark kinds. A contact is a segment on a crossing curve: its normal is the bigger part's face
@@ -89,6 +106,29 @@ export const Mark = d.struct({
   material: d.u32,
   /** Palette slot: the line tone (segments) or the tone that sets a dot's opacity. */
   slot: d.u32,
+}); // 64 B
+
+/** Sprite kinds: a soft floor shadow, and a screen-facing disc (glows). */
+export const SPRITE = { halo: 0, disc: 1 } as const;
+
+export const Sprite = d.struct({
+  /** Model-space centre (halo: the floor point under the plan centre). */
+  center: d.vec3f,
+  kind: d.u32,
+  /** Halo: plan half-extent, corner radius and blur σ (world units). */
+  half: d.vec2f,
+  corner: d.f32,
+  sigma: d.f32,
+  /** Disc: radius = radius + grow · level (world units), alpha = min(opacity · level, cap). */
+  radius: d.f32,
+  grow: d.f32,
+  opacity: d.f32,
+  cap: d.f32,
+  /** FX colour; instance (rides moves groups); level; halo: screen-down shift, disc: toward-viewer bias. */
+  fx: d.u32,
+  instance: d.u32,
+  level: d.f32,
+  bias: d.f32,
 }); // 64 B
 
 export const Frame = d.struct({
@@ -119,10 +159,12 @@ export const sceneLayout = tgpu.bindGroupLayout({
   lineSets: { storage: (n: number) => d.arrayOf(LineSet, n), visibility: ['fragment'] },
   palette: { storage: (n: number) => d.arrayOf(d.vec4f, n), visibility: ['vertex', 'fragment'] },
   marks: { storage: (n: number) => d.arrayOf(Mark, n), visibility: ['vertex'] },
+  gradients: { storage: (n: number) => d.arrayOf(Gradient, n), visibility: ['vertex', 'fragment'] },
+  sprites: { storage: (n: number) => d.arrayOf(Sprite, n), visibility: ['vertex', 'fragment'] },
 });
 
 /** Byte sizes the CPU packers assume; checked against TypeGPU's layout once. */
-export const SIZES = { vertex: 48, tri: 48, instance: 80, style: 32, mark: 64 } as const;
+export const SIZES = { vertex: 48, tri: 48, instance: 80, style: 32, mark: 64, gradient: 48, sprite: 64 } as const;
 
 export function assertLayouts() {
   const actual = {
@@ -131,6 +173,8 @@ export function assertLayouts() {
     instance: d.sizeOf(Instance),
     style: d.sizeOf(Style),
     mark: d.sizeOf(Mark),
+    gradient: d.sizeOf(Gradient),
+    sprite: d.sizeOf(Sprite),
   };
   for (const [name, size] of Object.entries(SIZES)) {
     const got = actual[name as keyof typeof SIZES];

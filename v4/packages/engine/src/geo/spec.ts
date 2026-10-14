@@ -3,7 +3,7 @@
  * its own line sets, tagged 1..n locally); `geoKey` is the cache key, so a prototype used by
  * many parts or pool instances is built once.
  */
-import type { Slot } from '../palette/tokens.ts';
+import type { FxName, Slot } from '../palette/tokens.ts';
 import { belt } from './belt.ts';
 import { box } from './box.ts';
 import { type Plan, extrude } from './extrude.ts';
@@ -30,6 +30,13 @@ export interface LineSetSpec {
   majorWidth: number;
   /** Facing range over which the lines fade in; equal values = no fade. */
   fade: readonly [number, number];
+  /**
+   * `sectors`: instead of lines, fill the first `duty` (0..1) of each period with the FX colour
+   * `fill` (AA'd edges; `first`..`last` still pick the drawn periods). Default `lines`.
+   */
+  kind?: 'lines' | 'sectors';
+  duty?: number;
+  fill?: FxName;
 }
 
 export type GeoSpec =
@@ -42,6 +49,7 @@ export type GeoSpec =
       seams?: number[];
       marks?: number[];
       lineSets?: readonly { segment: number; lines: LineSetSpec }[];
+      subdivisions?: number;
     }
   | {
       kind: 'tube';
@@ -99,6 +107,7 @@ export function buildMesh(spec: GeoSpec): { mesh: Mesh; lineSets: LineSetSpec[] 
         ...(spec.steps !== undefined && { steps: spec.steps }),
         ...(spec.seams && { seams: spec.seams }),
         ...(spec.marks && { marks: spec.marks }),
+        ...(spec.subdivisions !== undefined && { subdivisions: spec.subdivisions }),
         lineSets: sets.map(({ segment }, i) => ({ segment, set: i + 1 })),
       });
       return { mesh, lineSets: sets.map(({ lines }) => lines) };

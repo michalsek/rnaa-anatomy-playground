@@ -12,7 +12,7 @@
  * mixed in by coverage.
  */
 import tgpu, { d, std } from 'typegpu';
-import { SLOT, SLOT_COUNT } from '../palette/tokens.ts';
+import { MATERIALS, SLOT, SLOT_COUNT } from '../palette/tokens.ts';
 import { FLAG, NO_NEIGHBOUR } from '../geo/topology.ts';
 import { TUBE_LIGHT, bandWeights, planLit, planWeights, tubeStripes } from '../shading/tone.ts';
 import {
@@ -24,7 +24,7 @@ import {
   tickCoverage,
   wire,
 } from '../shading/lines.ts';
-import { INSTANCE, MARK, TONE_RULE, sceneLayout as L } from './schemas.ts';
+import { INSTANCE, LINE_KIND, MARK, SPRITE, TONE_RULE, sceneLayout as L } from './schemas.ts';
 
 const toPixels = (clip: d.v4f, viewport: d.v2f) => {
   'use gpu';
@@ -208,6 +208,18 @@ export const fillVertex = tgpu.vertexFn({
   if (style.toneRule === TONE_RULE.tube && smooth) {
     rule = d.u32(TONE_RULE.tube);
   }
+  // Gradient rule: uv.x = this corner's position along the gradient's screen line (0 at
+  // `from`, 1 at `to`); ortho is affine, so the interpolated value is SVG's userSpaceOnUse.
+  let gradientT = d.f32(0);
+  if (style.toneRule === TONE_RULE.gradient) {
+    rule = d.u32(TONE_RULE.gradient);
+    const g = L.$.gradients[style.gradient];
+    const ga = toPixels(std.mul(frame.viewProjection, std.mul(inst.model, d.vec4f(g.start, 1))), frame.viewport);
+    const gb = toPixels(std.mul(frame.viewProjection, std.mul(inst.model, d.vec4f(g.end, 1))), frame.viewport);
+    const pv = std.select(std.select(p0, p1, is1), p2, is2);
+    const gd = std.sub(gb, ga);
+    gradientT = std.dot(std.sub(pv, ga), gd) / std.max(std.dot(gd, gd), 1e-6);
+  }
   const visible = (inst.flags & INSTANCE.visible) !== 0;
   const tangent = std.select(std.select(v0.tangent, v1.tangent, is1), v2.tangent, is2);
   // Screen gradient of the facing (n · toward) over this triangle, for the smooth-contour
@@ -229,7 +241,7 @@ export const fillVertex = tgpu.vertexFn({
   return {
     clip: std.select(HIDDEN, clip, visible),
     normal: std.mul(inst.model, d.vec4f(normal, 0)).xyz,
-    uv,
+    uv: std.select(uv, d.vec2f(gradientT, 0), rule === TONE_RULE.gradient),
     bary,
     heights: d.vec3f(altitude(p0, p1, p2), altitude(p1, p2, p0), altitude(p2, p0, p1)),
     modes,
@@ -247,6 +259,18 @@ export const fillVertex = tgpu.vertexFn({
 const tone = (material: number, slot: number) => {
   'use gpu';
   return d.vec4f(L.$.palette[d.u32(material) * SLOT_COUNT + d.u32(slot)]);
+};
+
+/** FX colour i (rgba), stored after every material's slots. */
+const fx = (i: number) => {
+  'use gpu';
+  return d.vec4f(L.$.palette[d.u32(MATERIALS.length * SLOT_COUNT) + d.u32(i)]);
+};
+
+/** Interleaved gradient noise in [0, 1) (Jimenez 2014): a cheap per-pixel dither. */
+const ign = (p: d.v2f) => {
+  'use gpu';
+  return std.fract(52.9829189 * std.fract(0.06711056 * p.x + 0.00583715 * p.y));
 };
 
 /** Coverage of edge `i`'s line if its mode is `want`, else 0. */
@@ -309,7 +333,14 @@ export const fillFragment = tgpu.fragmentFn({
   const xGrad = std.length(d.vec2f(std.dpdx(x), std.dpdy(x)));
 
   let color = tone(m, SLOT.s0);
-  if (input.rule === TONE_RULE.plan) {
+  if (input.rule === TONE_RULE.gradient) {
+    const g = L.$.gradients[st.gradient];
+    const t = std.clamp(input.uv.x, 0, 1);
+    const lo = std.mix(fx(g.fx.x), fx(g.fx.y), std.clamp(t / std.max(g.mid, 1e-6), 0, 1));
+    const hi = std.mix(fx(g.fx.y), fx(g.fx.z), std.clamp((t - g.mid) / std.max(1 - g.mid, 1e-6), 0, 1));
+    color = std.select(lo, hi, t > g.mid);
+    color = d.vec4f(std.add(color.xyz, d.vec3f((ign(input.pixel.xy) - 0.5) / 255)), 1);
+  } else if (input.rule === TONE_RULE.plan) {
     if (n.z > 0.5) {
       color = tone(m, SLOT.top);
     } else if (n.z >= -0.5) {
@@ -347,8 +378,24 @@ export const fillFragment = tgpu.fragmentFn({
   }
 
   if (debug !== 2) {
+    // UV sectors: the first `duty` of each period filled with an FX colour, AA'd in u.
+    if (set > 0 && !inside && lineSet.kind === LINE_KIND.sectors) {
+      const period = std.floor(x);
+      const f = x - period;
+      const count = d.i32(lineSet.count);
+      const index = ((d.i32(period) % count) + count) % count;
+      if (index >= lineSet.first && index <= lineSet.last) {
+        const duty = lineSet.duty;
+        // Signed distance to the nearest sector edge in periods (positive inside), then px.
+        const inner = std.min(f, duty - f);
+        const outer = -std.min(f - duty, 1 - f);
+        const dist = std.select(inner, outer, f > duty) / std.max(xGrad, 1e-6);
+        const cover = std.clamp(dist + 0.5, 0, 1);
+        color = std.mix(color, std.select(fx(lineSet.fill), GREEN, debug === 1), cover);
+      }
+    }
     // UV tick lines.
-    if (set > 0 && !inside) {
+    if (set > 0 && !inside && lineSet.kind === LINE_KIND.lines) {
       const nearest = std.round(x);
       const dist = std.abs(x - nearest) / std.max(xGrad, 1e-6);
       const count = d.i32(lineSet.count);
@@ -582,4 +629,119 @@ export const marksFragment = tgpu.fragmentFn({
     cover = tickCoverage(dist, input.size, d.f32(1));
   }
   return d.vec4f(input.color.xyz, cover * input.alpha);
+});
+
+// ---- sprites: halo (soft floor shadow) and discs (glows) ---------------------------------------
+
+/** Signed distance from q to a rounded rectangle centred at 0 (half extents, corner radius). */
+export const roundedRectSdf = (q: d.v2f, half: d.v2f, corner: number) => {
+  'use gpu';
+  const k = std.sub(std.abs(q), std.sub(half, d.vec2f(corner)));
+  return std.length(std.max(k, d.vec2f(0))) + std.min(std.max(k.x, k.y), 0) - corner;
+};
+
+/**
+ * Coverage of a Gaussian-blurred edge (an SVG blur of a filled shape) at signed distance d
+ * outside it, blur σ = s: ½·erfc(d / (s√2)), via the logistic approximation of the normal CDF.
+ */
+export const haloCoverage = (dist: number, sigma: number) => {
+  'use gpu';
+  return 1 / (1 + std.exp((1.702 * dist) / std.max(sigma, 1e-6)));
+};
+
+export const spriteVertex = tgpu.vertexFn({
+  in: { vid: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
+  out: {
+    clip: d.builtin.position,
+    /** Halo: the point's offset from the plan centre on the floor (model units). */
+    local: d.vec2f,
+    /** Disc: centre (device px) and radius (device px). */
+    center: d.interpolate('flat', d.vec2f),
+    radius: d.interpolate('flat', d.f32),
+    alpha: d.interpolate('flat', d.f32),
+    color: d.interpolate('flat', d.vec4f),
+    kind: d.interpolate('flat', d.u32),
+    sprite: d.interpolate('flat', d.u32),
+  },
+})((input) => {
+  'use gpu';
+  const sp = L.$.sprites[input.iid];
+  const inst = L.$.instances[sp.instance];
+  const frame = L.$.frame;
+  const k = cornerOf(input.vid);
+  const sx = k.x * 2 - 1;
+  const sy = k.y;
+  const color = fx(sp.fx);
+  let clip = d.vec4f(HIDDEN);
+  let local = d.vec2f(0, 0);
+  let center = d.vec2f(0, 0);
+  let radius = d.f32(0);
+  let alpha = d.f32(0);
+  if (sp.kind === SPRITE.halo) {
+    // A floor quad around the plan, inflated by 3σ and the shift, moved toward the viewer on
+    // the floor so it lands `bias` (the kit's translateY) lower on screen.
+    const pad = 3 * sp.sigma + sp.bias;
+    const q = d.vec2f(sx * (sp.half.x + pad), sy * (sp.half.y + pad));
+    const towardModel = std.mul(std.transpose(inst.model), d.vec4f(frame.toward, 0)).xyz;
+    const flat = std.normalize(std.add(d.vec2f(towardModel.x, towardModel.y), d.vec2f(1e-6, 0)));
+    const sinE = std.max(frame.toward.z, 0.05);
+    const shift = std.mul(flat, sp.bias / sinE);
+    const p = d.vec3f(sp.center.x + q.x + shift.x, sp.center.y + q.y + shift.y, sp.center.z);
+    clip = std.mul(frame.viewProjection, std.mul(inst.model, d.vec4f(p, 1)));
+    local = d.vec2f(q);
+    alpha = color.w;
+  } else {
+    // A screen-facing disc at the centre, pulled toward the viewer by `bias`.
+    radius = (sp.radius + sp.grow * sp.level) * frame.pxPerUnit;
+    alpha = std.min(sp.opacity * sp.level, sp.cap);
+    const c = std.add(std.mul(inst.model, d.vec4f(sp.center, 1)).xyz, std.mul(frame.toward, sp.bias));
+    center = toPixels(std.mul(frame.viewProjection, d.vec4f(c, 1)), frame.viewport);
+    const ext = (radius + 1) / frame.pxPerUnit;
+    const p = std.add(c, std.add(std.mul(frame.right, sx * ext), std.mul(frame.up, sy * ext)));
+    clip = std.mul(frame.viewProjection, d.vec4f(p, 1));
+  }
+  const visible = (inst.flags & INSTANCE.visible) !== 0 && alpha > 0;
+  return {
+    clip: std.select(HIDDEN, clip, visible),
+    local,
+    center,
+    radius,
+    alpha,
+    color,
+    kind: sp.kind,
+    sprite: input.iid,
+  };
+});
+
+export const spriteFragment = tgpu.fragmentFn({
+  in: {
+    pixel: d.builtin.position,
+    local: d.vec2f,
+    center: d.interpolate('flat', d.vec2f),
+    radius: d.interpolate('flat', d.f32),
+    alpha: d.interpolate('flat', d.f32),
+    color: d.interpolate('flat', d.vec4f),
+    kind: d.interpolate('flat', d.u32),
+    sprite: d.interpolate('flat', d.u32),
+  },
+  out: d.vec4f,
+})((input) => {
+  'use gpu';
+  const sp = L.$.sprites[input.sprite];
+  const frame = L.$.frame;
+  // The halo's edge distance in device px: the plan SDF over its screen gradient (exact for
+  // the round corners, close on the straight sides).
+  const sdf = roundedRectSdf(input.local, sp.half, sp.corner);
+  const grad = std.length(d.vec2f(std.dpdx(sdf), std.dpdy(sdf)));
+  let cover = d.f32(0);
+  if (input.kind === SPRITE.halo) {
+    const dPx = sdf / std.max(grad, 1e-6);
+    cover = haloCoverage(dPx, sp.sigma * frame.pxPerUnit);
+    cover = std.clamp(cover * input.alpha + (ign(input.pixel.xy) - 0.5) / 255, 0, 1);
+  } else {
+    const dist = std.length(std.sub(input.pixel.xy, input.center));
+    cover = std.clamp(input.radius + 0.5 - dist, 0, 1) * input.alpha;
+  }
+  // Premultiplied.
+  return d.vec4f(std.mul(input.color.xyz, cover), cover);
 });

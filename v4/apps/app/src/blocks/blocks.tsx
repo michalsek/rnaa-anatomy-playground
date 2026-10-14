@@ -7,6 +7,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef } from 'rea
 import {
   type DotSpec,
   type FrameInfo,
+  type FxName,
   type GeoSpec,
   type GroupHandle,
   type LineTone,
@@ -17,6 +18,8 @@ import {
   type PoolHandle,
   type ProfilePoint,
   type SegmentSpec,
+  type SpriteHandle,
+  type SpriteSpec,
   type StyleSpec,
   type ToneRule,
   type Transform,
@@ -39,11 +42,12 @@ export interface StyleProps {
   crease?: LineTone;
   width?: number;
   tone?: ToneRule;
+  gradient?: StyleSpec['gradient'];
 }
 
 interface PartProps extends Placement, StyleProps {
   id: string;
-  /** Opt out of contact lines. */
+  /** Contact lines with other parts (default: the enclosing group's `contacts`, else true). */
   contacts?: boolean;
 }
 
@@ -53,22 +57,23 @@ const transformOf = ({ position, rotation, scale }: Placement): Transform => ({
   ...(scale !== undefined && { scale }),
 });
 
-const styleOf = ({ material, outline, crease, width, tone }: StyleProps): StyleSpec => ({
+const styleOf = ({ material, outline, crease, width, tone, gradient }: StyleProps): StyleSpec => ({
   material,
   ...(outline && { outline }),
   ...(crease && { crease }),
   ...(width !== undefined && { width }),
   ...(tone && { tone }),
+  ...(gradient && { gradient }),
 });
 
 const parentOf = (path: string | null) => (path ? { parent: path } : {});
 
 function usePart(props: PartProps, geo: GeoSpec) {
-  const { store, path } = useScene();
+  const { store, path, contacts: groupContacts } = useScene();
   const full = joinId(path, props.id);
   const transform = transformOf(props);
   const style = styleOf(props);
-  const contacts = props.contacts ?? true;
+  const contacts = props.contacts ?? groupContacts;
   const gk = geoKey(geo);
   const sk = stableKey(style);
   const tk = stableKey(transform);
@@ -86,10 +91,17 @@ function usePart(props: PartProps, geo: GeoSpec) {
 export function Group({
   id,
   moves = false,
+  contacts,
   children,
   ...placement
-}: Placement & { id: string; moves?: boolean; children?: ReactNode }) {
-  const { store, path } = useScene();
+}: Placement & {
+  id: string;
+  moves?: boolean;
+  /** Default `contacts` for the parts below (inherited when omitted). */
+  contacts?: boolean;
+  children?: ReactNode;
+}) {
+  const { store, path, contacts: inherited } = useScene();
   const full = joinId(path, id);
   const transform = transformOf(placement);
   const tk = stableKey(transform);
@@ -98,7 +110,8 @@ export function Group({
     return () => store.remove(full, token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, full, path, tk, moves]);
-  const value = useMemo(() => ({ store, path: full }), [store, full]);
+  const below = contacts ?? inherited;
+  const value = useMemo(() => ({ store, path: full, contacts: below }), [store, full, below]);
   return <SceneContext.Provider value={value}>{children}</SceneContext.Provider>;
 }
 
@@ -136,9 +149,10 @@ export function Lathe(
     seams?: number[];
     marks?: number[];
     lineSets?: readonly { segment: number; lines: LineSetSpec }[];
+    subdivisions?: number;
   },
 ) {
-  const { profile, steps, seams, marks, lineSets } = props;
+  const { profile, steps, seams, marks, lineSets, subdivisions } = props;
   return usePart(props, {
     kind: 'lathe',
     profile,
@@ -146,6 +160,7 @@ export function Lathe(
     ...(seams && { seams }),
     ...(marks && { marks }),
     ...(lineSets && { lineSets }),
+    ...(subdivisions !== undefined && { subdivisions }),
   });
 }
 
@@ -231,6 +246,73 @@ export function Marks({
   return null;
 }
 
+// ---- sprites ---------------------------------------------------------------------------------
+
+function useSprite(id: string, placement: Placement, spec: SpriteSpec) {
+  const { store, path } = useScene();
+  const full = joinId(path, id);
+  const transform = transformOf(placement);
+  const key = stableKey({ spec, transform });
+  useLayoutEffect(() => {
+    const token = store.sprite(full, { ...parentOf(path), transform, ...spec });
+    return () => store.remove(full, token);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, full, path, key]);
+  return null;
+}
+
+/** The kit's soft floor shadow under a plan (rounded rect centred on the node's origin). */
+export function Halo({
+  id,
+  plan,
+  sigma,
+  shift,
+  ...placement
+}: Placement & { id: string; plan: { w: number; d: number; r: number }; sigma?: number; shift?: number }) {
+  return useSprite(id, placement, {
+    kind: 'halo',
+    plan,
+    ...(sigma !== undefined && { sigma }),
+    ...(shift !== undefined && { shift }),
+  });
+}
+
+/** A screen-facing glow disc at the node's origin; its `level` is live via `useNode`. */
+export function Glow({
+  id,
+  fx,
+  radius,
+  grow,
+  opacity,
+  cap,
+  blend,
+  bias,
+  level,
+  ...placement
+}: Placement & {
+  id: string;
+  fx: FxName;
+  radius: number;
+  grow?: number;
+  opacity: number;
+  cap?: number;
+  blend: 'normal' | 'glow';
+  bias?: number;
+  level?: number;
+}) {
+  return useSprite(id, placement, {
+    kind: 'disc',
+    fx,
+    radius,
+    opacity,
+    blend,
+    ...(grow !== undefined && { grow }),
+    ...(cap !== undefined && { cap }),
+    ...(bias !== undefined && { bias }),
+    ...(level !== undefined && { level }),
+  });
+}
+
 // ---- per-frame hooks -------------------------------------------------------------------------
 
 /** Run `cb` every frame (scene time). Never set React state in it. */
@@ -243,8 +325,8 @@ export function useFrame(cb: (f: FrameInfo) => void): void {
   useEffect(() => store.onFrame((f) => ref.current(f)), [store]);
 }
 
-/** A lazy getter for a moving group or pool below the current group; resolves on first call. */
-export function useNode<H extends GroupHandle | PoolHandle>(relId: string): () => H {
+/** A lazy getter for a moving group, pool or sprite below the current group; resolves on first call. */
+export function useNode<H extends GroupHandle | PoolHandle | SpriteHandle>(relId: string): () => H {
   const { store, path } = useScene();
   const full = joinId(path, relId);
   return useMemo(() => {

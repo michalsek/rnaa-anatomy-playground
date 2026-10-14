@@ -51,7 +51,7 @@
 
 ## 2. Roadmap
 
-**M2: building blocks (3–4 days)**
+**M2: building blocks**
 - Generators: extrude (box becomes a wrapper), lathe seams, closed tube, belt.
 - Plan and tube tone rules.
 - Instances, styles and batches.
@@ -63,7 +63,7 @@
   - If contacts misbehave: author contacts flush and drop `contact.ts`.
   - If RN breaks: report to the user.
 
-**M3: static centrifuge (3 days)**
+**M3: static centrifuge**
 - `apps/app/src/machines/centrifuge/*.tsx`, built from the census.
 - Engine additions:
   - a transparent pass for the halo and glow (multiply in light, screen in dark);
@@ -74,9 +74,9 @@
 - Overlay `apps/app/src/overlay/Card.tsx`: RN views, kit fonts and `CARD` tokens. The readout is static for now. On narrow screens the hint goes above the readout.
 - Token pass: dark-mode contrast and the `hi` subject outline.
 - Views: `fit`, plus crops matching `qa/z-rotor`, `z-instr`, `z-drive` and `z-funnel`.
-- **Go/no-go:** a style review next to `shot.png` / `centrifuge(-light).html`, light and dark. One tuning round of at most ½ day.
+- **Go/no-go:** a style review next to `shot.png` / `centrifuge(-light).html`, light and dark. One tuning round, then decide.
 
-**M4: animated centrifuge (2–3 days)**
+**M4: animated centrifuge**
 - `packages/engine/src/sim/centrifuge.ts`: a port of the final v2 sim.
   - Plain TS, typed state.
   - Fixed step of 1/120 s, at most 8 substeps, dt clamped to 0.1 s.
@@ -88,12 +88,8 @@
   - the glow level;
   - packet and slat pool poses.
 - Readout through a throttled external store (`useSyncExternalStore`). Phase changes are announced via `accessibilityLiveRegion`.
-- Reduced motion, from `AccessibilityInfo.isReduceMotionEnabled()` plus its listener (RN-web maps it to the media query):
-  - nothing moves;
-  - packets are placed instantly, one leaves per quantum by the clock;
-  - the readout says `0 rpm · passing packets`;
-  - instance uploads are skipped while nothing changes.
-- **Go/no-go:** one full cycle of about 30 s on web and the iOS sim, compared phase by phase against `qa/t-*.png` and `cycle-sheet.png`. Reduced motion stays still. Motion is smooth on the iOS sim.
+- ~~Reduced motion~~: dropped by the user (2026-10-14), not needed for the showcase. Don't build or prepare for it.
+- **Go/no-go:** one full cycle of about 30 s on web and the iOS sim, compared phase by phase against `qa/t-*.png` and `cycle-sheet.png`. Motion is smooth on the iOS sim.
 
 **Cut or deferred**
 - Gear generator: none in the centrifuge.
@@ -105,7 +101,7 @@
 - Orbit beyond presets; explode.
 - M5 tuning overrides; Android builds.
 
-**First to cut if a timebox is tight:** lifting eyes, screw rings (keep the dots), label-plate rules, cabinet vents and plate, drain-wheel spokes, oiler.
+**First to cut if scope must shrink:** lifting eyes, screw rings (keep the dots), label-plate rules, cabinet vents and plate, drain-wheel spokes, oiler.
 
 ## 3. Detailed M2 plan
 

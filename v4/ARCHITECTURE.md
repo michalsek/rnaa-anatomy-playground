@@ -154,7 +154,7 @@ Cost ≈ 1–2 days. A 3D drag gizmo is optional later (≈ 3–5 days in pure T
 | **M1** | **line spike** (riskiest) | in-face crease/boundary/silhouette lines + band AA + one procedural UV line set (ticks) on box, lathe and tube; screenshot next to the v2 tach and rotor crops | 2–3 days | you judge: does it read as Anatomy? If not, try the screen-space or hybrid fallback, or reconsider B |
 | M2 | building blocks | generators: extrude+bevel, lathe, tube sweep, belt, gear/ribs; instancing; part transforms; `<Scene>` / `<Machine>` / block components + SceneStore | 4–6 days | Node tests; a gallery page of all blocks |
 | M3 | centrifuge, static | `machines/centrifuge.tsx` composed from blocks; halo, gradient, glow; overlay card | 3–4 days | side-by-side with the v2 page, your style review |
-| M4 | centrifuge, animated | sim port (fill / spin / release, packets) via `useFrame` + instance pools; reduced motion | 3 days | perf smoke desktop + throttled phone |
+| M4 | centrifuge, animated | sim port (fill / spin / release, packets) via `useFrame` + instance pools | 3 days | perf smoke desktop + throttled phone |
 | M5 | fine-tuning | §5 | 1–2 days | you nudge something and the agent sees it in the overrides + edits log |
 | later | more machines; native phase (dev build, worklets, `present()`), WebGPU-unavailable fallback (poster image) | | | |
 

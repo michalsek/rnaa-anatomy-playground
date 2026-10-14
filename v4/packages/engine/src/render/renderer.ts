@@ -19,25 +19,30 @@ import {
   viewCamera,
 } from '../camera/camera.ts';
 import type { LineSetSpec } from '../geo/spec.ts';
-import { MATERIALS, PAPER, SLOT, SLOT_COUNT, type Theme, hexToRgb, paletteTable } from '../palette/tokens.ts';
+import { FX, PALETTE_SIZE, PAPER, SLOT, type Theme, hexToRgb, paletteTable } from '../palette/tokens.ts';
 import type { SceneBuild, SceneStore } from '../scene/store.ts';
 import {
   Frame,
   GpuTri,
   GpuVertex,
+  Gradient,
   Instance,
+  LINE_KIND,
   LineSet,
   Mark,
+  Sprite,
   Style,
   assertLayouts,
   sceneLayout,
 } from './schemas.ts';
-import { fillFragment, fillVertex, marksFragment, marksVertex } from './shaders.ts';
+import { fillFragment, fillVertex, marksFragment, marksVertex, spriteFragment, spriteVertex } from './shaders.ts';
 
 const SAMPLES = 4;
 /** `GPUTextureUsage.RENDER_ATTACHMENT`; the literal avoids relying on a host global. */
 const RENDER_ATTACHMENT = 0x10;
 const DEPTH_FORMAT = 'depth24plus';
+/** DEV warning: the triangle budget (M3: target 120k, warn above 150k). */
+const TRIANGLE_WARNING = 150_000;
 /** Placeholder so the line-set table is never empty (draws nothing: last < first). */
 const NO_LINES: LineSetSpec = {
   count: 1, phase: 0, first: 0, last: -1, majorEvery: 0,
@@ -100,6 +105,9 @@ function lineSetData(s: LineSetSpec) {
     width: s.width,
     majorWidth: s.majorWidth,
     fade: d.vec2f(s.fade[0], s.fade[1]),
+    kind: LINE_KIND[s.kind ?? 'lines'],
+    duty: s.duty ?? 0.5,
+    fill: FX[s.fill ?? 'strobe'],
   };
 }
 
@@ -111,7 +119,7 @@ export function createRenderer(options: RendererOptions): Renderer {
   // ---- static resources --------------------------------------------------------------------
   const frameBuffer = root.createBuffer(Frame).$usage('uniform');
   const palette = root
-    .createBuffer(d.arrayOf(d.vec4f, MATERIALS.length * SLOT_COUNT))
+    .createBuffer(d.arrayOf(d.vec4f, PALETTE_SIZE))
     .$usage('storage');
 
   const fillPipeline = root.createRenderPipeline({
@@ -148,16 +156,40 @@ export function createRenderer(options: RendererOptions): Renderer {
     multisample: { count: SAMPLES },
   });
 
+  // Sprites: premultiplied, depth-tested, no depth write. `glow` sprites blend multiply on
+  // light and screen on dark (v2's `.cf-glow`); everything else is premultiplied over.
+  const spritePipeline = (color: GPUBlendComponent) =>
+    root.createRenderPipeline({
+      vertex: spriteVertex,
+      fragment: spriteFragment,
+      targets: {
+        format,
+        blend: { color, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } },
+      },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'less-equal' },
+      multisample: { count: SAMPLES },
+    });
+  const spriteNormal = spritePipeline({ srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' });
+  const spriteMultiply = spritePipeline({ srcFactor: 'dst', dstFactor: 'one-minus-src-alpha', operation: 'add' });
+  const spriteScreen = spritePipeline({ srcFactor: 'one-minus-dst', dstFactor: 'one', operation: 'add' });
+
   // ---- scene resources (rebuilt when the store's structure changes) --------------------------
   type SceneGpu = {
     version: number;
     build: SceneBuild;
     owned: { destroy(): void }[];
     instances: ReturnType<typeof makeInstances>;
+    sprites: ReturnType<typeof makeSprites>;
     fill: typeof fillPipeline;
     open: typeof openPipeline;
     marks: typeof marksPipeline;
+    spriteNormal: typeof spriteNormal;
+    spriteMultiply: typeof spriteMultiply;
+    spriteScreen: typeof spriteScreen;
   };
+  const makeSprites = (count: number) =>
+    root.createBuffer(d.arrayOf(Sprite, Math.max(1, count))).$usage('storage');
   const makeInstances = (count: number) =>
     root.createBuffer(d.arrayOf(Instance, Math.max(1, count))).$usage('storage');
   let scene: SceneGpu | null = null;
@@ -179,6 +211,9 @@ export function createRenderer(options: RendererOptions): Renderer {
     lineSets.write(sets.map(lineSetData));
     const marks = root.createBuffer(d.arrayOf(Mark, Math.max(1, build.markCount))).$usage('storage');
     marks.write(build.marks);
+    const gradients = root.createBuffer(d.arrayOf(Gradient, Math.max(1, build.gradientCount))).$usage('storage');
+    gradients.write(build.gradients);
+    const sprites = makeSprites(build.spriteCount);
     const bindGroup = root.createBindGroup(sceneLayout, {
       frame: frameBuffer,
       vertices,
@@ -188,16 +223,22 @@ export function createRenderer(options: RendererOptions): Renderer {
       lineSets,
       palette,
       marks,
+      gradients,
+      sprites,
     });
     const boundsChanged = !scene || !sameBounds(scene.build.bounds, build.bounds);
     scene = {
       version: store.version,
       build,
-      owned: [vertices, tris, instances, styles, lineSets, marks],
+      owned: [vertices, tris, instances, styles, lineSets, marks, gradients, sprites],
       instances,
+      sprites,
       fill: fillPipeline.with(bindGroup),
       open: openPipeline.with(bindGroup),
       marks: marksPipeline.with(bindGroup),
+      spriteNormal: spriteNormal.with(bindGroup),
+      spriteMultiply: spriteMultiply.with(bindGroup),
+      spriteScreen: spriteScreen.with(bindGroup),
     };
     if (boundsChanged && onPreset) applyPreset();
     if (DEV) {
@@ -208,8 +249,11 @@ export function createRenderer(options: RendererOptions): Renderer {
       log(
         `[engine] scene built in ${(now() - t0).toFixed(1)} ms on ${PLATFORM} (${phases}): ${s.triangles} triangles, ` +
           `${build.vertexCount} vertices, ${s.parts} parts, ${s.pools} pools, ${s.instances} instances, ` +
-          `${s.marks} marks (${s.contacts} contact segments), ${build.batches.length} batches`,
+          `${s.marks} marks (${s.contacts} contact segments), ${s.sprites} sprites, ${build.batches.length} batches`,
       );
+      if (s.triangles > TRIANGLE_WARNING) {
+        log(`[engine] warning: ${s.triangles} triangles is over the ${TRIANGLE_WARNING} budget`);
+      }
     }
   };
 
@@ -240,7 +284,10 @@ export function createRenderer(options: RendererOptions): Renderer {
   // Line widths scale with zoom relative to the fit zoom, cached per view and resize so they
   // stay put while orbiting.
   let refZoom = camera.zoom;
+  // A preset's cap on that line scale (crops of a big machine would otherwise ink very thick).
+  let lineCap = Infinity;
   let debug: DebugMode = 0;
+  let theme: Theme = options.theme;
   const matrices = createCameraMatrices();
   let clear: [number, number, number, number] = [0, 0, 0, 1];
 
@@ -253,11 +300,13 @@ export function createRenderer(options: RendererOptions): Renderer {
       : fitToBounds(bounds, viewport, { yaw: camera.yaw, elevation: camera.elevation });
     onPreset = true;
     refZoom = fitZoomNow();
+    lineCap = preset?.lines ?? Infinity;
   }
 
-  const setTheme = (theme: Theme) => {
-    palette.write(paletteTable(theme));
-    clear = [...hexToRgb(PAPER[theme]), 1];
+  const setTheme = (next: Theme) => {
+    theme = next;
+    palette.write(paletteTable(next));
+    clear = [...hexToRgb(PAPER[next]), 1];
   };
   setTheme(options.theme);
   if (DEV) log(`[engine] renderer up on ${PLATFORM}: ${format}`);
@@ -294,6 +343,8 @@ export function createRenderer(options: RendererOptions): Renderer {
     if (flat.dirty && flat.used) {
       s.instances.write(flat.f32.buffer as ArrayBuffer);
     }
+    const sprites = store.sprites();
+    if (sprites.dirty && sprites.count) s.sprites.write(sprites.buffer);
 
     cameraMatrices(camera, viewport, 1000, matrices);
     const basis = basisOf(camera.yaw, camera.elevation);
@@ -305,7 +356,7 @@ export function createRenderer(options: RendererOptions): Renderer {
       up: d.vec3f(...basis.up),
       viewport: d.vec2f(viewport.width, viewport.height),
       // Line widths scale with zoom like a pinch-zoomed SVG: 1 CSS px at the fit zoom.
-      pxPerCss: (viewport.dpr * camera.zoom) / refZoom,
+      pxPerCss: viewport.dpr * Math.min(camera.zoom / refZoom, lineCap),
       pxPerUnit: viewport.dpr * camera.zoom,
       debug,
       paper: d.vec4f(...clear),
@@ -336,6 +387,10 @@ export function createRenderer(options: RendererOptions): Renderer {
       }
     }
     if (s.build.markCount > 0 && debug !== 2) s.marks.with(pass).draw(6, s.build.markCount);
+    const [nFirst, nCount] = s.build.spriteRanges.normal;
+    if (nCount > 0) s.spriteNormal.with(pass).draw(6, nCount, 0, nFirst);
+    const [gFirst, gCount] = s.build.spriteRanges.glow;
+    if (gCount > 0) (theme === 'dark' ? s.spriteScreen : s.spriteMultiply).with(pass).draw(6, gCount, 0, gFirst);
     pass.end();
     device.queue.submit([encoder.finish()]);
     context.present?.();

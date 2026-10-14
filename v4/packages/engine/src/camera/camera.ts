@@ -221,11 +221,22 @@ export interface ViewPreset {
   elevation: number;
   zoom: number;
   focus?: [number, number, number];
+  /** Fit this world box (min, max corners) instead of the scene bounds; `zoom` multiplies it. */
+  frame?: readonly [readonly [number, number, number], readonly [number, number, number]];
+  /**
+   * Cap on the line scale (line widths grow with zoom relative to the scene's fit): a crop
+   * draws lines at most `lines` × their fit width.
+   */
+  lines?: number;
 }
 
-/** Camera for a view preset: fit the bounds at the view's angles, then zoom and re-centre. */
+/** Camera for a view preset: fit the bounds (or the view's frame) at the view's angles, then
+ * zoom and re-centre. */
 export function viewCamera(bounds: Bounds, viewport: Viewport, view: ViewPreset): CameraState {
-  const fit = fitToBounds(bounds, viewport, {
+  const box: Bounds = view.frame
+    ? { min: [...view.frame[0]], max: [...view.frame[1]] }
+    : bounds;
+  const fit = fitToBounds(box, viewport, {
     yaw: view.yaw * DEG,
     elevation: view.elevation * DEG,
   });

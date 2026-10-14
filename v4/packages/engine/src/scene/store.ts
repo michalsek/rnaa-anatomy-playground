@@ -18,8 +18,8 @@ import { contactSegments } from '../geo/contact.ts';
 import type { Vec3 } from '../geo/mesh.ts';
 import { type GeoKind, type GeoSpec, type LineSetSpec, type Prototype, buildGeo } from '../geo/spec.ts';
 import { FLAG, NO_NEIGHBOUR, triangleCountOf } from '../geo/topology.ts';
-import { DOT_OPACITY, type LineTone, MATERIAL, type Material, SLOT } from '../palette/tokens.ts';
-import { INSTANCE, INSTANCE_FLOATS, MARK, SIZES, TONE_RULE, VERTEX_FLOATS } from '../render/schemas.ts';
+import { DOT_OPACITY, FX, type FxName, type LineTone, MATERIAL, type Material, SLOT } from '../palette/tokens.ts';
+import { INSTANCE, INSTANCE_FLOATS, MARK, SIZES, SPRITE, TONE_RULE, VERTEX_FLOATS } from '../render/schemas.ts';
 
 export type Token = number;
 
@@ -42,6 +42,42 @@ export interface StyleSpec {
   width?: number;
   /** Default: plan for box/extrude, tube for tube/belt, bands for lathe. */
   tone?: ToneRule;
+  /**
+   * Tone `gradient`: a linear gradient from `from` to `to` (model space, measured on screen
+   * like SVG's userSpaceOnUse), through three FX stops with the middle one at `mid` (.5).
+   */
+  gradient?: { from: Vec3; to: Vec3; stops: readonly [FxName, FxName, FxName]; mid?: number };
+}
+
+/** Sprites: transparent screen-space effects drawn after the marks (no depth write). */
+export type SpriteSpec =
+  | {
+      kind: 'halo';
+      /** Plan of the shadow (rounded rect, centred on the node's origin on its floor plane). */
+      plan: { w: number; d: number; r: number };
+      /** Blur σ in world units at screen scale (default 3.1: the kit's 9 px blur at KS 2.88). */
+      sigma?: number;
+      /** Screen-down shift in world units at screen scale (default 1.04: the kit's 3 px). */
+      shift?: number;
+    }
+  | {
+      kind: 'disc';
+      radius: number;
+      grow?: number;
+      opacity: number;
+      cap?: number;
+      fx: FxName;
+      /** `glow` blends multiply in light and screen in dark; `normal` is premultiplied over. */
+      blend: 'normal' | 'glow';
+      /** World units toward the viewer (clears the surface the glow sits on). */
+      bias?: number;
+      level?: number;
+    };
+
+export interface SpriteHandle {
+  readonly id: string;
+  /** Disc: r = radius + grow · level, alpha = min(opacity · level, cap). */
+  level: number;
 }
 
 export type DotTone = keyof typeof DOT_OPACITY;
@@ -76,7 +112,6 @@ export interface FrameInfo {
   /** Scene time and step, seconds (step clamped by the shell). */
   t: number;
   dt: number;
-  reduced: boolean;
 }
 
 export interface GroupHandle {
@@ -120,13 +155,19 @@ export interface SceneBuild {
   /** 16 words per mark (Mark). */
   marks: ArrayBuffer;
   markCount: number;
+  /** 12 words per gradient (Gradient). */
+  gradients: ArrayBuffer;
+  gradientCount: number;
+  /** Sprite draws: `normal` blend first, then `glow` (the table itself comes from `sprites()`). */
+  spriteCount: number;
+  spriteRanges: { normal: [first: number, count: number]; glow: [first: number, count: number] };
   bounds: Bounds;
-  stats: { parts: number; pools: number; triangles: number; instances: number; marks: number; contacts: number };
+  stats: { parts: number; pools: number; triangles: number; instances: number; marks: number; contacts: number; sprites: number };
   /** Milliseconds per build phase (DEV log). */
   timings: Record<string, number>;
 }
 
-type NodeKind = 'group' | 'part' | 'pool' | 'marks';
+type NodeKind = 'group' | 'part' | 'pool' | 'marks' | 'sprite';
 
 interface NodeBase {
   kind: NodeKind;
@@ -172,7 +213,12 @@ interface MarksNode extends NodeBase {
   kind: 'marks';
   spec: MarksSpec;
 }
-type Node = GroupNode | PartNode | PoolNode | MarksNode;
+interface SpriteNode extends NodeBase {
+  kind: 'sprite';
+  spec: SpriteSpec;
+  level: number;
+}
+type Node = GroupNode | PartNode | PoolNode | MarksNode | SpriteNode;
 
 const DEFAULT_TONE: Record<GeoKind, ToneRule> = {
   box: 'plan',
@@ -297,11 +343,14 @@ export class SceneStore {
   private u32 = new Uint32Array(this.f32.buffer);
   private dirtyAny = true;
   private flattenStamp = 0;
+  private spriteNodes: SpriteNode[] = [];
+  private spriteTable = new ArrayBuffer(SIZES.sprite);
+  private spritesDirty = true;
+  private spriteSlots: number[] = [];
   private readonly local = mat4.create();
   private readonly tmp = mat4.create();
   private readonly scratch = mat4.create();
   private readonly v3 = vec3.create();
-  readonly motion = { reduced: false };
   version = 0;
 
   // ---- registration ----------------------------------------------------------------------
@@ -356,6 +405,16 @@ export class SceneStore {
     return this.add({ ...this.base('marks', id, parent, transform), kind: 'marks', spec });
   }
 
+  sprite(id: string, o: { parent?: string; transform?: Transform } & SpriteSpec): Token {
+    const { parent, transform, ...spec } = o;
+    return this.add({
+      ...this.base('sprite', id, parent, transform),
+      kind: 'sprite',
+      spec,
+      level: spec.kind === 'disc' ? (spec.level ?? 1) : 1,
+    });
+  }
+
   /** Remove a node; a no-op unless `token` is the node's current one (StrictMode, Fast Refresh). */
   remove(id: string, token: Token): void {
     const node = this.nodes.get(id);
@@ -391,14 +450,15 @@ export class SceneStore {
   // ---- handles ---------------------------------------------------------------------------
 
   /** A handle on a moving group or a pool. Throws for unknown ids. */
-  node(id: string): GroupHandle | PoolHandle {
+  node(id: string): GroupHandle | PoolHandle | SpriteHandle {
     const node = this.lookup(id);
     if (node.kind === 'pool') return this.poolHandle(id);
+    if (node.kind === 'sprite') return this.spriteHandle(id);
     if (node.kind === 'group') {
       if (!node.moves) throw new Error(`group "${id}" is not declared with moves`);
       return this.groupHandle(id);
     }
-    throw new Error(`"${id}" is a ${node.kind}; only moving groups and pools have handles`);
+    throw new Error(`"${id}" is a ${node.kind}; only moving groups, pools and sprites have handles`);
   }
 
   group$(id: string): GroupHandle {
@@ -411,6 +471,30 @@ export class SceneStore {
     const h = this.node(id);
     if (!('pose' in h)) throw new Error(`"${id}" is not a pool`);
     return h;
+  }
+
+  sprite$(id: string): SpriteHandle {
+    const h = this.node(id);
+    if (!('level' in h)) throw new Error(`"${id}" is not a sprite`);
+    return h;
+  }
+
+  private spriteHandle(id: string): SpriteHandle {
+    const get = () => this.lookup(id) as SpriteNode;
+    const store = this;
+    return {
+      id,
+      get level() {
+        return get().level;
+      },
+      set level(value: number) {
+        const n = get();
+        if (!Number.isFinite(value)) throw new Error(`sprite "${id}": bad level ${value}`);
+        if (n.level === value) return;
+        n.level = value;
+        store.spritesDirty = true;
+      },
+    };
   }
 
   private lookup(id: string): Node {
@@ -518,7 +602,7 @@ export class SceneStore {
   }
 
   tick(t: number, dt: number): void {
-    const info = { t, dt, reduced: this.motion.reduced };
+    const info = { t, dt };
     for (const cb of this.frameCallbacks) cb(info);
   }
 
@@ -546,7 +630,9 @@ export class SceneStore {
       restWorld.set(n.id, parent ? mat4.multiply(parent, n.rest) : mat4.clone(n.rest));
     }
 
-    const statics = order.filter((n): n is PartNode | MarksNode => n.kind === 'part' || n.kind === 'marks');
+    const statics = order.filter(
+      (n): n is PartNode | MarksNode | SpriteNode => n.kind === 'part' || n.kind === 'marks' || n.kind === 'sprite',
+    );
     statics.sort((a, b) => (a.id < b.id ? -1 : 1));
     const pools = order.filter((n): n is PoolNode => n.kind === 'pool').sort((a, b) => (a.id < b.id ? -1 : 1));
     const slot = new Map(statics.map((n, k) => [n.id, k]));
@@ -562,22 +648,32 @@ export class SceneStore {
     // instance's style is the pool's base + k.
     const styleWords: number[] = [];
     const styleIndex = new Map<string, number>();
+    const gradientWords: number[] = [];
     const resolveStyle = (s: StyleSpec, kind: GeoKind) => {
       const material = MATERIAL[s.material];
       if (material === undefined) throw new Error(`unknown material "${s.material}"`);
+      const tone = s.tone ?? DEFAULT_TONE[kind];
+      let gradient = 0;
+      if (tone === 'gradient') {
+        const g = s.gradient;
+        if (!g) throw new Error(`tone 'gradient' needs a gradient spec`);
+        gradient = gradientWords.length / 12;
+        gradientWords.push(...g.from, g.mid ?? 0.5, ...g.to, 0, ...g.stops.map((x) => FX[x]), 0);
+      }
       return [
         material,
         SLOT[s.outline ?? 'mid'],
         SLOT[s.crease ?? 'faint'],
-        TONE_RULE[s.tone ?? DEFAULT_TONE[kind]],
+        TONE_RULE[tone],
         s.width ?? 0.6,
-        0, 0, 0,
+        gradient, 0, 0,
       ];
     };
     const style = new Map<string, number>();
     for (const n of statics) {
       if (n.kind !== 'part') continue;
       const words = resolveStyle(n.style, n.geo.kind);
+      // A gradient style carries its own table row, so it never dedups with another.
       const key = words.join(',');
       let index = styleIndex.get(key);
       if (index === undefined) {
@@ -709,6 +805,14 @@ export class SceneStore {
       contactCount += s.length / 6;
     }
     const markCount = markWords.length / 16;
+    // Sprites: normal blend first, then glow; each rides its node's static instance slot.
+    const sprites = statics.filter((n): n is SpriteNode => n.kind === 'sprite');
+    const isGlow = (n: SpriteNode) => n.spec.kind === 'disc' && n.spec.blend === 'glow';
+    this.spriteNodes = [...sprites.filter((n) => !isGlow(n)), ...sprites.filter(isGlow)];
+    this.spriteSlots = this.spriteNodes.map((n) => slot.get(n.id)!);
+    const glowCount = sprites.filter(isGlow).length;
+    this.spriteTable = new ArrayBuffer(Math.max(1, sprites.length) * SIZES.sprite);
+    this.spritesDirty = true;
     const marks = new ArrayBuffer(Math.max(1, markCount) * SIZES.mark);
     {
       const mf = new Float32Array(marks);
@@ -761,6 +865,18 @@ export class SceneStore {
     }
     this.dirtyAny = true;
 
+    const gradientCount = gradientWords.length / 12;
+    const gradients = new ArrayBuffer(Math.max(1, gradientCount) * SIZES.gradient);
+    {
+      const gf = new Float32Array(gradients);
+      const gu = new Uint32Array(gradients);
+      // Word layout: from(3) mid to(3) _p fx(3) _q.
+      gradientWords.forEach((w, i) => {
+        const k = i % 12;
+        if (k >= 7) gu[i] = w;
+        else gf[i] = w;
+      });
+    }
     const styles = new ArrayBuffer(Math.max(1, styleWords.length / 8) * SIZES.style);
     {
       const sf = new Float32Array(styles);
@@ -782,6 +898,13 @@ export class SceneStore {
       lineSets,
       marks,
       markCount,
+      gradients,
+      gradientCount,
+      spriteCount: this.spriteNodes.length,
+      spriteRanges: {
+        normal: [0, this.spriteNodes.length - glowCount],
+        glow: [this.spriteNodes.length - glowCount, glowCount],
+      },
       bounds: { min, max, points },
       stats: {
         parts: parts.length,
@@ -790,6 +913,7 @@ export class SceneStore {
         instances: instanceCount,
         marks: markCount,
         contacts: contactCount,
+        sprites: this.spriteNodes.length,
       },
       timings,
     };
@@ -916,7 +1040,7 @@ export class SceneStore {
         else mat4.copy(m, n.world);
         n.dirty = false;
         n.stamp = stamp;
-        if (n.kind === 'part' || n.kind === 'marks') {
+        if (n.kind === 'part' || n.kind === 'marks' || n.kind === 'sprite') {
           const k = b.slot.get(n.id)!;
           this.writeInstance(k, n.world, n.kind === 'part' ? b.style.get(n.id)! : 0, INSTANCE.visible);
         }
@@ -942,6 +1066,40 @@ export class SceneStore {
     }
     this.dirtyAny = false;
     return { f32: this.f32, used: b.instanceCount, dirty: true };
+  }
+
+  /** The sprite table (16 words per sprite, in draw order); `dirty` after a build or a level change. */
+  sprites(): { buffer: ArrayBuffer; count: number; dirty: boolean } {
+    const count = this.spriteNodes.length;
+    if (!this.spritesDirty) return { buffer: this.spriteTable, count, dirty: false };
+    const f = new Float32Array(this.spriteTable);
+    const u = new Uint32Array(this.spriteTable);
+    this.spriteNodes.forEach((n, i) => {
+      const o = i * 16;
+      const sp = n.spec;
+      f.fill(0, o, o + 16);
+      u[o + 13] = this.spriteSlots[i]!;
+      f[o + 14] = n.level;
+      if (sp.kind === 'halo') {
+        u[o + 3] = SPRITE.halo;
+        f[o + 4] = sp.plan.w / 2;
+        f[o + 5] = sp.plan.d / 2;
+        f[o + 6] = Math.min(sp.plan.r, sp.plan.w / 2, sp.plan.d / 2);
+        f[o + 7] = sp.sigma ?? 3.1;
+        u[o + 12] = FX.halo;
+        f[o + 15] = sp.shift ?? 1.04;
+      } else {
+        u[o + 3] = SPRITE.disc;
+        f[o + 8] = sp.radius;
+        f[o + 9] = sp.grow ?? 0;
+        f[o + 10] = sp.opacity;
+        f[o + 11] = sp.cap ?? 1;
+        u[o + 12] = FX[sp.fx];
+        f[o + 15] = sp.bias ?? 0;
+      }
+    });
+    this.spritesDirty = false;
+    return { buffer: this.spriteTable, count, dirty: true };
   }
 
   private writeInstance(k: number, model: Float32Array, style: number, flags: number) {
