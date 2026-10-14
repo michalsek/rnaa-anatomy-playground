@@ -7,15 +7,23 @@
  * port's `canAccept(lead)`, i.e. the loop's `canTake`) and HOLD (via the controller).
  */
 import type { Clock, Machine } from '../clock.ts';
-import type { Item } from '../items.ts';
+import type { PoseSource } from '../items.ts';
+import { type Spring, TAU, ease, settle } from '../math.ts';
 import { type OutPort, type Located, type Receiver, type V3, createOut } from '../ports.ts';
-import { type PhaseWord, type SpinController, type SpinIO, type SpinState, type SyncInfo, createSpinController, settle } from './controller.ts';
+import { type PhaseWord, type SpinController, type SpinIO, type SyncInfo, createSpinController } from './controller.ts';
 import { CF, type SpinMode, type Tray, type TrayState, createTray } from './packets.ts';
 
 export { CF, type SpinMode } from './packets.ts';
-export { type PhaseWord, type SpinController, type SpinIO, type SpinState, type SyncInfo, createSpinController } from './controller.ts';
+export {
+  type ControllerOptions,
+  type PhaseWord,
+  type SpinController,
+  type SpinIO,
+  type SyncInfo,
+  createRampController,
+  createSpinController,
+} from './controller.ts';
 
-const TAU = Math.PI * 2;
 /** Phase log entries kept (the oldest drop off). */
 const LOG_MAX = 200;
 
@@ -40,13 +48,13 @@ export interface Outputs {
   lamp: number;
 }
 
+/** The machine's own state (the controller keeps its own: `controller.state`). */
 export interface CentrifugeState {
   tray: TrayState;
-  spin: SpinState;
   log: { t: number; phase: PhaseWord }[];
   motorA: number;
-  lamp: { x: number; v: number };
-  needle: { x: number; v: number };
+  lamp: Spring;
+  needle: Spring;
 }
 
 export interface CentrifugeOptions {
@@ -58,11 +66,11 @@ export interface CentrifugeOptions {
   canRelease?: (lead: number) => boolean;
   /** Packets held before the spin (default RATES.HOLD). */
   hold?: number;
-  /** Another spin model (default: M4's index/spin/down). */
+  /** Another spin model (default: M4's index/spin/down; `hold` is then the controller's). */
   controller?: SpinController;
 }
 
-export interface Centrifuge extends Machine, Located, Receiver {
+export interface Centrifuge extends Machine, Located, Receiver, PoseSource {
   readonly state: CentrifugeState;
   readonly tray: Tray;
   readonly controller: SpinController;
@@ -72,11 +80,8 @@ export interface Centrifuge extends Machine, Located, Receiver {
   status(out?: Status): Status;
   /** Rotor and motor extrapolated by w · acc (smooth at any display rate). */
   outputs(out: Outputs): Outputs;
-  /** Every packet's pose (bottom centre, yaw) at t + acc; returns the count. */
-  poses(cb: (i: number, item: Item, x: number, y: number, z: number, yaw: number) => void): number;
 }
 
-const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 const burst = (age: number, rise: number, fall: number) =>
   age < 0 ? 0 : age < rise ? ease(age / rise) : Math.exp(-(age - rise) / fall);
 const openAt = (age: number) =>
@@ -85,10 +90,10 @@ const openAt = (age: number) =>
 export function createCentrifuge(clock: Readonly<Clock>, o: CentrifugeOptions): Centrifuge {
   const ctl = o.controller ?? createSpinController(o.hold !== undefined ? { hold: o.hold } : {});
   const tray = createTray(clock, ctl);
-  const out = createOut(o, 'out');
+  // Asks first: a release waits for the receiver's `canAccept(lead)` (via canRelease).
+  const out = createOut(o, 'out', { asks: true });
   const state: CentrifugeState = {
     tray: tray.state,
-    spin: ctl.state,
     log: [{ t: 0, phase: ctl.phase }],
     motorA: 0,
     lamp: { x: 0, v: 0 },
@@ -111,6 +116,8 @@ export function createCentrifuge(clock: Readonly<Clock>, o: CentrifugeOptions): 
     controller: ctl,
     outs: { out },
     releaseOverride: null,
+    // §A: the intake throws when closed, so belt B must hold (ask) before handing on.
+    strict: true,
     canAccept: () => tray.canAccept(),
     accept: (item, from) => tray.accept(item, from),
     step(h) {

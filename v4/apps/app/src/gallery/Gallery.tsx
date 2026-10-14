@@ -22,6 +22,7 @@ import {
   pathPoint,
   polyline,
   sphereProfile,
+  helix,
   stadium,
   tilt,
 } from '@anatomy/engine';
@@ -405,6 +406,8 @@ function BeltRow() {
   const cleats = useNode<PoolHandle>('belt.loop.cleats');
   const blended = useNode<PoolHandle>('belt.blend.packet');
   const squashed = useNode<PoolHandle>('belt.squash.packet');
+  const ball = useNode<PoolHandle>('belt.squash.ball');
+  const coil = useNode<PoolHandle>('belt.squash.coil');
   const [q] = useState(pathPoint);
   useFrame(({ t }) => {
     // E1: the slats run at 4 units/s.
@@ -424,11 +427,20 @@ function BeltRow() {
     b.pose(0, 0, 0, 0.6, 0);
     b.style(0, 0);
     b.blend(0, 1, mix);
-    // E3: squash (axis scale, normals stay right on the box faces).
+    // E3: squash by axis scale on a rounded box, a sphere and a coil (turned, so the scale is
+    // not along the world axes): normals are R·S⁻¹·n, so bevels and curves keep their tones.
     const sq = squashed();
     sq.count = 1;
-    sq.pose(0, 0, 0, 0.6, 0);
-    sq.scale(0, 1 + 0.25 * mix, 1 + 0.25 * mix, 1 - 0.5 * mix);
+    sq.pose(0, -1.4, 1.6, 0.6, 0.5);
+    sq.scale(0, 1 + 0.3 * mix, 1 + 0.3 * mix, 1 - 0.6 * mix);
+    const bl = ball();
+    bl.count = 1;
+    bl.pose(0, 2.0, -1.8, 0.6 + 1.6 * (1 - 0.55 * mix), 0.5);
+    bl.scale(0, 1 + 0.25 * mix, 1 - 0.3 * mix, 1 - 0.55 * mix);
+    const co = coil();
+    co.count = 1;
+    co.pose(0, -2.6, -2.4, 1.6, 0.8, Math.PI / 2, 0);
+    co.scale(0, 1, 1, 1 - 0.5 * mix);
   });
   const packetGeo: GeoSpec = { kind: 'box', size: [5, 4, 3.5], r: 0.4, center: [0, 0, 1.75], seams: [1.9] };
   const packetStyles = [{ material: 'pkControl', outline: 'hi' }, { material: 'pkGarbage', outline: 'hi' }] as const;
@@ -453,7 +465,9 @@ function BeltRow() {
       </Group>
       <Group id="squash" position={local('belt', 3)}>
         <Box id="plate" material="steel" size={[8, 8, 0.6]} center={[0, 0, 0.3]} />
-        <Instances id="packet" geo={packetGeo} styles={[...packetStyles]} capacity={1} scalable />
+        <Instances id="packet" geo={{ ...packetGeo, r: 1.4 }} styles={[...packetStyles]} capacity={1} scalable />
+        <Instances id="ball" geo={{ kind: 'lathe', profile: sphereProfile(1.6), subdivisions: 1 }} styles={[{ material: 'react', outline: 'hi' }]} capacity={1} scalable />
+        <Instances id="coil" geo={{ kind: 'tube', path: helix({ from: [0, 0, 0], to: [0, 0, 5], r: 1, turns: 5 }), radius: 0.25, sides: 8, bend: 0 }} styles={[{ material: 'steel', outline: 'lo' }]} capacity={1} scalable />
       </Group>
     </Group>
   );

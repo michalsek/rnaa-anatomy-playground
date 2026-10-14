@@ -14,11 +14,11 @@
  *
  * Coordinates: the machine's local frame (origin = the belt centreline at s = 0, on the floor).
  */
-import { log } from '#platform/env.ts';
+import type { SyncInfo } from './centrifuge/controller.ts';
 import type { Clock, Machine } from './clock.ts';
-import { PARCEL } from './conveyor.ts';
-import { type Fall, createFall, fallAt } from './fall.ts';
-import type { Item } from './items.ts';
+import { type Fall, createFall, fallAt, fallTime } from './fall.ts';
+import { type Item, PACKET_SIZE, type PoseSource } from './items.ts';
+import { clampOpt, mod, relaxYaw, smooth, wrapPi, wrapSym } from './math.ts';
 import { type BeltAxis, type BeltFrame, type PathPoint, type Stadium, beltFrame, pathPoint, stadium, tilt } from './path.ts';
 import { type Located, type OutPort, type Receiver, type V3, createOut } from './ports.ts';
 import { RATES } from './rates.ts';
@@ -107,7 +107,7 @@ export interface Quanta {
   count: number;
 }
 
-export interface Loop extends Machine, Located, Receiver {
+export interface Loop extends Machine, Located, Receiver, PoseSource {
   readonly geometry: LoopGeometry;
   readonly frame: BeltFrame;
   readonly path: Stadium;
@@ -129,8 +129,6 @@ export interface Loop extends Machine, Located, Receiver {
   uShift(): number;
   /** Cleat poses (base on the belt surface, tilt) at t + acc; returns the count. */
   cleats(cb: (j: number, x: number, y: number, z: number, tilt: number) => void): number;
-  /** Parcel poses at t + acc (spend = the grey blend); returns the count. */
-  poses(cb: (i: number, item: Item, spend: number, x: number, y: number, z: number, yaw: number, tilt: number) => void): number;
   /** Bail straps (two per hanging parcel, plus folding empty bails): base, tilt and length. */
   straps(cb: (i: number, x: number, y: number, z: number, tilt: number, len: number) => void): number;
 }
@@ -138,16 +136,16 @@ export interface Loop extends Machine, Located, Receiver {
 const BT = 1.2;
 const CH = 1.2;
 const HOOK = 6;
-
-const clampOpt = (id: string, name: string, value: number, least: number) => {
-  if (value >= least) return value;
-  log(`[sim] ${id}: ${name} ${value} raised to ${least}`);
-  return least;
-};
-const smooth = (a: number, b: number, x: number) => {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
-};
+const PARCEL = PACKET_SIZE;
+/**
+ * A free cleat is in reach of a parcel when, at the landing time, it is the cleat nearest the in
+ * point: within half a cleat gap either side (in gaps, measured as uIn − the cleat's u, wrapped
+ * into ±total/2; positive = still upstream). One cleat per gap, so a sender asking once per
+ * quantum gets at most one yes per cleat (`canTake` doesn't reserve). v2 also allowed up to 2.5
+ * gaps upstream, but compared unwrapped, so that only ever applied near u = 0; with the wrap it
+ * would answer yes for the same cleat on consecutive asks.
+ */
+const REACH = { past: 0.5, ahead: 0.5 } as const;
 
 export function loopGeometry(o: LoopOptions): LoopGeometry {
   const axis = o.axis;
@@ -206,10 +204,14 @@ export function createLoop(clock: Readonly<Clock>, o: LoopOptions): Loop {
   const taken: boolean[] = Array.from({ length: nCleats }, () => false);
   const stats = { dropped: 0, spent: 0, late: 0 };
   let travel = 0;
-  const out = createOut(o, 'drop');
+  // The drop doesn't ask: spent parcels leave when they reach the head drum.
+  const out = createOut(o, 'drop', { asks: false });
 
-  const wrap = (u: number) => ((u % B.total) + B.total) % B.total;
+  const wrap = (u: number) => mod(u, B.total);
   const cleatU = (k: number, tr = travel) => wrap(k * cleatGap + tr);
+  /** Signed distance from cleat k (at travel tr) up to the in point: positive = upstream. */
+  const toIn = (k: number, tr: number) => wrapSym(uIn - cleatU(k, tr), B.total);
+  const inReach = (dd: number) => dd > -REACH.past * cleatGap && dd < REACH.ahead * cleatGap;
   // Scratch (no allocation per step).
   const q: PathPoint = pathPoint();
   const at: V3 = [0, 0, 0];
@@ -226,7 +228,7 @@ export function createLoop(clock: Readonly<Clock>, o: LoopOptions): Loop {
   };
   const hookOf = (point: PathPoint) => HOOK * smooth(0.05, 0.95, -point.nz);
   const yawSign = (yaw: number) => (Math.cos(yaw) >= 0 ? 1 : -1);
-  const wrapPi = (a: number) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
+  const xAxis = D.axis === 'x';
 
   const loop: Loop = {
     id: o.id,
@@ -244,11 +246,7 @@ export function createLoop(clock: Readonly<Clock>, o: LoopOptions): Loop {
     canAccept: (lead = 0) => loop.canTake(lead),
     canTake(after = 0) {
       const t = travel + speed * (after + 0.2);
-      for (let k = 0; k < nCleats; k++) {
-        if (taken[k]) continue;
-        const dd = uIn - cleatU(k, t);
-        if (dd > -cleatGap * 0.5 && dd < cleatGap * 2.5) return true;
-      }
+      for (let k = 0; k < nCleats; k++) if (!taken[k] && inReach(toIn(k, t))) return true;
       return false;
     },
     accept(item, from, v) {
@@ -259,8 +257,8 @@ export function createLoop(clock: Readonly<Clock>, o: LoopOptions): Loop {
       let bestD = 1e9;
       for (let k = 0; k < nCleats; k++) {
         if (taken[k]) continue;
-        const dd = uIn - cleatU(k, travel + speed * fall.dur);
-        if (dd > -cleatGap * 0.5 && dd < cleatGap * 2.5 && Math.abs(dd) < bestD) {
+        const dd = toIn(k, travel + speed * fall.dur);
+        if (inReach(dd) && Math.abs(dd) < bestD) {
           best = k;
           bestD = Math.abs(dd);
         }
@@ -400,7 +398,9 @@ export function createLoop(clock: Readonly<Clock>, o: LoopOptions): Loop {
       for (let i = 0; i < items.length; i++) {
         const it = items[i]!;
         const spend = it.spending ? Math.min(1, it.spend + clock.acc / 0.6) : it.spend;
-        cb(i, it.item, spend, it.p[0] + it.d[0] * k, it.p[1] + it.d[1] * k, it.p[2] + it.d[2] * k, it.item.yaw, it.tilt + it.dTilt * k);
+        const tl = it.tilt + it.dTilt * k;
+        // The tilt turns about the cross axis: pitch on an x belt, roll on a y belt.
+        cb(i, it.item, it.p[0] + it.d[0] * k, it.p[1] + it.d[1] * k, it.p[2] + it.d[2] * k, it.item.yaw, xAxis ? tl : 0, xAxis ? 0 : tl, spend);
       }
       return items.length;
     },
@@ -430,8 +430,16 @@ function passed(prev: number, u: number, mark: number) {
   return prev <= u ? prev < mark && u >= mark : prev < mark || u >= mark;
 }
 
-/** Turn to lie along the belt (the box is symmetric: the nearer of 0 and π), at 8/s. */
-function relaxYaw(item: Item, h: number) {
-  const square = Math.round(item.yaw / Math.PI) * Math.PI;
-  item.yaw += (square - item.yaw) * Math.min(1, h * 8);
+
+/**
+ * A sender's sync source on a loop: the cleat phase at the loop's in point, one fall ahead, for
+ * an item handed on at `from` (world) with velocity `v`. A sender locked to it (the centrifuge)
+ * hands on just as a cleat will be under the landing point, so the fall barely bends.
+ */
+export function syncToLoop(loop: Loop, from: V3, v: V3): () => SyncInfo {
+  const g = loop.geometry;
+  const landZ = loop.origin[2] + g.T + g.CH;
+  const fall = fallTime(v[2], from[2] - landZ);
+  const period = g.cleatGap / g.speed;
+  return () => ({ phase: loop.phaseAt(g.uIn, fall), period });
 }

@@ -28,6 +28,8 @@ export interface SourceOptions {
 
 export interface Source extends Machine, Located {
   readonly outs: { out: OutPort };
+  /** Where items appear (local). */
+  readonly from: V3;
   /** Items made so far. */
   readonly made: number;
 }
@@ -45,7 +47,9 @@ export function createSource(clock: Readonly<Clock>, ledger: Ledger, o: SourceOp
   const source: Source = {
     id: o.id,
     origin: o.origin,
-    outs: { out: createOut(o, 'out') },
+    // Asks first: the timer holds while the receiver can't take an item.
+    outs: { out: createOut(o, 'out', { asks: true }) },
+    from: o.from,
     get made() {
       return made;
     },

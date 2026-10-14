@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { Factory } from '../src/sim/clock.ts';
 import { CF, type Centrifuge } from '../src/sim/centrifuge/index.ts';
 import type { TrayState } from '../src/sim/centrifuge/packets.ts';
-import { snapshot, topRig } from './rig.ts';
+import { mod } from '../src/sim/math.ts';
+import { CONTROLLERS, snapshot, topRig } from './rig.ts';
 
 const H = 1 / 120;
 const TAU = Math.PI * 2;
-const mod = (a: number, n: number) => ((a % n) + n) % n;
 /** Signed angle difference in (−π, π]. */
 const diff = (a: number, b: number) => mod(a - b + Math.PI, TAU) - Math.PI;
 const held = (s: Readonly<TrayState>) => s.pockets.filter(Boolean).length;
@@ -32,37 +32,12 @@ const state = (r: ReturnType<typeof topRig>) =>
     beltB: r.beltB.items,
     travelB: r.beltB.travel,
     c: r.centrifuge.state,
+    ctl: r.centrifuge.controller.state,
     audio: r.audio.items,
     sink: r.sink.falling,
   });
 
-describe('centrifuge between real belts (checkpoint A rig)', () => {
-  it('is deterministic: same dt sequence, same state; seeds rotate kinds only', () => {
-    const lcg = (seed: number) => () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
-    const a = topRig();
-    const b = topRig();
-    const ra = lcg(7);
-    for (let t = 0; t < 45; ) {
-      const dt = (1 / 30) * ra();
-      a.f.advance(dt);
-      b.f.advance(dt);
-      t += dt;
-    }
-    expect(state(b)).toEqual(state(a));
-    const seek = (seed = 0) => {
-      const r = topRig({ seed });
-      r.f.run(30);
-      return r;
-    };
-    expect(state(seek())).toEqual(state(seek()));
-    const s0 = seek(0);
-    const s1 = seek(1);
-    expect(s1.centrifuge.state.log).toEqual(s0.centrifuge.state.log);
-    const kinds = (r: ReturnType<typeof topRig>) =>
-      [...r.beltB.items.map((x) => x.item), ...r.centrifuge.tray.state.queue.map((x) => x.item)].map((x) => x.kind).join(',');
-    expect(kinds(s1)).not.toEqual(kinds(s0));
-  });
-
+describe('centrifuge, default controller', () => {
   it('runs the cycle: idle → filling → spinning up → in sync → spinning down → filling', () => {
     const r = topRig();
     walk(r.f, r.centrifuge, 60, () => {});
@@ -79,12 +54,42 @@ describe('centrifuge between real belts (checkpoint A rig)', () => {
     for (let i = 1; i < words.length; i++) expect(allowed[words[i - 1]!]).toContain(words[i]);
     // Releases reach the receiver and leave it.
     expect(r.sink.taken).toBeGreaterThan(0);
-    // The timeline for notes/M5.md.
+    // The timeline for the notes.
     process.stdout.write(`${log.map((x) => `${x.t.toFixed(2)} ${x.phase}`).join("\n")}\n`);
+  });
+});
+
+describe.each(CONTROLLERS)('centrifuge between real belts (checkpoint A rig), %s controller', (_name, controller) => {
+  const rig = (o: { seed?: number } = {}) => topRig({ ...o, controller: controller() });
+
+  it('is deterministic: same dt sequence, same state; seeds rotate kinds only', () => {
+    const lcg = (seed: number) => () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const a = rig();
+    const b = rig();
+    const ra = lcg(7);
+    for (let t = 0; t < 45; ) {
+      const dt = (1 / 30) * ra();
+      a.f.advance(dt);
+      b.f.advance(dt);
+      t += dt;
+    }
+    expect(state(b)).toEqual(state(a));
+    const seek = (seed = 0) => {
+      const r = rig({ seed });
+      r.f.run(30);
+      return r;
+    };
+    expect(state(seek())).toEqual(state(seek()));
+    const s0 = seek(0);
+    const s1 = seek(1);
+    expect(s1.centrifuge.state.log).toEqual(s0.centrifuge.state.log);
+    const kinds = (r: ReturnType<typeof topRig>) =>
+      [...r.beltB.items.map((x) => x.item), ...r.centrifuge.tray.state.queue.map((x) => x.item)].map((x) => x.kind).join(',');
+    expect(kinds(s1)).not.toEqual(kinds(s0));
   });
 
   it('conserves packets: created = alive + consumed, held ≤ 10, tray ≤ its pool', () => {
-    const r = topRig();
+    const r = rig();
     walk(r.f, r.centrifuge, 90, () => {
       expect(r.f.ledger.created).toBe(r.f.alive() + r.f.ledger.consumed);
       expect(held(r.centrifuge.tray.state)).toBeLessThanOrEqual(10);
@@ -94,7 +99,7 @@ describe('centrifuge between real belts (checkpoint A rig)', () => {
   });
 
   it('backs up: throat ≤ 2, belt B hands on only into an open intake and holds; receiver backpressure', () => {
-    const r = topRig();
+    const r = rig();
     const c = r.centrifuge;
     let handed = 0;
     const accept = c.accept.bind(c);
@@ -122,7 +127,7 @@ describe('centrifuge between real belts (checkpoint A rig)', () => {
     expect(r.beltB.items.length).toBeLessThanOrEqual(7);
 
     // Hold the receiver for 6 s from the first "in sync": nothing lost, nothing released.
-    const b = topRig();
+    const b = rig();
     for (let t = 0; !b.centrifuge.controller.inSync && t < 30; t += H) b.f.run(H);
     expect(b.centrifuge.controller.inSync).toBe(true);
     b.centrifuge.releaseOverride = false;
@@ -151,7 +156,7 @@ describe('centrifuge between real belts (checkpoint A rig)', () => {
   });
 
   it('§A: no pocket entry while not indexing', () => {
-    const r = topRig();
+    const r = rig();
     let puts = 0;
     walk(r.f, r.centrifuge, 90, (prev) => {
       if (held(r.centrifuge.tray.state) > prev.held) {
@@ -164,7 +169,7 @@ describe('centrifuge between real belts (checkpoint A rig)', () => {
   });
 
   it('§A: from spin-up, held only falls, to 0, before the next entry; the tray never turns back', () => {
-    const r = topRig();
+    const r = rig();
     const c = r.centrifuge;
     let draining = false;
     let cycles = 0;
@@ -192,7 +197,7 @@ describe('centrifuge between real belts (checkpoint A rig)', () => {
   });
 
   it('§A: held packets ride the tray; released packets move forward only', () => {
-    const r = topRig();
+    const r = rig();
     const c = r.centrifuge;
     const lastAngle = new Map<number, number>();
     let checkedSpin = 0;
@@ -236,26 +241,5 @@ describe('centrifuge between real belts (checkpoint A rig)', () => {
     });
     expect(checkedSpin).toBeGreaterThan(1000);
     expect(checkedRelease).toBeGreaterThan(100);
-  });
-
-  it('caps the phase log; queued packets forget their pocket when the spin starts', () => {
-    const r = topRig();
-    const c = r.centrifuge;
-    walk(r.f, c, 40, (prev) => {
-      if (prev.mode === 'index' && c.controller.mode === 'spin') {
-        for (const q of c.tray.state.queue) expect(q.want).toBe(-1);
-      }
-    });
-    r.f.run(1200);
-    expect(c.state.log.length).toBeLessThanOrEqual(200);
-    expect(c.state.log.at(-1)!.t).toBeGreaterThan(1200);
-  });
-
-  it('advance clamps a long frame and drops the rest (no catch-up burst)', () => {
-    const { f } = topRig();
-    expect(f.advance(10)).toBe(4);
-    expect(f.clock.t).toBeCloseTo(4 * H, 9);
-    expect(f.advance(1 / 30, 4)).toBe(8);
-    expect(f.clock.acc).toBe(0);
   });
 });

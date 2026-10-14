@@ -29,3 +29,5 @@ export * from './sim/source.ts';
 export * from './sim/graphs.ts';
 export * from './sim/loop.ts';
 export * from './geo/band.ts';
+export * from './sim/math.ts';
+export * from './geo/helix.ts';

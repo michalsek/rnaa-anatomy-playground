@@ -42,7 +42,6 @@ export const Z = {
   vane: 5,
   rimTop: 129.6,
   knuckle: 109,
-  packet: 7,
   hub: 137,
   strobe: 139,
   spider: [159.6, 164.4],
@@ -80,7 +79,6 @@ export const ALPHA = 360 / POCKETS;
 export const SPOUT_DEG = -90;
 export const GATE_DEG = 95;
 export const GATE_HALF = 9;
-export const SPOUT_SLOPE = 15;
 export const SPOUT_LEN = 15;
 export const LEG = 24.5;
 export const MOTOR: V3 = [46, 0, 0];

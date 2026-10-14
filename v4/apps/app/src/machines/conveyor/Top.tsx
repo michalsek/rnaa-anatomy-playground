@@ -6,12 +6,12 @@
  * anchor screws, braces and the near stretcher. The sim (`Conveyor`) gives the geometry and moves
  * the slats (the band's u shift) and the packets.
  */
-import { type Conveyor, type Item, type PartHandle, type PoolHandle, packetStyle } from '@anatomy/engine';
-import { useState } from 'react';
+import type { Conveyor, PartHandle } from '@anatomy/engine';
 import { Box, Group, Lathe, Marks, useFrame, useNode } from '../../blocks/blocks.tsx';
 import type { LiveHandle } from '../../factory/live.ts';
 import { PacketPool } from '../Packets.tsx';
 import { closed, ring } from '../kit.ts';
+import { usePacketPoses } from '../poses.ts';
 import { type BeltKit, beltKit, rod, slats, turned } from './dims.ts';
 import { BeltBody, LabelPlate, Lamp, Motor, Nut } from './Parts.tsx';
 
@@ -23,33 +23,14 @@ interface TopProps {
   legs?: boolean;
 }
 
-function useTopFrame(live: LiveHandle, sim: () => Conveyor) {
+function Frame({ live, sim }: TopProps) {
   const band = useNode<PartHandle>('body.band');
-  const packets = useNode<PoolHandle>('packets');
-  const [scratch] = useState(() => {
-    let pk: PoolHandle | null = null;
-    return {
-      pose(i: number, item: Item, x: number, y: number, z: number, yaw: number) {
-        pk!.pose(i, x, y, z, yaw);
-        pk!.style(i, packetStyle(item.kind));
-      },
-      bind(p: PoolHandle) {
-        pk = p;
-      },
-    };
-  });
+  const packets = usePacketPoses('packets', sim);
   useFrame((info) => {
     live.step(info);
-    const s = sim();
-    band().uShift = s.uShift();
-    const pk = packets();
-    scratch.bind(pk);
-    pk.count = s.poses(scratch.pose);
+    band().uShift = sim().uShift();
+    packets();
   });
-}
-
-function Frame({ id, live, sim }: TopProps) {
-  useTopFrame(live, sim);
   return null;
 }
 
@@ -76,7 +57,7 @@ export function Top(props: TopProps) {
   const D = conveyor.geometry;
   const { axis, dir, L, T, W, RD, BT, RW, zc } = D;
   const half = W / 2;
-  const f = beltKit(axis);
+  const f = beltKit(conveyor.frame);
   const cWebIn = half + 2.4;
   const cWebOut = half + 4.0;
   const zRail0 = T - 13;
@@ -228,7 +209,7 @@ export function Top(props: TopProps) {
           len={Math.min(14, idlerStep * 1.6)}
         />
       )}
-      <PacketPool capacity={Math.ceil(L / 9.5) + 4} />
+      <PacketPool capacity={Math.ceil(L / D.spacing) + 4} />
     </Group>
   );
 }

@@ -6,24 +6,24 @@
  * Stand-ins: the hopper hides where the source makes packets; the bin hides where the sink takes
  * them (M6 replaces it with belt C and the crusher).
  */
-import { type ConveyorPageGraph, type Item, type LineGraph, type PoolHandle, type Sink, packetStyle } from '@anatomy/engine';
-import { useState } from 'react';
-import { Box, Group, Lathe, useFrame, useNode } from '../blocks/blocks.tsx';
+import type { ConveyorPageGraph, LineGraph, Sink, Source } from '@anatomy/engine';
+import { Box, Group, Lathe, useFrame } from '../blocks/blocks.tsx';
 import { PacketPool } from '../machines/Packets.tsx';
 import { Centrifuge } from '../machines/centrifuge/Centrifuge.tsx';
 import { Loop } from '../machines/conveyor/Loop.tsx';
 import { Top } from '../machines/conveyor/Top.tsx';
 import { rod } from '../machines/conveyor/dims.ts';
 import { corners } from '../machines/kit.ts';
+import { usePacketPoses } from '../machines/poses.ts';
 import { type Live, type LiveHandle, centrifugeLive, conveyorLive, lineLive } from './live.ts';
 
-/** A closed hopper over the source point (v2 conveyor page's demo hopper), on two posts. */
-function Hopper({ at, legs }: { at: readonly [number, number, number]; legs: boolean }) {
-  const [x, y, z] = at;
+/** A closed hopper over the source's point (v2 conveyor page's demo hopper), on two posts. */
+function Hopper({ source, legs }: { source: Source; legs: boolean }) {
+  const [x, y, z] = source.from;
   const z0 = z - 6;
   const z1 = z + 12;
   return (
-    <Group id="hopper" position={[x, y, 0]}>
+    <Group id="hopper" position={[source.origin[0] + x, source.origin[1] + y, 0]}>
       <Box id="box" material="steel" {...corners([-6.5, -6, z0], [6.5, 6, z1])} r={0.8} seams={[z0 + 3, z1 - 3]} />
       <Box id="lip" material="steel" outline="lo" {...corners([-7.9, -7.4, z1], [7.9, 7.4, z1 + 1.2])} r={1} />
       {[-1, 1].map((side) => (
@@ -39,24 +39,10 @@ function Hopper({ at, legs }: { at: readonly [number, number, number]; legs: boo
 
 /** A closed bin under the loop's drop: garbage falls into it (the sink takes it inside). */
 function BinFrame({ live, sim }: { live: LiveHandle; sim: () => Sink }) {
-  const packets = useNode<PoolHandle>('packets');
-  const [scratch] = useState(() => {
-    let pk: PoolHandle | null = null;
-    return {
-      pose(i: number, item: Item, x: number, y: number, z: number, yaw: number) {
-        pk!.pose(i, x, y, z, yaw);
-        pk!.style(i, packetStyle(item.kind));
-      },
-      bind(p: PoolHandle) {
-        pk = p;
-      },
-    };
-  });
+  const packets = usePacketPoses('packets', sim);
   useFrame((info) => {
     live.step(info);
-    const pk = packets();
-    scratch.bind(pk);
-    pk.count = sim().items(scratch.pose);
+    packets();
   });
   return null;
 }
@@ -64,12 +50,12 @@ function BinFrame({ live, sim }: { live: LiveHandle; sim: () => Sink }) {
 function SinkBin({
   live,
   sim,
-  crate = [[1, -9, 0], [21, 9, 12]],
+  crate,
 }: {
   live: LiveHandle;
   sim: () => Sink;
   /** The crate's corners in the sink's frame. */
-  crate?: readonly [readonly [number, number, number], readonly [number, number, number]];
+  crate: readonly [readonly [number, number, number], readonly [number, number, number]];
 }) {
   const origin = sim().origin;
   return (
@@ -82,16 +68,16 @@ function SinkBin({
 }
 
 function LineOf({ live }: { live: Live<LineGraph> }) {
-  const b = live.graph().beltB;
+  const g = live.graph();
+  // The garbage leaves the head drum moving +x (the bottom run): the crate catches it there.
+  const [dx, , ] = g.audio.geometry.ports.drop;
   return (
     <>
       <Top id="beltB" live={live} sim={() => live.graph().beltB} />
-      <Group id="feed" position={[...b.origin]}>
-        <Hopper at={[0, b.geometry.inS, b.geometry.T + 24]} legs />
-      </Group>
+      <Hopper source={g.source} legs />
       <Centrifuge live={live} sim={() => live.graph().centrifuge} />
       <Loop id="audio" live={live} sim={() => live.graph().audio} />
-      <SinkBin live={live} sim={() => live.graph().sink} />
+      <SinkBin live={live} sim={() => live.graph().sink} crate={[[dx + 1, -9, 0], [dx + 21, 9, 12]]} />
     </>
   );
 }
@@ -107,16 +93,16 @@ export function LineScene() {
 /** v2's conveyor page (checkpoint C): belt B → the audio loop → belt C → the bin, with a hopper. */
 export function ConveyorScene() {
   const live: Live<ConveyorPageGraph> = conveyorLive;
-  const b = live.graph().beltB;
+  const g = live.graph();
+  // The bin under belt C's head drum, where it tips (the sink shares belt C's frame).
+  const [ox, oy] = g.beltC.geometry.ports.out;
   return (
     <>
       <Top id="beltB" live={live} sim={() => live.graph().beltB} />
-      <Group id="feed" position={[...b.origin]}>
-        <Hopper at={[0, 8, 140]} legs />
-      </Group>
+      <Hopper source={g.source} legs />
       <Loop id="audio" live={live} sim={() => live.graph().audio} />
       <Top id="beltC" live={live} sim={() => live.graph().beltC} />
-      <SinkBin live={live} sim={() => live.graph().sink} crate={[[-11, 93, 0], [11, 114, 9]]} />
+      <SinkBin live={live} sim={() => live.graph().sink} crate={[[ox - 11, oy - 8, 0], [ox + 11, oy + 13, 9]]} />
     </>
   );
 }

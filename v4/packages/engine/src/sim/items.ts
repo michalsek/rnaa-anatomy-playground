@@ -14,6 +14,23 @@ export type ItemKind = (typeof ITEM_KINDS)[number];
 export const PACKET_KINDS = ['control', 'graph', 'data', 'audio', 'garbage'] as const;
 export type PacketKind = (typeof PACKET_KINDS)[number];
 
+/** An item's box: length (model x), depth (y), height (z). */
+export interface ItemSize {
+  readonly w: number;
+  readonly d: number;
+  readonly h: number;
+}
+
+/** A taped packet (v2 runtime `packetSvg` default). */
+export const PACKET_SIZE: ItemSize = { w: 10, d: 8, h: 7 };
+/** A fluff bead (v2 dispenser beads, 4.8 across). */
+const BEAD_SIZE: ItemSize = { w: 4.8, d: 4.8, h: 4.8 };
+
+/** The size of an item of this kind (beads are fluff; every other kind is a packet). */
+export function sizeOf(kind: ItemKind): ItemSize {
+  return kind === 'fluff' ? BEAD_SIZE : PACKET_SIZE;
+}
+
 export interface Item {
   id: number;
   kind: ItemKind;
@@ -24,6 +41,19 @@ export interface Item {
    * sender's pose (a packet leaving the centrifuge's gate at 95° turns to lie along the belt).
    */
   yaw: number;
+}
+
+/**
+ * An item's pose in its machine's frame, as the packet pools take it: the bottom centre (a
+ * hanging parcel is upside down, so its top), yaw, then pitch and roll (the `PoolHandle.pose`
+ * order), and its grey blend 0..1 (garbage, E2). Every machine's `poses(cb)` calls this.
+ */
+export type PoseFn = (i: number, item: Item, x: number, y: number, z: number, yaw: number, pitch: number, roll: number, spend: number) => void;
+
+/** A machine whose items the packet pools draw. */
+export interface PoseSource {
+  /** Item poses at t + acc (extrapolated); returns the count. */
+  poses(cb: PoseFn): number;
 }
 
 /** A packet pool's style index for a kind (pools list PACKET_KINDS' materials in order). */

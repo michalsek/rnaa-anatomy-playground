@@ -48,7 +48,8 @@ function createLive<G extends Graph>(
 ): Live<G> {
   let seed = 0;
   let g = build(seed);
-  let lastFrame: FrameInfo | null = null;
+  /** The last frame stepped (FrameInfo.frame counts the store's ticks). */
+  let lastFrame = -1;
   const ctl = { paused: false, speed: 1 };
   const readout = createReadout<G>(100, format, phase, g);
   const now = () => performance.now();
@@ -62,8 +63,8 @@ function createLive<G extends Graph>(
     ctl,
     readout,
     step(f) {
-      if (f === lastFrame) return;
-      lastFrame = f;
+      if (f.frame === lastFrame) return;
+      lastFrame = f.frame;
       g.factory.advance(ctl.paused ? 0 : f.dt, ctl.speed);
       readout.publish(g, now());
     },

@@ -113,6 +113,8 @@ export interface FrameInfo {
   /** Scene time and step, seconds (step clamped by the shell). */
   t: number;
   dt: number;
+  /** Counts the store's ticks: the same number for every frame hook in one frame. */
+  frame: number;
 }
 
 export interface GroupHandle {
@@ -134,6 +136,12 @@ export interface PartHandle {
   uShift: number;
 }
 
+/**
+ * A pool's per-instance state is sticky and slots are reused: instance i is whatever item the
+ * writer puts there this frame. So write every per-instance field you use (pose, style, blend,
+ * shift, scale) for every instance, every frame; `style` resets the blend, so call `blend` after
+ * it. Unchanged values do not mark the store dirty.
+ */
 export interface PoolHandle {
   readonly id: string;
   /** Read live: a re-registered pool may have another capacity. */
@@ -148,9 +156,9 @@ export interface PoolHandle {
   pose(i: number, p: Vec3, yaw?: number, pitch?: number, roll?: number): void;
   /** The same with scalar coordinates (no array per call). */
   pose(i: number, x: number, y: number, z: number, yaw?: number, pitch?: number, roll?: number): void;
-  /** Instance style: an index into the pool's `styles`. */
+  /** Instance style: an index into the pool's `styles`; also clears its blend (mix 0). */
   style(i: number, k: number): void;
-  /** E2: blend instance i toward style `k2` (an index into `styles`) by `mix` (0..1). */
+  /** E2: blend instance i toward style `k2` (an index into `styles`) by `mix` (0..1); after `style`. */
   blend(i: number, k2: number, mix: number): void;
   /** E1: shift instance i's UV line sets by `u`. */
   shift(i: number, u: number): void;
@@ -395,6 +403,7 @@ export class SceneStore {
   private nodes = new Map<string, Node>();
   private nextToken = 1;
   private frameCallbacks = new Set<(f: FrameInfo) => void>();
+  private frameCount = 0;
   private built: Built | null = null;
   private f32 = new Float32Array(0);
   private u32 = new Uint32Array(this.f32.buffer);
@@ -742,8 +751,9 @@ export class SceneStore {
         const n = get();
         check(n, i);
         if (!(k >= 0 && k < n.styles.length)) throw new Error(`pool "${id}": style ${k} unknown`);
-        if (n.styleOf[i] === k) return;
+        if (n.styleOf[i] === k && n.mixOf[i] === 0) return;
         n.styleOf[i] = k;
+        n.mixOf[i] = 0;
         touch(n);
       },
       blend: (i, k2, mix) => {
@@ -790,7 +800,7 @@ export class SceneStore {
   }
 
   tick(t: number, dt: number): void {
-    const info = { t, dt };
+    const info = { t, dt, frame: ++this.frameCount };
     for (const cb of this.frameCallbacks) cb(info);
   }
 

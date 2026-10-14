@@ -79,16 +79,38 @@ const isConvexQuad = (a: d.v2f, b: d.v2f, c: d.v2f, e: d.v2f) => {
   return allPos || allNeg;
 };
 
-const facingOf = (model: d.m4x4f, normal: d.v3f, toward: d.v3f) => {
+/**
+ * 1 / the squared column lengths of the model's upper 3×3: its axis scales², per instance (a
+ * pool's E3 axis scale, or a group's uniform scale).
+ */
+const invScale2 = (model: d.m4x4f) => {
   'use gpu';
-  return std.dot(std.mul(model, d.vec4f(normal, 0)).xyz, toward);
+  const cx = std.mul(model, d.vec4f(1, 0, 0, 0)).xyz;
+  const cy = std.mul(model, d.vec4f(0, 1, 0, 0)).xyz;
+  const cz = std.mul(model, d.vec4f(0, 0, 1, 0)).xyz;
+  return d.vec3f(1 / std.max(std.dot(cx, cx), 1e-12), 1 / std.max(std.dot(cy, cy), 1e-12), 1 / std.max(std.dot(cz, cz), 1e-12));
+};
+
+/**
+ * A model-space normal in world space (unnormalised). The model is T·R·S with S diagonal, so
+ * M·(n / s²) = R·S·S⁻²·n = R·S⁻¹·n: the inverse transpose, right for bevels, rounded corners
+ * and tubes under a non-uniform scale (plain M·n is only right on axis-aligned flat faces).
+ */
+const normalToWorld = (model: d.m4x4f, normal: d.v3f, inv: d.v3f) => {
+  'use gpu';
+  return std.mul(model, d.vec4f(std.mul(normal, inv), 0)).xyz;
+};
+
+const facingOf = (model: d.m4x4f, normal: d.v3f, toward: d.v3f, inv: d.v3f) => {
+  'use gpu';
+  return std.dot(normalToWorld(model, normal, inv), toward);
 };
 
 /** Facing of the triangle across an edge; no neighbour counts as facing away. */
-const neighbourFacing = (adj: number, model: d.m4x4f, toward: d.v3f) => {
+const neighbourFacing = (adj: number, model: d.m4x4f, toward: d.v3f, inv: d.v3f) => {
   'use gpu';
   const safe = std.select(d.u32(adj), d.u32(0), d.u32(adj) === NO_NEIGHBOUR);
-  const facing = facingOf(model, L.$.tris[safe].faceNormal, toward);
+  const facing = facingOf(model, L.$.tris[safe].faceNormal, toward, inv);
   return std.select(facing, d.f32(-1), d.u32(adj) === NO_NEIGHBOUR);
 };
 
@@ -134,11 +156,12 @@ export const fillVertex = tgpu.vertexFn({
   const p1 = toPixels(c1, frame.viewport);
   const p2 = toPixels(c2, frame.viewport);
 
-  const own = facingOf(inst.model, tri.faceNormal, frame.toward);
+  const inv = invScale2(inst.model);
+  const own = facingOf(inst.model, tri.faceNormal, frame.toward, inv);
   const modes = d.vec3u(
-    edgeMode(own, neighbourFacing(tri.adj.x, inst.model, frame.toward), tri.flags, 0),
-    edgeMode(own, neighbourFacing(tri.adj.y, inst.model, frame.toward), tri.flags, 1),
-    edgeMode(own, neighbourFacing(tri.adj.z, inst.model, frame.toward), tri.flags, 2),
+    edgeMode(own, neighbourFacing(tri.adj.x, inst.model, frame.toward, inv), tri.flags, 0),
+    edgeMode(own, neighbourFacing(tri.adj.y, inst.model, frame.toward, inv), tri.flags, 1),
+    edgeMode(own, neighbourFacing(tri.adj.z, inst.model, frame.toward, inv), tri.flags, 2),
   );
 
   // The quad partner's two outer edges (its third edge is the shared diagonal): their lines
@@ -157,13 +180,13 @@ export const fillVertex = tgpu.vertexFn({
     std.mul(frame.viewProjection, std.mul(inst.model, d.vec4f(L.$.vertices[pt.idx.z].position, 1))),
     frame.viewport,
   );
-  const ptFacing = facingOf(inst.model, pt.faceNormal, frame.toward);
+  const ptFacing = facingOf(inst.model, pt.faceNormal, frame.toward, inv);
   const e0 = edgeLine(q1, q2, q0);
   const e1 = edgeLine(q2, q0, q1);
   const e2 = edgeLine(q0, q1, q2);
-  const n0 = edgeMode(ptFacing, neighbourFacing(pt.adj.x, inst.model, frame.toward), pt.flags, 0);
-  const n1 = edgeMode(ptFacing, neighbourFacing(pt.adj.y, inst.model, frame.toward), pt.flags, 1);
-  const n2 = edgeMode(ptFacing, neighbourFacing(pt.adj.z, inst.model, frame.toward), pt.flags, 2);
+  const n0 = edgeMode(ptFacing, neighbourFacing(pt.adj.x, inst.model, frame.toward, inv), pt.flags, 0);
+  const n1 = edgeMode(ptFacing, neighbourFacing(pt.adj.y, inst.model, frame.toward, inv), pt.flags, 1);
+  const n2 = edgeMode(ptFacing, neighbourFacing(pt.adj.z, inst.model, frame.toward, inv), pt.flags, 2);
   // j = the partner's edge shared with this triangle, i = ours.
   const j1 = pt.adj.y === t;
   const j2 = pt.adj.z === t;
@@ -227,9 +250,9 @@ export const fillVertex = tgpu.vertexFn({
   // Screen gradient of the facing (n · toward) over this triangle, for the smooth-contour
   // distance. Computed here rather than with dpdx/dpdy: near a fan apex (a lathe pole) the
   // triangles are thinner than a pixel and the derivatives extrapolate wildly.
-  const f0 = std.dot(std.normalize(std.mul(inst.model, d.vec4f(v0.normal, 0)).xyz), frame.toward);
-  const f1 = std.dot(std.normalize(std.mul(inst.model, d.vec4f(v1.normal, 0)).xyz), frame.toward);
-  const f2 = std.dot(std.normalize(std.mul(inst.model, d.vec4f(v2.normal, 0)).xyz), frame.toward);
+  const f0 = std.dot(std.normalize(normalToWorld(inst.model, v0.normal, inv)), frame.toward);
+  const f1 = std.dot(std.normalize(normalToWorld(inst.model, v1.normal, inv)), frame.toward);
+  const f2 = std.dot(std.normalize(normalToWorld(inst.model, v2.normal, inv)), frame.toward);
   const g1 = std.sub(p1, p0);
   const g2 = std.sub(p2, p0);
   const det = g1.x * g2.y - g1.y * g2.x;
@@ -242,7 +265,7 @@ export const fillVertex = tgpu.vertexFn({
 
   return {
     clip: std.select(HIDDEN, clip, visible),
-    normal: std.mul(inst.model, d.vec4f(normal, 0)).xyz,
+    normal: normalToWorld(inst.model, normal, inv),
     // E1: the instance's line-set shift scrolls u (slats on a running belt).
     uv: std.select(std.sub(uv, d.vec2f(inst.uShift, 0)), d.vec2f(gradientT, 0), rule === TONE_RULE.gradient),
     bary,
@@ -574,7 +597,7 @@ export const marksVertex = tgpu.vertexFn({
 
   // Facing: marks with a normal hide on back sides and fade toward the limbs.
   const hasNormal = std.dot(mark.normal, mark.normal) > 0;
-  const wn = std.mul(inst.model, d.vec4f(mark.normal, 0)).xyz;
+  const wn = normalToWorld(inst.model, mark.normal, invScale2(inst.model));
   const nw = std.div(wn, std.max(std.length(wn), 1e-9));
   const facing = std.dot(nw, frame.toward);
 

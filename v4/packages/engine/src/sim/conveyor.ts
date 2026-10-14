@@ -9,10 +9,10 @@
  * Coordinates: the machine's local frame (origin = the belt centreline at s = 0, on the floor),
  * mapped from the belt frame (s, c, z) by `beltFrame(axis)`. Plain TS, no randomness.
  */
-import { log } from '#platform/env.ts';
 import type { Clock, Machine } from './clock.ts';
 import { type Fall, createFall, fallAt } from './fall.ts';
-import type { Item, ItemKind } from './items.ts';
+import { type Item, type ItemKind, PACKET_SIZE, type PoseSource, sizeOf } from './items.ts';
+import { clampOpt, relaxYaw } from './math.ts';
 import { type BeltAxis, type BeltFrame, beltFrame } from './path.ts';
 import { type OutPort, type Located, type Receiver, type V3, createOut } from './ports.ts';
 import { RATES } from './rates.ts';
@@ -37,7 +37,7 @@ export interface TopOptions {
   outAt?: number;
   /** Off the end: when out is at the head drum, slide round it and drop 16 first (default true). */
   tip?: boolean;
-  /** Hold the front item while the receiver can't take it. */
+  /** Hold the front item while the receiver can't take it (required to feed a strict receiver). */
   hold?: boolean;
 }
 
@@ -60,6 +60,8 @@ export interface TopGeometry {
   tip: boolean;
   /** The belt's loop length on its outer surface (slats wrap round it). */
   total: number;
+  /** Queue spacing of packets at rest (centre to centre; `Conveyor.spacing` for any kind). */
+  spacing: number;
   ports: { in: V3; out: V3 };
 }
 
@@ -81,7 +83,7 @@ export interface TopItem {
   born: number;
 }
 
-export interface Conveyor extends Machine, Located, Receiver {
+export interface Conveyor extends Machine, Located, Receiver, PoseSource {
   readonly geometry: TopGeometry;
   readonly frame: BeltFrame;
   readonly outs: { out: OutPort };
@@ -90,24 +92,23 @@ export interface Conveyor extends Machine, Located, Receiver {
   readonly travel: number;
   /** Whether the front item is held (backpressure). */
   held(): boolean;
+  /** Queue spacing (centre to centre) of items of this kind at rest. */
+  spacing(kind: ItemKind): number;
   /** The slats' scroll as a fraction of the belt loop (the band's u shift), at t + acc. */
   uShift(): number;
-  /** Item poses (bottom centre, yaw) at t + acc; returns the count. */
-  poses(cb: (i: number, item: Item, x: number, y: number, z: number, yaw: number) => void): number;
 }
 
 const RD = 3.6;
 const BT = 1.2;
 /** Below the belt top, the frame is clear (a tipped item is handed on here). */
 const DROP = 16;
-/** Parcel size (v2 runtime packetSvg default). */
-export const PARCEL = { w: 10, d: 8, h: 7 } as const;
 const G = 420;
-
-const clampOpt = (id: string, name: string, value: number, least: number) => {
-  if (value >= least) return value;
-  log(`[sim] ${id}: ${name} ${value} raised to ${least}`);
-  return least;
+/** Clear space between queued items. */
+const QUEUE_GAP = 1.5;
+/** An item's half length along a belt on `axis` (items lie with their long side along x). */
+const halfAlong = (axis: BeltAxis, kind: ItemKind) => {
+  const z = sizeOf(kind);
+  return (axis === 'y' ? z.d : z.w) / 2;
 };
 
 export function topGeometry(o: TopOptions): TopGeometry {
@@ -115,7 +116,7 @@ export function topGeometry(o: TopOptions): TopGeometry {
   const dir = o.dir ?? 1;
   const L = clampOpt(o.id, 'length', o.length, 30);
   const T = clampOpt(o.id, 'top', o.top, 20);
-  const W = clampOpt(o.id, 'width', o.width ?? 16, (axis === 'y' ? PARCEL.w : PARCEL.d) + 4);
+  const W = clampOpt(o.id, 'width', o.width ?? 16, (axis === 'y' ? PACKET_SIZE.w : PACKET_SIZE.d) + 4);
   const RW = RD + BT;
   const zc = T - RW;
   const inS = o.inAt ?? (dir > 0 ? 8 : L - 8);
@@ -138,6 +139,7 @@ export function topGeometry(o: TopOptions): TopGeometry {
     outS,
     tip,
     total: 2 * L + 2 * Math.PI * RW,
+    spacing: 2 * halfAlong(axis, 'control') + QUEUE_GAP,
     ports: { in: f.w(inS, 0, T), out: tip ? f.w(outS + dir * (RW + 6), 0, T - DROP) : f.w(outS, 0, T) },
   };
 }
@@ -147,7 +149,7 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
   const F = beltFrame(D.axis);
   const { dir, T, outS, inS, tip, speed, zc } = D;
   const R = D.RW;
-  const halfOf = (kind: ItemKind) => (kind === 'fluff' ? 2.4 : D.axis === 'y' ? PARCEL.d / 2 : PARCEL.w / 2);
+  const halfOf = (kind: ItemKind) => halfAlong(D.axis, kind);
   const items: TopItem[] = [];
   const order: TopItem[] = [];
   const front = (a: TopItem, b: TopItem) => (b.s - a.s) * dir;
@@ -155,7 +157,7 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
   let travel = 0;
   let heldNow = false;
 
-  const out = createOut(o, 'out');
+  const out = createOut(o, 'out', { asks: o.hold === true });
   const blocked = () => o.hold === true && !out.ready();
   const set = (it: TopItem, x: number, y: number, z: number) => {
     it.d[0] = x - it.p[0];
@@ -164,11 +166,6 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
     it.p[0] = x;
     it.p[1] = y;
     it.p[2] = z;
-  };
-  const relaxYaw = (item: Item, h: number) => {
-    // Turn to lie along the belt (the box is symmetric: the nearer of 0 and π).
-    const square = Math.round(item.yaw / Math.PI) * Math.PI;
-    item.yaw += (square - item.yaw) * Math.min(1, h * 8);
   };
   const emit = (it: TopItem, i: number, at: V3, v: V3) => {
     items.splice(i, 1);
@@ -186,10 +183,11 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
       return travel;
     },
     held: () => heldNow,
+    spacing: (kind) => 2 * halfOf(kind) + QUEUE_GAP,
     canAccept() {
       // The in point is clear by a queue spacing (falling items count as at the in point).
       for (const it of items) {
-        const gap = 2 * halfOf(it.item.kind) + 1.5;
+        const gap = 2 * halfOf(it.item.kind) + QUEUE_GAP;
         const s = it.phase === 'fall' ? inS : it.s;
         if (Math.abs(s - inS) < gap) return false;
       }
@@ -226,7 +224,7 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
         const half = halfOf(it.item.kind);
         if (i === 0 && heldNow) lim = outS * dir + (tip ? half : 0) - 0.01;
         it.lim = lim;
-        if (Number.isFinite(lim)) lim = Math.min(lim, it.s * dir) - (2 * half + 1.5);
+        if (Number.isFinite(lim)) lim = Math.min(lim, it.s * dir) - (2 * half + QUEUE_GAP);
       }
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i]!;
@@ -290,14 +288,15 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
     },
     alive: () => items.length,
     uShift() {
-      const u = (dir * (travel + speed * clock.acc)) / D.total;
+      // The band's u runs along the travel (either dir), so the slats move with the parcels.
+      const u = (travel + speed * clock.acc) / D.total;
       return u - Math.floor(u);
     },
     poses(cb) {
       const k = clock.acc / clock.H;
       for (let i = 0; i < items.length; i++) {
         const it = items[i]!;
-        cb(i, it.item, it.p[0] + it.d[0] * k, it.p[1] + it.d[1] * k, it.p[2] + it.d[2] * k, it.item.yaw);
+        cb(i, it.item, it.p[0] + it.d[0] * k, it.p[1] + it.d[1] * k, it.p[2] + it.d[2] * k, it.item.yaw, 0, 0, 0);
       }
       return items.length;
     },

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createFactory } from '../src/sim/clock.ts';
 import { createConveyor } from '../src/sim/conveyor.ts';
-import { CENTRIFUGE_LAYOUT, LINE_LAYOUT, createLine } from '../src/sim/graphs.ts';
+import { CENTRIFUGE_LAYOUT, LINE_LAYOUT, createConveyorPage, createLine } from '../src/sim/graphs.ts';
 import { createLoop } from '../src/sim/loop.ts';
-import { type Run, pathPoint } from '../src/sim/path.ts';
+import { type Run, pathPoint, stadium } from '../src/sim/path.ts';
 import type { Receiver, V3 } from '../src/sim/ports.ts';
 import { createSink } from '../src/sim/sink.ts';
 import { createSource } from '../src/sim/source.ts';
@@ -11,7 +11,57 @@ import { createSource } from '../src/sim/source.ts';
 const H = 1 / 120;
 const ZERO: V3 = [0, 0, 0];
 
+describe('factory clock', () => {
+  it('advance clamps a long frame and drops the rest (no catch-up burst)', () => {
+    const f = createFactory();
+    let steps = 0;
+    f.add({ id: 'count', step: () => steps++, alive: () => 0 });
+    expect(f.advance(10)).toBe(4);
+    expect(steps).toBe(4);
+    expect(f.clock.t).toBeCloseTo(4 * H, 9);
+    expect(f.advance(1 / 30, 4)).toBe(8);
+    expect(f.clock.acc).toBe(0);
+  });
+
+  it('links only a sender that steps before its receiver', () => {
+    const f = createFactory();
+    const belt = createConveyor(f.clock, { id: 'b', origin: [0, 0, 0], axis: 'x', length: 60, top: 40 });
+    const sink = f.add(createSink(f.clock, f.ledger, { id: 'sink', origin: [0, 0, 0] }));
+    f.add(belt);
+    expect(() => f.link(belt, 'out', sink)).toThrow(/step before/);
+  });
+});
+
 describe('top conveyor', () => {
+  it('scrolls its slats with the parcels on a −1 belt', () => {
+    const f = createFactory();
+    const belt = f.add(createConveyor(f.clock, { id: 'b', origin: [0, 0, 0], axis: 'x', dir: -1, length: 60, top: 40 }));
+    belt.outs.out.connect({ id: 'r', origin: [0, 0, 0], canAccept: () => true, accept: (item) => f.ledger.consume(item) });
+    belt.accept(f.ledger.make('control'), [52, 0, 41], ZERO);
+    const g = belt.geometry;
+    // The band's u is the stadium arc length along the travel; slat 0 sits at u = uShift.
+    const path = stadium({ L: g.L, R: g.RW, zc: g.zc, dir: g.dir });
+    const p = pathPoint();
+    f.run(1);
+    const s0 = belt.items[0]!.s;
+    // A slat on the top run (shift it by whole slat pitches until it is on the top run).
+    const slatS = () => {
+      for (let k = 0; k < 200; k++) {
+        path.at(belt.uShift() * g.total + k * g.pitch, g.RW, p);
+        if (p.run === 'top' && p.s > 10 && p.s < g.L - 10) return { k, s: p.s };
+      }
+      throw new Error('no slat on the top run');
+    };
+    const a = slatS();
+    f.run(0.25);
+    path.at(belt.uShift() * g.total + a.k * g.pitch, g.RW, p);
+    const slatMove = p.s - a.s;
+    const parcelMove = belt.items[0]!.s - s0;
+    expect(parcelMove).toBeLessThan(-1);
+    expect(Math.sign(slatMove)).toBe(Math.sign(parcelMove));
+    expect(slatMove).toBeCloseTo(g.speed * 0.25 * g.dir, 1);
+  });
+
   it('holds: the front waits short of the out point, the rest queue an item length apart', () => {
     const f = createFactory();
     const belt = f.add(createConveyor(f.clock, { id: 'b', origin: [0, 0, 0], axis: 'y', length: 120, top: 60, tip: false, hold: true }));
@@ -160,83 +210,45 @@ describe('audio loop', () => {
 });
 
 describe('line graph', () => {
-  it('conserves items for 120 s; releases land on free cleats in phase', () => {
+  it('conserves items, lands releases on free cleats in phase, hands off without pops (120 s)', () => {
     const g = createLine(LINE_LAYOUT);
     const { factory: f, audio, centrifuge } = g;
     let landed = 0;
-    let worst = 0;
+    let worstBend = 0;
     const seenRide = new Set<number>();
     const seenFall = new Set<number>();
+    // Continuity: every item's world position per step, across machines.
+    const last = new Map<number, [number, number, number]>();
+    const owner = new Map<number, string>();
+    let worst = 0;
+    let handOffs = 0;
+    let worstHand = 0;
+    const seen = new Map<number, [string, number, number, number]>();
+    const at = (m: string, o: readonly number[]) => (id: number, x: number, y: number, z: number) => seen.set(id, [m, x + o[0]!, y + o[1]!, z + o[2]!]);
+    const b = at('beltB', g.beltB.origin);
+    const c = at('centrifuge', g.centrifuge.origin);
+    const a = at('audio', g.audio.origin);
+    const s = at('sink', g.sink.origin);
     for (let i = 0; i < 120 * 120; i++) {
       f.run(H);
       expect(f.ledger.created).toBe(f.alive() + f.ledger.consumed);
       for (const it of audio.items) {
-        if (it.phase !== 'ride' || seenRide.has(it.item.id)) continue;
-        seenRide.add(it.item.id);
-        landed++;
-      }
-      // The fall's bend: how far the landing cleat was from the in point when the parcel was handed on.
-      for (const it of audio.items) {
+        if (it.phase === 'ride' && !seenRide.has(it.item.id)) {
+          seenRide.add(it.item.id);
+          landed++;
+        }
+        // The fall's bend: how far the landing cleat was from the in point when the parcel was handed on.
         if (it.phase === 'fall' && !seenFall.has(it.item.id)) {
           seenFall.add(it.item.id);
           const u = (it.cleat * audio.geometry.cleatGap + audio.travel + audio.geometry.speed * it.fall!.dur * (1 - it.fall!.tau)) % audio.path.total;
-          worst = Math.max(worst, Math.abs(u - audio.geometry.uIn));
+          worstBend = Math.max(worstBend, Math.abs(u - audio.geometry.uIn));
         }
       }
-    }
-    expect(landed).toBeGreaterThan(10);
-    expect(g.sink.taken).toBeGreaterThan(5);
-    expect(centrifuge.state.log.map((x) => x.phase)).toContain('in sync');
-    // In sync, the lock lands parcels within a few units of their cleat (no long bends).
-    expect(worst).toBeLessThan(4);
-    expect(audio.stats.late).toBe(0);
-    process.stdout.write(`line: ${landed} landed, worst bend ${worst.toFixed(2)}; log\n${centrifuge.state.log.map((x) => `${x.t.toFixed(2)} ${x.phase}`).join("\n")}\n`);
-  });
-
-  it('the centrifuge scene layout runs the cycle', () => {
-    const g = createLine(CENTRIFUGE_LAYOUT);
-    g.factory.run(60);
-    const words = g.centrifuge.state.log.map((x) => x.phase);
-    expect(words.slice(0, 6)).toEqual(['idle', 'filling', 'spinning up', 'in sync', 'spinning down', 'filling']);
-    expect(g.factory.ledger.created).toBe(g.factory.alive() + g.factory.ledger.consumed);
-  });
-});
-
-describe('v2 conveyor page graph', () => {
-  it('runs 120 s: parcels ride round, grey, drop onto belt C and into the bin', async () => {
-    const { createConveyorPage } = await import('../src/sim/graphs.ts');
-    const g = createConveyorPage();
-    for (let i = 0; i < 120 * 120; i++) {
-      g.factory.run(H);
-      expect(g.factory.ledger.created).toBe(g.factory.alive() + g.factory.ledger.consumed);
-    }
-    expect(g.audio.stats.dropped).toBeGreaterThan(5);
-    expect(g.sink.taken).toBeGreaterThan(5);
-  });
-});
-
-describe('hand-offs', () => {
-  it('no pops: every item moves continuously in world space across machines', () => {
-    const g = createLine(LINE_LAYOUT);
-    const f = g.factory;
-    const last = new Map<number, [number, number, number]>();
-    let worst = 0;
-    let handOffs = 0;
-    let worstHand = 0;
-    const owner = new Map<number, string>();
-    for (let i = 0; i < 70 * 120; i++) {
-      f.run(H);
-      const seen = new Map<number, [string, number, number, number]>();
-      const at = (m: string, o: readonly number[]) => (id: number, x: number, y: number, z: number) =>
-        seen.set(id, [m, x + o[0]!, y + o[1]!, z + o[2]!]);
-      const b = at('beltB', g.beltB.origin);
+      seen.clear();
       g.beltB.poses((_, item, x, y, z) => b(item.id, x, y, z));
-      const c = at('centrifuge', g.centrifuge.origin);
       g.centrifuge.poses((_, item, x, y, z) => c(item.id, x, y, z));
-      const a = at('audio', g.audio.origin);
-      g.audio.poses((_, item, __, x, y, z) => a(item.id, x, y, z));
-      const s = at('sink', g.sink.origin);
-      g.sink.items((_, item, x, y, z) => s(item.id, x, y, z));
+      g.audio.poses((_, item, x, y, z) => a(item.id, x, y, z));
+      g.sink.poses((_, item, x, y, z) => s(item.id, x, y, z));
       for (const [id, [m, x, y, z]] of seen) {
         const p = last.get(id);
         if (p) {
@@ -253,11 +265,37 @@ describe('hand-offs', () => {
         owner.set(id, m);
       }
     }
-    // 3 units per 1/120 s step is 360 units/s: faster than anything moves here.
+    expect(landed).toBeGreaterThan(10);
+    expect(g.sink.taken).toBeGreaterThan(5);
+    expect(centrifuge.state.log.map((x) => x.phase)).toContain('in sync');
+    // In sync, the lock lands parcels within a few units of their cleat (no long bends).
+    expect(worstBend).toBeLessThan(4);
+    expect(audio.stats.late).toBe(0);
+    // 3 units per 1/120 s step is 360 units/s: faster than anything moves here; at a hand-off
+    // the step is no bigger than the motion either side of it.
     expect(handOffs).toBeGreaterThan(20);
     expect(worst).toBeLessThan(3);
-    // At a hand-off the step is no bigger than the motion either side of it.
     expect(worstHand).toBeLessThan(2.5);
-    process.stdout.write(`hand-offs ${handOffs}, worst step ${worst.toFixed(2)}, worst at a hand-off ${worstHand.toFixed(2)}\n`);
+    process.stdout.write(`line: ${landed} landed, worst bend ${worstBend.toFixed(2)}; hand-offs ${handOffs}, worst step ${worst.toFixed(2)}, at a hand-off ${worstHand.toFixed(2)}; log\n${centrifuge.state.log.map((x) => `${x.t.toFixed(2)} ${x.phase}`).join("\n")}\n`);
+  });
+
+  it('the centrifuge scene layout runs the cycle', () => {
+    const g = createLine(CENTRIFUGE_LAYOUT);
+    g.factory.run(60);
+    const words = g.centrifuge.state.log.map((x) => x.phase);
+    expect(words.slice(0, 6)).toEqual(['idle', 'filling', 'spinning up', 'in sync', 'spinning down', 'filling']);
+    expect(g.factory.ledger.created).toBe(g.factory.alive() + g.factory.ledger.consumed);
+  });
+});
+
+describe('v2 conveyor page graph', () => {
+  it('runs 120 s: parcels ride round, grey, drop onto belt C and into the bin', () => {
+    const g = createConveyorPage();
+    for (let i = 0; i < 120 * 120; i++) {
+      g.factory.run(H);
+      expect(g.factory.ledger.created).toBe(g.factory.alive() + g.factory.ledger.consumed);
+    }
+    expect(g.audio.stats.dropped).toBeGreaterThan(5);
+    expect(g.sink.taken).toBeGreaterThan(5);
   });
 });

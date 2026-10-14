@@ -10,9 +10,8 @@
 import { type Factory, createFactory } from './clock.ts';
 import { type Conveyor, createConveyor } from './conveyor.ts';
 import { CF, type Centrifuge, createCentrifuge } from './centrifuge/index.ts';
-import { fallTime } from './fall.ts';
-import { type Loop, createLoop } from './loop.ts';
-import { type V3, link } from './ports.ts';
+import { type Loop, createLoop, syncToLoop } from './loop.ts';
+import type { V3 } from './ports.ts';
 import { type Sink, createSink } from './sink.ts';
 import { type Source, createSource } from './source.ts';
 
@@ -33,7 +32,7 @@ export interface LineLayout {
 
 const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const HAND = CF.spout.hand;
-/** Belt B's surface (v2 A: the funnel takes packets 6 above it) and the loop's. */
+/** Belt B's surface (v2 A: the funnel takes packets 6 above it) and the audio loop's. */
 const TOP_B = 192;
 const TOP_AUDIO = 92;
 
@@ -64,29 +63,24 @@ export function createLine(layout: LineLayout = LINE_LAYOUT, o: { seed?: number 
   const { clock, ledger } = factory;
   const b = layout.beltB;
   const a = layout.audio;
+  // The loop first (the centrifuge syncs to it), then every machine in step order.
+  const audio = createLoop(clock, { id: 'audio', origin: a.origin, axis: 'x', dir: -1, length: a.length, top: TOP_AUDIO, drum: 15, inAt: a.inAt, readAt: a.readAt });
   // Packets appear 24 above belt B's in point (inside the hopper the blocks draw there).
   const source = factory.add(createSource(clock, ledger, { id: 'source', origin: b.origin, from: [0, b.inAt, TOP_B + 24], seed: o.seed ?? 0 }));
   const beltB = factory.add(
     createConveyor(clock, { id: 'beltB', origin: b.origin, axis: 'y', dir: 1, length: b.length, top: TOP_B, width: 18, inAt: b.inAt, tip: false, hold: true }),
   );
-  const audioOpts = { id: 'audio', origin: a.origin, axis: 'x', dir: -1, length: a.length, top: TOP_AUDIO, drum: 15, inAt: a.inAt, readAt: a.readAt } as const;
   // The centrifuge locks onto the cleats at the in point, a fall after the hand-on: a released
   // packet then lands on a cleat (the fall bends to it either way, but barely has to).
-  const fall = fallTime(CF.spout.v[2], HAND[2] - (TOP_AUDIO + 1.2));
-  let audio: Loop | null = null;
   const centrifuge = factory.add(
-    createCentrifuge(clock, {
-      id: 'centrifuge',
-      origin: layout.centrifuge,
-      sync: () => ({ phase: audio!.phaseAt(audio!.geometry.uIn, fall), period: audio!.geometry.cleatGap / audio!.geometry.speed }),
-    }),
+    createCentrifuge(clock, { id: 'centrifuge', origin: layout.centrifuge, sync: syncToLoop(audio, add(layout.centrifuge, HAND), CF.spout.v) }),
   );
-  audio = factory.add(createLoop(clock, audioOpts));
+  factory.add(audio);
   const sink = factory.add(createSink(clock, ledger, { id: 'sink', origin: a.origin, floorZ: 0 }));
-  link(source, 'out', beltB);
-  link(beltB, 'out', centrifuge);
-  link(centrifuge, 'out', audio);
-  link(audio, 'drop', sink);
+  factory.link(source, 'out', beltB);
+  factory.link(beltB, 'out', centrifuge);
+  factory.link(centrifuge, 'out', audio);
+  factory.link(audio, 'drop', sink);
   return { factory, source, beltB, centrifuge, audio, sink };
 }
 
@@ -125,9 +119,9 @@ export function createConveyorPage(o: { seed?: number } = {}): ConveyorPageGraph
   const audio = factory.add(createLoop(clock, { id: 'audio', origin: [-130, 74, 0], axis: 'x', dir: -1, length: 216, top: 92, drum: 15, inAt: 204, readAt: 100 }));
   const beltC = factory.add(createConveyor(clock, { id: 'beltC', origin: [-130, 52, 0], axis: 'y', dir: 1, length: 90, top: 30, inAt: 22, outAt: 90 }));
   const sink = factory.add(createSink(clock, ledger, { id: 'sink', origin: [-130, 52, 0], floorZ: 0 }));
-  link(source, 'out', beltB);
-  link(beltB, 'out', audio);
-  link(audio, 'drop', beltC);
-  link(beltC, 'out', sink);
+  factory.link(source, 'out', beltB);
+  factory.link(beltB, 'out', audio);
+  factory.link(audio, 'drop', beltC);
+  factory.link(beltC, 'out', sink);
   return { factory, source, beltB, audio, beltC, sink };
 }

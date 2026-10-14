@@ -4,7 +4,7 @@
  */
 import type { Clock, Machine } from './clock.ts';
 import { FALL_G } from './fall.ts';
-import type { Item, Ledger } from './items.ts';
+import type { Item, Ledger, PoseSource } from './items.ts';
 import type { Located, Receiver, V3 } from './ports.ts';
 
 export interface SinkOptions {
@@ -22,12 +22,10 @@ export interface SinkItem {
   born: number;
 }
 
-export interface Sink extends Machine, Located, Receiver {
+export interface Sink extends Machine, Located, Receiver, PoseSource {
   readonly falling: readonly SinkItem[];
   /** Items taken so far. */
   readonly taken: number;
-  /** Poses (bottom centre, yaw) at t + acc; returns the count. */
-  items(cb: (i: number, item: Item, x: number, y: number, z: number, yaw: number) => void): number;
 }
 
 export function createSink(clock: Readonly<Clock>, ledger: Ledger, o: SinkOptions): Sink {
@@ -65,11 +63,11 @@ export function createSink(clock: Readonly<Clock>, ledger: Ledger, o: SinkOption
       }
     },
     alive: () => falling.length,
-    items(cb) {
+    poses(cb) {
       const a = clock.acc;
       for (let i = 0; i < falling.length; i++) {
         const f = falling[i]!;
-        cb(i, f.item, f.p[0] + f.v[0] * a, f.p[1] + f.v[1] * a, f.p[2] + f.v[2] * a - 0.5 * FALL_G * a * a, f.item.yaw);
+        cb(i, f.item, f.p[0] + f.v[0] * a, f.p[1] + f.v[1] * a, f.p[2] + f.v[2] * a - 0.5 * FALL_G * a * a, f.item.yaw, 0, 0, 0);
       }
       return falling.length;
     },

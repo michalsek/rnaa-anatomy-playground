@@ -10,20 +10,14 @@
  * parcels (pitched, greyed by a style blend at the read point, E2) and their bail straps (an
  * axis-scaled pool, E3).
  */
-import {
-  type Item,
-  type Loop as LoopSim,
-  PARCEL,
-  type PartHandle,
-  type PoolHandle,
-  packetStyle,
-} from '@anatomy/engine';
+import { type Loop as LoopSim, PACKET_SIZE, type PartHandle, type PoolHandle, helix } from '@anatomy/engine';
 import { useState } from 'react';
 import { Box, Group, Instances, Lathe, Marks, Tube, useFrame, useNode } from '../../blocks/blocks.tsx';
 import type { LiveHandle } from '../../factory/live.ts';
 import { PacketPool } from '../Packets.tsx';
 import { type V3, closed, ring } from '../kit.ts';
-import { type BeltKit, beltKit, rod, slats, turned } from './dims.ts';
+import { usePacketPoses } from '../poses.ts';
+import { beltKit, rod, slats, turned } from './dims.ts';
 import { BeltBody, LabelPlate, Lamp, Motor } from './Parts.tsx';
 
 interface LoopProps {
@@ -34,16 +28,14 @@ interface LoopProps {
   legs?: boolean;
 }
 
-const GARBAGE = packetStyle('garbage');
-
-function useLoopFrame(live: LiveHandle, sim: () => LoopSim) {
+/** The loop's frame hook: slats, cleats and bail straps (machine-specific), then the parcels. */
+function Frame({ live, sim }: LoopProps) {
   const band = useNode<PartHandle>('body.band');
   const cleats = useNode<PoolHandle>('cleats');
-  const packets = useNode<PoolHandle>('packets');
   const straps = useNode<PoolHandle>('straps');
+  const packets = usePacketPoses('packets', sim);
   const [scratch] = useState(() => {
     let cl: PoolHandle | null = null;
-    let pk: PoolHandle | null = null;
     let st: PoolHandle | null = null;
     let xAxis = true;
     return {
@@ -51,20 +43,13 @@ function useLoopFrame(live: LiveHandle, sim: () => LoopSim) {
         if (xAxis) cl!.pose(j, x, y, z, 0, tilt, 0);
         else cl!.pose(j, x, y, z, 0, 0, tilt);
       },
-      packet(i: number, item: Item, spend: number, x: number, y: number, z: number, yaw: number, tilt: number) {
-        if (xAxis) pk!.pose(i, x, y, z, yaw, tilt, 0);
-        else pk!.pose(i, x, y, z, yaw, 0, tilt);
-        pk!.style(i, packetStyle(item.kind));
-        pk!.blend(i, GARBAGE, spend);
-      },
       strap(i: number, x: number, y: number, z: number, tilt: number, len: number) {
         if (xAxis) st!.pose(i, x, y, z, 0, tilt, 0);
         else st!.pose(i, x, y, z, 0, 0, tilt);
         st!.scale(i, 1, 1, len);
       },
-      bind(c: PoolHandle, p: PoolHandle, s: PoolHandle, x: boolean) {
+      bind(c: PoolHandle, s: PoolHandle, x: boolean) {
         cl = c;
-        pk = p;
         st = s;
         xAxis = x;
       },
@@ -75,28 +60,13 @@ function useLoopFrame(live: LiveHandle, sim: () => LoopSim) {
     const s = sim();
     band().uShift = s.uShift();
     const c = cleats();
-    const p = packets();
     const st = straps();
-    scratch.bind(c, p, st, s.geometry.axis === 'x');
+    scratch.bind(c, st, s.geometry.axis === 'x');
     c.count = s.cleats(scratch.cleat);
-    p.count = s.poses(scratch.packet);
     st.count = s.straps(scratch.strap);
+    packets();
   });
-}
-
-function Frame({ live, sim }: LoopProps) {
-  useLoopFrame(live, sim);
   return null;
-}
-
-/** A helix of `turns` round the s axis from s0 to s1 at (c, z), radius r (the take-up spring). */
-function helix(f: BeltKit, s0: number, s1: number, c: number, z: number, r: number, turns: number): V3[] {
-  const n = Math.ceil(turns * 16);
-  return Array.from({ length: n + 1 }, (_, k) => {
-    const t = k / n;
-    const a = 2 * Math.PI * turns * t;
-    return f.w(s0 + (s1 - s0) * t, c + r * Math.cos(a), z + r * Math.sin(a));
-  });
 }
 
 export function Loop(props: LoopProps) {
@@ -105,9 +75,9 @@ export function Loop(props: LoopProps) {
   const D = loop.geometry;
   const { axis, dir, L, T, W, RW, RD, BT, zc, CH, HOOK } = D;
   const half = W / 2;
-  const f = beltKit(axis);
+  const f = beltKit(loop.frame);
   const flangeR = RW + 2.2;
-  const zHang = zc - RW - CH - HOOK - PARCEL.h;
+  const zHang = zc - RW - CH - HOOK - PACKET_SIZE.h;
   const cIn = half + 1.2 + 1.8;
   const cOut = cIn + 1.6;
   const zBot0 = zc - RW + 3.0;
@@ -135,7 +105,7 @@ export function Loop(props: LoopProps) {
   if (L > 150) legAt.splice(1, 0, L / 2);
   const rr = 1.2;
   const rz = zc - RW - rr;
-  const c0 = (axis === 'y' ? PARCEL.w : PARCEL.d) / 2 + 0.45 + 0.35 + 0.9;
+  const c0 = (axis === 'y' ? PACKET_SIZE.w : PACKET_SIZE.d) / 2 + 0.45 + 0.35 + 0.9;
   const nRet = Math.max(2, Math.round(L / 60));
   const returns = Array.from({ length: nRet }, (_, i) => {
     const s = (L * (i + 0.5)) / nRet;
@@ -268,7 +238,7 @@ export function Loop(props: LoopProps) {
         <Box id="bracket" material="steel" {...f.box([brS0, brS1], [tuC0, tuC1], [zc - pbH, zc + pbH])} r={0.4} />
         <Lathe id="rod" material="steel" outline="hi" profile={rod(0.55, 0, Math.abs(brS0 - springFrom))} steps={10} {...f.alongS(brS0, rodC, zc, -inward)} />
         <Lathe id="nut" material="steel" profile={rod(1.1, 0, 1.0)} steps={6} {...f.alongS(brS1, rodC, zc, inward)} />
-        <Tube id="spring" material="steel" path={helix(f, springFrom, brS0, rodC, zc, 1.25, 7)} radius={0.22} sides={6} bend={0} />
+        <Tube id="spring" material="steel" path={helix({ from: f.w(springFrom, rodC, zc), to: f.w(brS0, rodC, zc), r: 1.25, turns: 7 })} radius={0.22} sides={6} bend={0} />
       </Group>
       <Lamp f={f} s={lampS} c={cOut} z={(zBot0 + zBot1) / 2} r={1.5} />
       <Group id="drive">

@@ -6,14 +6,18 @@
  */
 import { type Factory, createFactory } from '../src/sim/clock.ts';
 import { createConveyor } from '../src/sim/conveyor.ts';
-import { CF, createCentrifuge } from '../src/sim/centrifuge/index.ts';
-import { link } from '../src/sim/ports.ts';
+import { CF, type SpinController, createCentrifuge, createRampController, createSpinController } from '../src/sim/centrifuge/index.ts';
+import { mod } from '../src/sim/math.ts';
 import { createSink } from '../src/sim/sink.ts';
 import { createSource } from '../src/sim/source.ts';
 
-const mod = (a: number, n: number) => ((a % n) + n) % n;
+/** The spin models the contract tests run over (name, factory). */
+export const CONTROLLERS: [string, () => SpinController][] = [
+  ['default', () => createSpinController()],
+  ['ramp', () => createRampController()],
+];
 
-export function topRig(o: { seed?: number } = {}) {
+export function topRig(o: { seed?: number; controller?: SpinController } = {}) {
   const f: Factory = createFactory();
   const beltBOrigin: [number, number, number] = [0, -109, 0];
   const source = f.add(createSource(f.clock, f.ledger, { id: 'source', origin: beltBOrigin, from: [0, 8, 216], seed: o.seed ?? 0 }));
@@ -39,14 +43,15 @@ export function topRig(o: { seed?: number } = {}) {
       id: 'centrifuge',
       origin: [0, 0, 0],
       sync: () => ({ phase: mod(f.clock.t / period, 1), period }),
+      ...(o.controller && { controller: o.controller }),
     }),
   );
   f.add(audio);
   const sink = f.add(createSink(f.clock, f.ledger, { id: 'sink', origin: [0, 0, 0], floorZ: 0 }));
-  link(source, 'out', beltB);
-  link(beltB, 'out', centrifuge);
-  link(centrifuge, 'out', audio);
-  link(audio, 'out', sink);
+  f.link(source, 'out', beltB);
+  f.link(beltB, 'out', centrifuge);
+  f.link(centrifuge, 'out', audio);
+  f.link(audio, 'out', sink);
   return { f, source, beltB, centrifuge, audio, sink };
 }
 

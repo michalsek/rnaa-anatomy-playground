@@ -1,10 +1,11 @@
 /**
  * Conveyor authoring helpers (v2 `parts/conveyor/conveyor.mjs` frameOf): parts are placed in belt
  * coordinates (s along the belt, c across, +c toward the viewer, z up from the floor) and mapped
- * into the machine's local frame. A `y` belt's frame is a reflection of an `x` belt's, so boxes go
- * by corners and turned parts by direction vectors (never by one rotation). Plain module.
+ * into the machine's local frame by the sim's belt frame. A `y` belt's frame is a reflection of an
+ * `x` belt's, so boxes go by corners and turned parts by direction vectors (never by one
+ * rotation). Plain module.
  */
-import type { BeltAxis, LineSetSpec, ProfilePoint, Vec3 } from '@anatomy/engine';
+import type { BeltFrame, LineSetSpec, ProfilePoint, Vec3 } from '@anatomy/engine';
 import { type Placed, type V3, corners, placeFrame } from '../kit.ts';
 
 export interface BeltKit {
@@ -23,11 +24,11 @@ export interface BeltKit {
 
 const UP: Vec3 = [0, 0, 1];
 
-export function beltKit(axis: BeltAxis): BeltKit {
-  const y = axis === 'y';
-  const sV: V3 = y ? [0, 1, 0] : [1, 0, 0];
-  const cV: V3 = y ? [1, 0, 0] : [0, 1, 0];
-  const w = (s: number, c: number, z: number): V3 => (y ? [c, s, z] : [s, c, z]);
+/** Placement helpers over the sim's belt frame (`Conveyor.frame`, `Loop.frame`). */
+export function beltKit(frame: BeltFrame): BeltKit {
+  const sV: V3 = [...frame.sV];
+  const cV: V3 = [...frame.cV];
+  const w = (s: number, c: number, z: number): V3 => frame.w(s, c, z, [0, 0, 0]);
   return {
     sV,
     cV,

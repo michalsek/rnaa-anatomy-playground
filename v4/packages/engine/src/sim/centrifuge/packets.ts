@@ -10,7 +10,8 @@
  * Coordinates: the machine's local frame (v2 `L(x, y, z)`); angles in radians.
  */
 import type { Clock } from '../clock.ts';
-import type { Item } from '../items.ts';
+import type { Item, PoseFn } from '../items.ts';
+import { ease, mod, wrapHalf, wrapPi } from '../math.ts';
 import type { Out, V3 } from '../ports.ts';
 import { RATES } from '../rates.ts';
 
@@ -142,11 +143,6 @@ export interface TrayView {
 
 export const pocketAngle = (k: number, A: number) => A + (k + 0.5) * ALPHA;
 
-const mod = (a: number, n: number) => ((a % n) + n) % n;
-const wrapHalf = (x: number) => x - Math.round(x);
-/** Wrap into [−π, π). */
-const wrapPi = (a: number) => a - TAU * Math.floor((a + Math.PI) / TAU);
-export const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 
 export interface Tray extends TrayView {
   readonly state: TrayState;
@@ -156,7 +152,7 @@ export interface Tray extends TrayView {
   step(h: number, A: number, out: Out): void;
   alive(): number;
   /** Every packet's pose (bottom centre, yaw) at `now` with the rotor at `A`. */
-  poses(cb: (i: number, item: Item, x: number, y: number, z: number, yaw: number) => void, now: number, A: number): number;
+  poses(cb: PoseFn, now: number, A: number): number;
 }
 
 export function createTray(clock: Readonly<Clock>, ctl: { readonly mode: SpinMode; readonly A: number }): Tray {
@@ -331,28 +327,28 @@ export function createTray(clock: Readonly<Clock>, ctl: { readonly mode: SpinMod
           // Ease the yaw onto the throat's (the box is symmetric: the nearer of SPOUT and SPOUT + π).
           const yaw = q.item.yaw;
           const to = SPOUT + Math.PI * Math.round((yaw - SPOUT) / Math.PI);
-          cb(i++, q.item, x, y, z, yaw + (to - yaw) * ease(u));
+          cb(i++, q.item, x, y, z, yaw + (to - yaw) * ease(u), 0, 0, 0);
         } else {
           const z = q.vz !== 0 ? Math.max(restZ(j), q.z + q.vz * (now - clock.t)) : q.z;
-          cb(i++, q.item, FUNNEL[0], FUNNEL[1], z, SPOUT);
+          cb(i++, q.item, FUNNEL[0], FUNNEL[1], z, SPOUT, 0, 0, 0);
         }
       }
       // Dropping into a pocket.
       for (const f of s.falling) {
         const age = now - f.t0;
-        cb(i++, f.item, FUNNEL[0], FUNNEL[1], Math.max(Z_POCKET, f.z0 - 0.5 * GRAVITY * age * age), SPOUT);
+        cb(i++, f.item, FUNNEL[0], FUNNEL[1], Math.max(Z_POCKET, f.z0 - 0.5 * GRAVITY * age * age), SPOUT, 0, 0, 0);
       }
       // Riding the tray (§A: the live angle, so every held packet turns with it).
       for (let k = 0; k < POCKETS; k++) {
         const it = s.pockets[k];
         if (!it) continue;
         const a = pocketAngle(k, A);
-        cb(i++, it, R_POCKET * Math.cos(a), R_POCKET * Math.sin(a), Z_POCKET, mod(a, TAU));
+        cb(i++, it, R_POCKET * Math.cos(a), R_POCKET * Math.sin(a), Z_POCKET, mod(a, TAU), 0, 0, 0);
       }
       // Out through the gate, down the spout, off the lip.
       for (const r of s.releasing) {
         const q = releasePose(r, now - r.t0, A);
-        cb(i++, r.item, q.x, q.y, q.z, mod(q.a, TAU));
+        cb(i++, r.item, q.x, q.y, q.z, mod(q.a, TAU), 0, 0, 0);
       }
       return i;
     },

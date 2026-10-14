@@ -5,6 +5,7 @@
  * the dt sequence (and each machine's seed).
  */
 import { type Ledger, createLedger } from './items.ts';
+import { type Located, type OutPort, type Receiver, link } from './ports.ts';
 
 export interface Clock {
   /** The fixed step, seconds. */
@@ -29,6 +30,12 @@ export interface Factory {
   /** Add a machine; the step order is the order of `add`. */
   add<M extends Machine>(m: M): M;
   get(id: string): Machine;
+  /**
+   * Link `a.outs[port]` to `b` (both added already). The sender must step before the receiver:
+   * a receiver skips the step it takes an item in (the sender already moved it that step), and a
+   * sender that reads its receiver (a belt's hold) must see this step's state.
+   */
+  link<A extends Machine & Located & { outs: Record<string, OutPort> }>(a: A, port: keyof A['outs'] & string, b: Machine & Located & Receiver): void;
   /**
    * One frame: dt clamped to 1/30 s, times speed, at most `maxSteps` steps; the rest is dropped
    * (no catch-up burst). Returns the steps run.
@@ -63,6 +70,13 @@ export function createFactory(o: { H?: number; maxSteps?: number } = {}): Factor
       const m = machines.find((x) => x.id === id);
       if (!m) throw new Error(`factory: unknown machine "${id}"; known: ${machines.map((x) => x.id).join(', ')}`);
       return m;
+    },
+    link(a, port, b) {
+      const ia = machines.indexOf(a);
+      const ib = machines.indexOf(b);
+      if (ia < 0 || ib < 0) throw new Error(`factory.link: add ${ia < 0 ? a.id : b.id} first`);
+      if (ia >= ib) throw new Error(`factory.link: ${a.id} must step before ${b.id} (add it first)`);
+      link(a, port, b);
     },
     advance(dt, speed = 1) {
       const d = Math.min(Math.max(0, dt), 1 / 30) * Math.max(0, speed);
