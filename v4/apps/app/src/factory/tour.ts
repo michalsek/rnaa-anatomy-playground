@@ -21,12 +21,12 @@ export interface TourStep {
 
 /**
  * First events come late at 1× (the centrifuge fills for ≈ 24 s): the waits run faster (4× is the
- * clock's ceiling at 60 fps: 8 steps a frame). M11: shorter holds and higher speeds (≈ 76 → ≈ 50 s
+ * clock's ceiling at 60 fps: 8 steps a frame). M11: shorter holds and higher speeds (≈ 76 → ≈ 46 s
  * with the shorter reveal).
  */
 export const TOUR: readonly TourStep[] = [
-  // The phone opens; then the assembled factory.
-  { view: 'fit', until: () => !revealCtl.playing && revealCtl.t >= revealCtl.plan.end, min: 1, max: 30 },
+  // The phone opens; then the assembled factory, held 1.5 s.
+  { view: 'fit', until: () => !revealCtl.playing && revealCtl.t >= revealCtl.plan.end, min: revealCtl.plan.end + 1.5, max: 30 },
   { view: 'phone', min: 2.5, max: 2.5 },
   { view: 'dispenser-A', speed: 3, until: (g) => g.beltA.items.length > 0, min: 2, max: 6 },
   { view: 'A-packer', speed: 3, until: (g) => g.packer.stats.packets >= 1, min: 3, max: 10 },
