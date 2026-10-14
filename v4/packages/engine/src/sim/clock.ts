@@ -21,6 +21,8 @@ export interface Machine {
   step(h: number): void;
   /** Items alive inside the machine (the conservation count). */
   alive(): number;
+  /** A plain summary for the dev hook (`__v4.sim.status(id)`). */
+  status?(): object;
 }
 
 export interface Factory {

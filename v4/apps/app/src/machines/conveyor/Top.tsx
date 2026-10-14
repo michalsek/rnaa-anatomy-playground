@@ -10,9 +10,9 @@ import type { Conveyor, PartHandle } from '@anatomy/engine';
 import { Box, Group, Lathe, Marks, useFrame, useNode } from '../../blocks/blocks.tsx';
 import type { LiveHandle } from '../../factory/live.ts';
 import { PacketPool } from '../Packets.tsx';
-import { closed, ring } from '../kit.ts';
+import { closed, ring, rod, turned } from '../kit.ts';
 import { usePacketPoses } from '../poses.ts';
-import { type BeltKit, beltKit, rod, slats, turned } from './dims.ts';
+import { type BeltKit, beltKit, slats } from './dims.ts';
 import { BeltBody, LabelPlate, Lamp, Motor, Nut } from './Parts.tsx';
 
 interface TopProps {

@@ -157,7 +157,8 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
   let travel = 0;
   let heldNow = false;
 
-  const out = createOut(o, 'out', { asks: o.hold === true });
+  // A tipping belt hands on later, from the drum, without asking again: it can't promise to ask.
+  const out = createOut(o, 'out', { asks: o.hold === true && !tip });
   const blocked = () => o.hold === true && !out.ready();
   const set = (it: TopItem, x: number, y: number, z: number) => {
     it.d[0] = x - it.p[0];
@@ -290,6 +291,7 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
       }
     },
     alive: () => items.length,
+    status: () => ({ items: items.length, held: heldNow }),
     uShift() {
       // The band's u runs along the travel (either dir), so the slats move with the parcels.
       const u = (travel + speed * clock.acc) / D.total;

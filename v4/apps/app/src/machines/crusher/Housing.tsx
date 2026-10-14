@@ -5,8 +5,8 @@
  * photo-eye (emitter on −x, receiver on +x, one axis).
  */
 import { Box, Extrude, Group, Halo, Lathe, Marks } from '../../blocks/blocks.tsx';
-import { type V3, corners, disc, screws } from '../kit.ts';
-import { CR, circle, dots, faceScrews, plateX } from './dims.ts';
+import { type V3, circle, corners, disc, dots, faceScrews, plateX, screws } from '../kit.ts';
+import { CR } from './dims.ts';
 
 const H = CR.HOPPER;
 const fl = H.flare;

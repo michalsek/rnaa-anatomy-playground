@@ -10,16 +10,12 @@
  */
 import {
   type Centrifuge,
-  type Conveyor,
   type ConveyorPageGraph,
   type Crusher,
   type CrusherPageGraph,
   type Factory,
   type FrameInfo,
   type LineGraph,
-  type Loop,
-  type Sink,
-  type Source,
   CENTRIFUGE_LAYOUT,
   LINE_LAYOUT,
   createConveyorPage,
@@ -46,22 +42,9 @@ interface Graph {
   centrifuge?: Centrifuge | null;
 }
 
-/** Any scene graph: the machines it may have (by id), for `status(id)`. */
-interface AnyGraph {
-  factory: Factory;
-  source?: Source;
-  beltB?: Conveyor;
-  beltC?: Conveyor | null;
-  centrifuge?: Centrifuge | null;
-  audio?: Loop;
-  sink?: Sink | null;
-  crusher?: Crusher | null;
-}
-
 function createLive<G extends Graph>(
   build: (seed: number) => G,
   format: (g: G) => string,
-  describe: (g: G, id: string) => unknown,
   /** The phase word (announced at once; the rest of the readout at most 10 times a second). */
   phase: (g: G) => string = (g) => g.centrifuge?.controller.phase ?? '',
 ): Live<G> {
@@ -129,35 +112,10 @@ function createLive<G extends Graph>(
 
 const mainOf = (g: Graph & { crusher?: Crusher | null }) => (g.centrifuge ? 'centrifuge' : g.crusher ? 'crusher' : 'audio');
 
-function describeAny(g: AnyGraph, id: string): unknown {
-  switch (id) {
-    case 'crusher':
-      if (g.crusher) return { t: g.factory.clock.t, ...g.crusher.stats(), items: g.crusher.alive() };
-      break;
-    case 'centrifuge':
-      if (g.centrifuge) return g.centrifuge.status();
-      break;
-    case 'beltB':
-    case 'beltC': {
-      const b = g[id];
-      if (b) return { t: g.factory.clock.t, items: b.items.length, held: b.held() };
-      break;
-    }
-    case 'audio':
-      if (g.audio) {
-        const q = g.audio.quanta();
-        const hanging = g.audio.items.filter((x) => x.hook > 3).length;
-        return { t: g.factory.clock.t, quanta: q.count, phase: q.phase, period: q.period, items: g.audio.items.length, hanging, ...g.audio.stats };
-      }
-      break;
-    case 'source':
-      if (g.source) return { made: g.source.made };
-      break;
-    case 'sink':
-      if (g.sink) return { taken: g.sink.taken, falling: g.sink.falling.length };
-      break;
-  }
-  throw new Error(`unknown machine ${JSON.stringify(id)}; known: ${g.factory.machines.map((m) => m.id).join(', ')}`);
+/** A machine's dev summary (`Machine.status`), with the sim time. */
+function describe(g: Graph, id: string): unknown {
+  const m = g.factory.get(id);
+  return { t: g.factory.clock.t, ...m.status?.() };
 }
 
 const disposed = (c: Crusher) => {
@@ -172,7 +130,7 @@ const centrifugeText = (g: LineGraph) => {
 };
 
 /** The centrifuge scene: the M4 readout. */
-export const centrifugeLive = createLive((seed) => createLine(CENTRIFUGE_LAYOUT, { seed }), centrifugeText, describeAny);
+export const centrifugeLive = createLive((seed) => createLine(CENTRIFUGE_LAYOUT, { seed }), centrifugeText);
 
 /** The line scene: the centrifuge and the render loop's quanta (v2 conveyor page readout). */
 export const lineLive = createLive(
@@ -182,7 +140,6 @@ export const lineLive = createLive(
     const out = g.crusher ? disposed(g.crusher) : `${g.audio.stats.dropped} out`;
     return `held ${g.centrifuge.tray.held()}/10 · ${g.centrifuge.controller.phase} · q ${q.count} · ${(1 / q.period).toFixed(2)}/s · ${out}`;
   },
-  describeAny,
 );
 
 /** v2's conveyor page: the readout as v2's (`q 56 · 1.77/s · 2 top · 3 hung · 1 out`). */
@@ -199,7 +156,6 @@ export const conveyorLive = createLive(
     }
     return `q ${q.count} · ${(1 / q.period).toFixed(2)}/s · ${top} top · ${hung} hung · ${g.audio.stats.dropped} out`;
   },
-  describeAny,
   () => 'running',
 );
 
@@ -207,6 +163,5 @@ export const conveyorLive = createLive(
 export const crusherLive = createLive(
   (seed) => createCrusherPage({ seed }),
   (g: CrusherPageGraph) => disposed(g.crusher),
-  describeAny,
   (g) => g.crusher.stats().bin,
 );

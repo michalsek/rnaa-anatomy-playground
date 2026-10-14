@@ -64,6 +64,7 @@ export function createSource(clock: Readonly<Clock>, ledger: Ledger, o: SourceOp
       source.outs.out.send(item, o.from, zero);
     },
     alive: () => 0,
+    status: () => ({ made }),
   };
   return source;
 }

@@ -5,11 +5,10 @@
  * mat, walls, the hazard band on its front (E6 stripes), the handle, the pile (a scalable slab)
  * and the chips on it.
  */
-import type { LineSetSpec } from '@anatomy/engine';
+import { CRUSHER_POOLS, type LineSetSpec } from '@anatomy/engine';
 import { Box, Extrude, Group, Halo, Instances, Lathe, Marks } from '../../blocks/blocks.tsx';
-import { corners } from '../kit.ts';
-import { turned } from '../conveyor/dims.ts';
-import { CHIP, CR, FX, chuteTop, dots, faceScrews, plateX, slot } from './dims.ts';
+import { FX, corners, dots, faceScrews, plateX, slot, turned } from '../kit.ts';
+import { CHIP, CR, chuteTop } from './dims.ts';
 
 const C = CR.CHUTE;
 const B = CR.BIN;
@@ -90,7 +89,7 @@ export function Bin({ plan }: { plan: { x0: number; x1: number; y0: number; y1: 
           scalable
           position={[cx, cy, plan.z]}
         />
-        <Instances id="chips" geo={{ kind: 'box', size: CHIP, center: [0, 0, CHIP[2] / 2], r: 0.2 }} styles={[{ material: 'pkGarbage', outline: 'lo' }]} capacity={70} scalable />
+        <Instances id="chips" geo={{ kind: 'box', size: CHIP, center: [0, 0, CHIP[2] / 2], r: 0.2 }} styles={[{ material: 'pkGarbage', outline: 'lo' }]} capacity={CRUSHER_POOLS.chips} scalable />
       </Group>
     </>
   );

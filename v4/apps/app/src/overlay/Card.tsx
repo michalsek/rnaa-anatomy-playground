@@ -1,7 +1,9 @@
 /**
  * The figure card (the kit's `.iso-plate`): a framed card on the page with four corner texts
  * (fig, title, hint, readout) in the kit's mono at 10.5 px, and the stage inset inside it so the
- * fit never reaches the corners. On a narrow card the hint moves up, above the readout.
+ * fit never reaches the corners. The hint and the readout share the bottom row; when they don't
+ * fit on one line (measured by the layout, not estimated) the readout wraps below the hint and
+ * the stage's bottom edge moves up to clear both.
  */
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
@@ -19,6 +21,8 @@ import type { CardText } from '../scenes.tsx';
 import type { ReadoutSource } from './readout.ts';
 
 const NARROW = 560;
+/** The bottom row's distance from the card's bottom edge. */
+const BOTTOM = 18;
 const FONT = Platform.OS === 'web' ? MONO.web : MONO.ios;
 
 export function Card({
@@ -35,10 +39,15 @@ export function Card({
 }) {
   const ink = CARD[theme];
   const [width, setWidth] = useState<number | null>(null);
-  // Narrow, or the hint and a long readout (≈ 60 chars) would meet on one row (mono 10.5 px:
-  // ≈ 6.3 px a char, the hint's letter spacing adds 1.05).
-  const narrow = width !== null && (width < NARROW || text.hint.length * 7.4 + 60 * 6.3 + 80 > width);
+  /** The bottom row's height: one line, or two when the readout wraps below the hint. */
+  const [rowH, setRowH] = useState(0);
+  const narrow = width !== null && width < NARROW;
   const onLayout = (e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width);
+  const onRow = (e: LayoutChangeEvent) => {
+    const h = Math.round(e.nativeEvent.layout.height);
+    setRowH((was) => (was === h ? was : h));
+  };
+  const stageBottom = Math.max(narrow ? 40 : 52, BOTTOM + rowH + 12);
   const corner = [styles.corner, { fontFamily: FONT, color: ink.muted }];
   return (
     <View
@@ -49,18 +58,20 @@ export function Card({
         accessible
         accessibilityRole="image"
         accessibilityLabel={`${text.title}. ${text.label}`}
-        style={[styles.stage, narrow ? styles.stageNarrow : styles.stageWide]}
+        style={[styles.stage, narrow ? styles.stageNarrow : styles.stageWide, { bottom: stageBottom }]}
       >
         {children}
       </View>
       <Text style={[corner, styles.fig, { color: ink.text }]}>{text.fig}</Text>
       <Text style={[corner, styles.title]}>{text.title.toUpperCase()}</Text>
-      <Text style={[corner, styles.hint, narrow && styles.hintNarrow]}>{text.hint.toUpperCase()}</Text>
-      {typeof text.readout === 'string' ? (
-        <Text style={[corner, styles.readout, { color: ink.text }]}>{text.readout}</Text>
-      ) : (
-        <LiveReadout source={text.readout} style={[corner, styles.readout, { color: ink.text }]} />
-      )}
+      <View style={styles.row} onLayout={onRow}>
+        <Text style={[corner, styles.hint]}>{text.hint.toUpperCase()}</Text>
+        {typeof text.readout === 'string' ? (
+          <Text style={[corner, styles.readout, { color: ink.text }]}>{text.readout}</Text>
+        ) : (
+          <LiveReadout source={text.readout} style={[corner, styles.readout, { color: ink.text }]} />
+        )}
+      </View>
     </View>
   );
 }
@@ -94,14 +105,15 @@ function LiveReadout({ source, style }: { source: ReadoutSource; style: StylePro
 const styles = StyleSheet.create({
   card: { position: 'absolute', borderWidth: 1 },
   stage: { position: 'absolute' },
-  stageWide: { top: 52, right: 24, bottom: 52, left: 24 },
-  stageNarrow: { top: 48, right: 12, bottom: 70, left: 12 },
+  stageWide: { top: 52, right: 24, left: 24 },
+  stageNarrow: { top: 48, right: 12, left: 12 },
   corner: { position: 'absolute', fontSize: 10.5, lineHeight: 10.5 * 1.15, letterSpacing: 0.42 },
   fig: { top: 18, left: 20 },
   title: { top: 18, right: 20, letterSpacing: 1.05 },
-  hint: { bottom: 18, left: 20, letterSpacing: 1.05 },
-  hintNarrow: { bottom: 36 },
-  readout: { bottom: 18, right: 20, fontVariant: ['tabular-nums'] },
+  // Hint left, readout right; a readout that doesn't fit wraps to the line below (still right).
+  row: { position: 'absolute', left: 20, right: 20, bottom: BOTTOM, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', columnGap: 24, rowGap: 6 },
+  hint: { position: 'relative', letterSpacing: 1.05 },
+  readout: { position: 'relative', marginLeft: 'auto', fontVariant: ['tabular-nums'] },
   // Visually hidden but still read by assistive tech.
   offscreen: { position: 'absolute', width: 1, height: 1, overflow: 'hidden', opacity: 0, left: 0, bottom: 0 },
 });

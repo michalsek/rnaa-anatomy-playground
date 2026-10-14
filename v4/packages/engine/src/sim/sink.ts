@@ -63,6 +63,7 @@ export function createSink(clock: Readonly<Clock>, ledger: Ledger, o: SinkOption
       }
     },
     alive: () => falling.length,
+    status: () => ({ taken, falling: falling.length }),
     poses(cb) {
       const a = clock.acc;
       for (let i = 0; i < falling.length; i++) {

@@ -39,9 +39,8 @@ export const CR = {
   /** Flakes per packet, lanes on the chute. */
   PER: 7,
   LANES: 7,
-  /** Where belt C should release a packet (v2 `local.drop`), and the hopper mouth (`local.in`). */
+  /** Where belt C should hand a packet on (v2 `local.drop`): belt C ends here, at this height. */
   drop: [0, -26, 40] as V3,
-  in: [0, 0, 37] as V3,
 } as const;
 
 /** The packet's phases, seconds: slide onto the lip, tip and drop, tumble into the nip, crush. */
@@ -123,8 +122,8 @@ export interface Crusher extends Machine, Located, Receiver, PoseSource {
   outputs(o: CrusherOutputs): CrusherOutputs;
   /** The packets' squash (axis scale about the bottom centre), in `poses` order. */
   scales(cb: (i: number, sx: number, sy: number, sz: number) => void): number;
-  /** Flakes: the bottom centre (crusher frame), tumble about x, size factor and flattening 0..1. */
-  flakes(cb: (i: number, x: number, y: number, z: number, roll: number, s: number, flat: number) => void): number;
+  /** Flakes: the bottom centre (crusher frame), tumble about x, size factor, flattening 0..1 and lane. */
+  flakes(cb: (i: number, x: number, y: number, z: number, roll: number, s: number, flat: number, lane: number) => void): number;
   /** Chips on the pile top (bin frame = crusher frame before the drawer's travel): fade-in 0..1. */
   chips(cb: (i: number, x: number, y: number, z: number, yaw: number, s: number, grow: number) => void): number;
   /** The bin's inner floor (pile plan), crusher frame: x0, x1, y0, y1 and the floor top z. */
@@ -140,6 +139,17 @@ const VS = 12;
 const GRAV = 160;
 const LANE_V = [1.0, 0.86, 1.12, 0.93, 1.06, 0.82, 0.97];
 const CHIPS_MAX = 70;
+/** Flakes come out from under the housing this far apart in time, and queue this far apart in a lane. */
+const RELEASE_GAP = 0.085;
+const LANE_GAP = 1.9;
+/**
+ * Pool sizes the blocks need: packets in the hopper at once (one per CRUSH_GAP while each takes
+ * T_END, plus slack for a sender that doesn't ask), flakes alive (sliding, queued behind the gate
+ * through a dump, falling, landing), chips on the pile (the sim keeps the newest).
+ */
+export const CRUSHER_POOLS = { packets: 6, flakes: CR.PER * 12, chips: CHIPS_MAX } as const;
+const byDue = (a: { due: number }, b: { due: number }) => a.due - b.due;
+const queueOrder = (a: Flake, b: Flake) => b.y - a.y || a.lane - b.lane;
 
 /** A deterministic fraction in [0, 1) from two integers (v2 used Math.random). */
 const hash01 = (a: number, b: number) => {
@@ -188,6 +198,8 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
   let laneNext = 0;
   let chipSeq = 0;
   let nextRelease = 0;
+  /** Set when a push lands before the last due (packets close together): sort before releasing. */
+  let unsorted = false;
 
   // Scratch: the sliding flakes per lane (no allocation per step).
   const lanes: Flake[][] = Array.from({ length: LANES }, () => []);
@@ -202,7 +214,7 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
   /** A flake comes out from under the housing wall in its own lane (false: the lane is full). */
   const startFlake = (seed: number) => {
     const lane = laneNext % LANES;
-    if (laneTail(lane) < CH.start + 1.9) return false;
+    if (laneTail(lane) < CH.start + LANE_GAP) return false;
     laneNext++;
     const r = seed;
     flakes.push({
@@ -306,7 +318,11 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
         if (age > T_NIP - 0.15 && age < T_END) crushing = true;
         if (!it.flaked && age > T_NIP + 0.35) {
           it.flaked = true;
-          for (let k = 0; k < PER; k++) pending.push({ due: t + k * 0.085, seed: hash01(it.item.id, k) });
+          for (let k = 0; k < PER; k++) {
+            const due = t + k * RELEASE_GAP;
+            if (pending.length > 0 && due < pending[pending.length - 1]!.due) unsorted = true;
+            pending.push({ due, seed: hash01(it.item.id, k) });
+          }
         }
         if (age >= T_END) {
           items.splice(i, 1);
@@ -324,7 +340,8 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
 
       // Bin: when full the chute gate closes, the drawer rolls out over the grate, dumps through
       // its bottom, rolls back; then the queue leaves one flake at a time, front first.
-      const falling = flakes.some((f) => f.mode !== 'slide');
+      let falling = false;
+      for (const f of flakes) if (f.mode !== 'slide') falling = true;
       if (bin.mode === 'home' && fill >= 1 - 1e-6) bin.mode = 'full';
       if (bin.mode === 'full' && !falling && gate.x < 0.05) {
         bin.mode = 'out';
@@ -350,16 +367,19 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
         if (t - bin.t >= 1.5) {
           bin.pos = 0;
           bin.mode = 'home';
-          const queue = flakes.filter((f) => f.mode === 'slide').sort((a, b) => b.y - a.y || a.lane - b.lane);
+          const queue = flakes.filter((f) => f.mode === 'slide').sort(queueOrder);
           queue.forEach((f, k) => (f.wait = t + 0.25 + k * 0.07));
         }
       }
 
       // Flakes: released one at a time into lanes; they queue behind the gate while it is shut.
-      pending.sort((a, b) => a.due - b.due);
+      if (unsorted) {
+        pending.sort(byDue);
+        unsorted = false;
+      }
       while (pending.length && t >= pending[0]!.due && t >= nextRelease && startFlake(pending[0]!.seed)) {
         pending.shift();
-        nextRelease = t + 0.085;
+        nextRelease = t + RELEASE_GAP;
       }
       const shut = bin.mode !== 'home' || gate.x < 0.8;
       for (const l of lanes) l.length = 0;
@@ -372,7 +392,7 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
           const stop = shut && f.y <= gateY - 0.9 ? Math.min(limit, gateY - 0.9) : limit;
           if (t >= f.wait) f.y = Math.max(f.y, Math.min(f.y + VS * LANE_V[f.lane]! * h, stop));
           f.z = chuteZ(Math.min(f.y, CH.y1));
-          limit = f.y - 1.9;
+          limit = f.y - LANE_GAP;
           if (f.y >= CH.y1 + 0.4) {
             f.mode = 'fall';
             f.vz = 0;
@@ -410,6 +430,7 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
       }
     },
     alive: () => items.length,
+    status: () => ({ count, fill, bin: bin.mode, items: items.length }),
     stats: () => ({ count, fill, bin: bin.mode }),
     outputs(r) {
       const a = clock.acc;
@@ -450,9 +471,9 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
       const t = clock.t + a;
       let n = 0;
       for (const f of flakes) {
-        if (f.mode === 'slide') cb(n++, f.x, f.y, f.z, 0, f.s, 0);
-        else if (f.mode === 'fall') cb(n++, f.x + f.vx * a, f.y + f.vy * a, f.z + f.vz * a - 0.5 * GRAV * a * a, f.th + 9 * a, f.s, 0);
-        else cb(n++, f.x, f.y, f.z, 0, f.s, Math.min(1, (t - f.tl) / 0.3));
+        if (f.mode === 'slide') cb(n++, f.x, f.y, f.z, 0, f.s, 0, f.lane);
+        else if (f.mode === 'fall') cb(n++, f.x + f.vx * a, f.y + f.vy * a, f.z + f.vz * a - 0.5 * GRAV * a * a, f.th + 9 * a, f.s, 0, f.lane);
+        else cb(n++, f.x, f.y, f.z, 0, f.s, Math.min(1, (t - f.tl) / 0.3), f.lane);
       }
       return n;
     },

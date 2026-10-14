@@ -15,8 +15,7 @@ import { Centrifuge } from '../machines/centrifuge/Centrifuge.tsx';
 import { Crusher } from '../machines/crusher/Crusher.tsx';
 import { Loop } from '../machines/conveyor/Loop.tsx';
 import { Top } from '../machines/conveyor/Top.tsx';
-import { rod } from '../machines/conveyor/dims.ts';
-import { corners } from '../machines/kit.ts';
+import { corners, rod } from '../machines/kit.ts';
 import { usePacketPoses } from '../machines/poses.ts';
 import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, lineLive } from './live.ts';
 

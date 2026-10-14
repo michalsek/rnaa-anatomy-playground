@@ -11,7 +11,7 @@
 import { type Factory, createFactory } from './clock.ts';
 import { type Conveyor, createConveyor } from './conveyor.ts';
 import { CF, type Centrifuge, createCentrifuge } from './centrifuge/index.ts';
-import { type Crusher, createCrusher } from './crusher.ts';
+import { CR, type Crusher, createCrusher } from './crusher.ts';
 import { type Loop, createLoop, syncToLoop } from './loop.ts';
 import type { V3 } from './ports.ts';
 import { type Sink, createSink } from './sink.ts';
@@ -43,8 +43,9 @@ const HAND = CF.spout.hand;
 /** Belt B's surface (v2 A: the funnel takes packets 6 above it) and the audio loop's. */
 const TOP_B = 192;
 const TOP_AUDIO = 92;
-/** Belt C's surface: the crusher's feed height (v2 crusher `local.drop` z 40). */
-const TOP_C = 40;
+/** Belt C's surface and end: the crusher's feed point (v2 crusher `local.drop`). */
+const TOP_C = CR.drop[2];
+const C_END = CR.drop[1];
 
 /** The final layout (§2.1): world positions, from v2 A's own derivations. */
 export const LINE_LAYOUT: LineLayout = (() => {
@@ -60,9 +61,9 @@ export const LINE_LAYOUT: LineLayout = (() => {
     beltB: { origin: beltBOrigin, length: centri[1] - 49 - beltBOrigin[1], inAt: 2 },
     // Tail drum 12 past the spout's hand-on point; parcels land under it; read point at the scanner.
     audio: { origin: [audioHead, out[1], 0], length: out[0] + 12 - audioHead, inAt: out[0] - audioHead, readAt: 30 - audioHead },
-    // Belt C runs under the loop's head drum (garbage lands 22 along it); it and its rails end
-    // before the hopper's back lip (v2 A: the crusher 30 past belt C's end).
-    garbage: { beltC: { origin: beltC, length: lengthC, inAt: 22 }, crusher: [audioHead, beltC[1] + lengthC + 30, 0] },
+    // Belt C runs under the loop's head drum (garbage lands 22 along it) and ends at the crusher's
+    // feed point (v2 A put the crusher 30 past its end, 4 more than the crusher's own drop).
+    garbage: { beltC: { origin: beltC, length: lengthC, inAt: 22 }, crusher: [audioHead, beltC[1] + lengthC - C_END, 0] },
   };
 })();
 
@@ -166,8 +167,8 @@ export function createCrusherPage(o: { seed?: number } = {}): CrusherPageGraph {
   const factory = createFactory();
   const { clock, ledger } = factory;
   const length = 50;
-  // Belt C ends where the line's does: 30 before the crusher's centre.
-  const cOrigin: V3 = [0, -30 - length, 0];
+  // Belt C ends at the crusher's feed point, as on the line.
+  const cOrigin: V3 = [0, C_END - length, 0];
   const source = factory.add(
     createSource(clock, ledger, { id: 'source', origin: cOrigin, from: [0, 8, TOP_C + 24], every: RATES.crusherFeed, delay: 0.6, burst: 1, rest: 0, kinds: ['garbage'], seed: o.seed ?? 0 }),
   );

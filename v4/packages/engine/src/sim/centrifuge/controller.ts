@@ -20,15 +20,11 @@
  *   rate-limited first-order correction.
  */
 import { type Spring, TAU, ease, mod, settle, wrapHalf } from '../math.ts';
+import type { SyncInfo } from '../ports.ts';
 import { CF, type SpinMode, type TrayView, pocketAngle } from './packets.ts';
 
 export type PhaseWord = 'idle' | 'filling' | 'spinning up' | 'in sync' | 'spinning down';
 
-/** The receiver's quanta: `phase` wraps 0 → 1 once per `period` seconds. */
-export interface SyncInfo {
-  phase: number;
-  period: number;
-}
 
 export interface SpinIO {
   readonly now: number;

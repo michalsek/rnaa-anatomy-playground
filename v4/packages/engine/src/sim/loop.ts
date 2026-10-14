@@ -14,13 +14,12 @@
  *
  * Coordinates: the machine's local frame (origin = the belt centreline at s = 0, on the floor).
  */
-import type { SyncInfo } from './centrifuge/controller.ts';
 import type { Clock, Machine } from './clock.ts';
 import { type Fall, createFall, fallAt, fallTime } from './fall.ts';
 import { type Item, PACKET_SIZE, type PoseSource } from './items.ts';
 import { clampOpt, mod, relaxYaw, smooth, wrapPi, wrapSym } from './math.ts';
 import { type BeltAxis, type BeltFrame, type PathPoint, type Stadium, beltFrame, pathPoint, stadium, tilt } from './path.ts';
-import { type Located, type OutPort, type Receiver, type V3, createOut } from './ports.ts';
+import { type Located, type OutPort, type Receiver, type SyncInfo, type V3, createOut } from './ports.ts';
 import { RATES } from './rates.ts';
 
 export interface LoopOptions {
@@ -136,7 +135,6 @@ export interface Loop extends Machine, Located, Receiver, PoseSource {
 const BT = 1.2;
 const CH = 1.2;
 const HOOK = 6;
-const PARCEL = PACKET_SIZE;
 /**
  * A free cleat is in reach of a parcel when, at the landing time, it is the cleat nearest the in
  * point: within half a cleat gap either side (in gaps, measured as uIn − the cleat's u, wrapped
@@ -153,8 +151,8 @@ export function loopGeometry(o: LoopOptions): LoopGeometry {
   const L = clampOpt(o.id, 'length', o.length, 110);
   const RW = clampOpt(o.id, 'drum', o.drum ?? 15, 10);
   const RD = RW - BT;
-  const T = clampOpt(o.id, 'top', o.top, 2 * RW + CH + HOOK + PARCEL.h + 8);
-  const W = clampOpt(o.id, 'width', o.width ?? 18, (axis === 'y' ? PARCEL.w : PARCEL.d) + 4);
+  const T = clampOpt(o.id, 'top', o.top, 2 * RW + CH + HOOK + PACKET_SIZE.h + 8);
+  const W = clampOpt(o.id, 'width', o.width ?? 18, (axis === 'y' ? PACKET_SIZE.w : PACKET_SIZE.d) + 4);
   const zc = T - RW;
   const pitch = o.pitch ?? 3;
   const cleatEvery = o.cleatEvery ?? 6;
@@ -188,7 +186,7 @@ export function loopGeometry(o: LoopOptions): LoopGeometry {
     uIn: dir > 0 ? inS : L - inS,
     uHeadEnd,
     uRead: uHeadEnd + Math.abs(readS - sHead),
-    ports: { in: f.w(inS, 0, T), drop: f.w(sHead, 0, zc - RW - CH - HOOK - PARCEL.h), read: f.w(readS, 0, zc - RW) },
+    ports: { in: f.w(inS, 0, T), drop: f.w(sHead, 0, zc - RW - CH - HOOK - PACKET_SIZE.h), read: f.w(readS, 0, zc - RW) },
   };
 }
 
@@ -337,7 +335,7 @@ export function createLoop(clock: Readonly<Clock>, o: LoopOptions): Loop {
           // The parcel's bottom (it hangs upside down in its frame: base + n·(CH + hook) − its height).
           place(u, CH, hook, at);
           const nz = q.nz;
-          const from: V3 = [at[0], at[1], at[2] + (nz < 0 ? -PARCEL.h : 0)];
+          const from: V3 = [at[0], at[1], at[2] + (nz < 0 ? -PACKET_SIZE.h : 0)];
           const v: V3 = [F.sV[0] * q.ts * speed, F.sV[1] * q.ts * speed, q.tz * speed];
           it.item.was = it.item.kind;
           it.item.kind = 'garbage';
@@ -368,6 +366,12 @@ export function createLoop(clock: Readonly<Clock>, o: LoopOptions): Loop {
       }
     },
     alive: () => items.length,
+    status() {
+      const q = loop.quanta();
+      let hanging = 0;
+      for (const it of items) if (it.hook > 3) hanging++;
+      return { quanta: q.count, phase: q.phase, period: q.period, items: items.length, hanging, ...stats };
+    },
     quanta() {
       const rel = (((travel - uRead) % cleatGap) + cleatGap) % cleatGap;
       return { phase: rel / cleatGap, period: cleatGap / speed, count: Math.floor((travel - uRead) / cleatGap) + nCleats };
@@ -406,11 +410,11 @@ export function createLoop(clock: Readonly<Clock>, o: LoopOptions): Loop {
     },
     straps(cb) {
       const tr = travel + speed * clock.acc;
-      const across = (D.axis === 'y' ? PARCEL.w : PARCEL.d) / 2 + 0.45;
+      const across = (D.axis === 'y' ? PACKET_SIZE.w : PACKET_SIZE.d) / 2 + 0.45;
       let n = 0;
       const strap = (u: number, fold: number) => {
         B.at(u, B.R, q);
-        const len = (hookOf(q) / HOOK) * (HOOK + PARCEL.h / 2) * fold;
+        const len = (hookOf(q) / HOOK) * (HOOK + PACKET_SIZE.h / 2) * fold;
         if (len < 0.3) return;
         place(u, CH, 0, at);
         const tl = tilt(D.axis, q.ns, q.nz);

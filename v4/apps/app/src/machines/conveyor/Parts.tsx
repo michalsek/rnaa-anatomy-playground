@@ -5,8 +5,8 @@
  */
 import { type LineSetSpec, type Material, boltCircle } from '@anatomy/engine';
 import { Band, Box, Group, Lathe, Marks } from '../../blocks/blocks.tsx';
-import { closed, ring } from '../kit.ts';
-import { type BeltKit, RIBS, rod, turned } from './dims.ts';
+import { RIBS, closed, ring, rod, turned } from '../kit.ts';
+import type { BeltKit } from './dims.ts';
 
 export function BeltBody({
   f,

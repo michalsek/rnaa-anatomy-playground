@@ -3,7 +3,7 @@ import type { Factory } from '../src/sim/clock.ts';
 import { CF, type Centrifuge } from '../src/sim/centrifuge/index.ts';
 import type { TrayState } from '../src/sim/centrifuge/packets.ts';
 import { mod } from '../src/sim/math.ts';
-import { CONTROLLERS, snapshot, topRig } from './rig.ts';
+import { CONTROLLERS, report, snapshot, topRig } from './rig.ts';
 
 const H = 1 / 120;
 const TAU = Math.PI * 2;
@@ -55,7 +55,7 @@ describe('centrifuge, default controller', () => {
     // Releases reach the receiver and leave it.
     expect(r.sink.taken).toBeGreaterThan(0);
     // The timeline for the notes.
-    process.stdout.write(`${log.map((x) => `${x.t.toFixed(2)} ${x.phase}`).join("\n")}\n`);
+    report(`${log.map((x) => `${x.t.toFixed(2)} ${x.phase}`).join("\n")}\n`);
   });
 });
 

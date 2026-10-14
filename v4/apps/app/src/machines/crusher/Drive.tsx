@@ -12,9 +12,8 @@
  */
 import { Belt, Box, Group, Instances, Lathe, Marks } from '../../blocks/blocks.tsx';
 import { helix } from '@anatomy/engine';
-import { type V3, corners, placeFrame, screws } from '../kit.ts';
-import { turned } from '../conveyor/dims.ts';
-import { CR, FLYWHEEL, FX, FY, MOTOR_PROFILE, MOTOR_RIBS, ROLLER_PROFILE, VBELT, circle, faceScrews, ribs, slot } from './dims.ts';
+import { FX, FY, type V3, circle, corners, faceScrews, placeFrame, ribs, screws, slot, turned } from '../kit.ts';
+import { CR, FLYWHEEL, MOTOR_PROFILE, MOTOR_RIBS, ROLLER_PROFILE, VBELT } from './dims.ts';
 
 const RL = CR.ROLLER;
 const FL = CR.FLY;

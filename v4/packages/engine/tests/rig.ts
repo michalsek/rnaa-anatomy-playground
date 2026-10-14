@@ -59,3 +59,8 @@ export function topRig(o: { seed?: number; controller?: SpinController } = {}) {
 export function snapshot(f: Factory, parts: Record<string, unknown>) {
   return structuredClone({ t: f.clock.t, acc: f.clock.acc, created: f.ledger.created, consumed: f.ledger.consumed, ...parts });
 }
+
+/** Print a timeline for the notes (only with V4_TIMELINE=1: the test output stays quiet). */
+export function report(text: string) {
+  if (process.env.V4_TIMELINE) process.stdout.write(text);
+}

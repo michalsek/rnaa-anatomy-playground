@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type BinMode, CR, type CrusherOutputs } from '../src/sim/crusher.ts';
-import { CRUSH_GAP } from '../src/sim/crusher.ts';
+import { type BinMode, CR, CRUSH_GAP, type CrusherOutputs } from '../src/sim/crusher.ts';
 import { LINE_LAYOUT, createCrusherPage, createLine } from '../src/sim/graphs.ts';
 import { RATES } from '../src/sim/rates.ts';
 import { snapshot } from './rig.ts';
@@ -18,10 +17,9 @@ describe('crusher (v2 crusher page: source → belt C → crusher)', () => {
       expect(f.ledger.created).toBe(f.alive() + f.ledger.consumed);
       // Sliding flakes never pass through one another (v2 REVIEW 12): 1.9 apart in a lane.
       const lanes = new Map<number, number[]>();
-      g.crusher.flakes((_, x, y, __, ___, ____, flat) => {
+      g.crusher.flakes((_, __, y, ___, ____, _____, flat, lane) => {
         flakesSeen++;
         if (flat > 0) return;
-        const lane = Math.round((x - (CR.CHUTE.x0 + 2.2)) / 2.6);
         if (y <= CR.CHUTE.y1) (lanes.get(lane) ?? lanes.set(lane, []).get(lane)!).push(y);
       });
       for (const ys of lanes.values()) {
@@ -120,7 +118,6 @@ describe('crusher (v2 crusher page: source → belt C → crusher)', () => {
       accepted.push(g.factory.clock.t);
       accept(item, from, v);
     };
-    g.beltC!.outs.out.connect(c);
     let held = 0;
     for (let i = 0; i < 150 * 120; i++) {
       g.factory.run(H);

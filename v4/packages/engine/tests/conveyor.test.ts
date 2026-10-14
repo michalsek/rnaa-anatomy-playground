@@ -7,6 +7,7 @@ import { type Run, pathPoint, stadium } from '../src/sim/path.ts';
 import type { Receiver, V3 } from '../src/sim/ports.ts';
 import { createSink } from '../src/sim/sink.ts';
 import { createSource } from '../src/sim/source.ts';
+import { report } from './rig.ts';
 
 const H = 1 / 120;
 const ZERO: V3 = [0, 0, 0];
@@ -29,6 +30,18 @@ describe('factory clock', () => {
     const sink = f.add(createSink(f.clock, f.ledger, { id: 'sink', origin: [0, 0, 0] }));
     f.add(belt);
     expect(() => f.link(belt, 'out', sink)).toThrow(/step before/);
+  });
+
+  it('refuses a strict receiver behind a sender that does not ask (no hold, or a tipping hold)', () => {
+    const f = createFactory();
+    const strict = { ...createSink(f.clock, f.ledger, { id: 'strict', origin: [0, 0, 0] }), strict: true };
+    const plain = f.add(createConveyor(f.clock, { id: 'plain', origin: [0, 0, 0], axis: 'x', length: 60, top: 40 }));
+    const tipping = f.add(createConveyor(f.clock, { id: 'tipping', origin: [0, 0, 0], axis: 'x', length: 60, top: 40, hold: true }));
+    const asking = f.add(createConveyor(f.clock, { id: 'asking', origin: [0, 0, 0], axis: 'x', length: 60, top: 40, hold: true, tip: false }));
+    f.add(strict);
+    expect(() => f.link(plain, 'out', strict)).toThrow(/strict receiver/);
+    expect(() => f.link(tipping, 'out', strict)).toThrow(/strict receiver/);
+    expect(() => f.link(asking, 'out', strict)).not.toThrow();
   });
 });
 
@@ -279,7 +292,7 @@ describe('line graph', () => {
     expect(handOffs).toBeGreaterThan(20);
     expect(worst).toBeLessThan(3);
     expect(worstHand).toBeLessThan(2.5);
-    process.stdout.write(`line: ${landed} landed, ${g.crusher!.stats().count} crushed, worst bend ${worstBend.toFixed(2)}; hand-offs ${handOffs}, worst step ${worst.toFixed(2)}, at a hand-off ${worstHand.toFixed(2)}; log\n${centrifuge.state.log.map((x) => `${x.t.toFixed(2)} ${x.phase}`).join("\n")}\n`);
+    report(`line: ${landed} landed, ${g.crusher!.stats().count} crushed, worst bend ${worstBend.toFixed(2)}; hand-offs ${handOffs}, worst step ${worst.toFixed(2)}, at a hand-off ${worstHand.toFixed(2)}; log\n${centrifuge.state.log.map((x) => `${x.t.toFixed(2)} ${x.phase}`).join("\n")}\n`);
   });
 
   it('the centrifuge scene layout runs the cycle', () => {

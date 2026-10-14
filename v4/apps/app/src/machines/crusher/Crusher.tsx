@@ -6,6 +6,7 @@
  * and chips, the flakes, the needle and the lamp, then the squashed packet.
  */
 import {
+  CRUSHER_POOLS,
   type CrusherOutputs,
   type Crusher as CrusherSim,
   type GroupHandle,
@@ -135,7 +136,9 @@ function Frame({ live, sim }: CrusherProps) {
     const { total, runs, at } = s.path;
     let n = 0;
     for (let d = mod(-o.belt, VBELT.spacing); d < total && n < lc.capacity; d += VBELT.spacing) {
-      if (!runs.some(([a, b]) => d > a && d < b)) continue;
+      let open = false;
+      for (const [a, b] of runs) if (d > a && d < b) open = true;
+      if (!open) continue;
       at(d, s.p);
       lc.pose(n++, s.p[0], s.p[1], CR.BELT_R - 0.15);
     }
@@ -184,10 +187,10 @@ export function Crusher(props: CrusherProps) {
         id="flakes"
         geo={{ kind: 'box', size: FLAKE, center: [0, 0, FLAKE[2] / 2], r: 0.15 }}
         styles={[{ material: 'pkGarbage', outline: 'hi' }]}
-        capacity={CR.PER * 12}
+        capacity={CRUSHER_POOLS.flakes}
         scalable
       />
-      <PacketPool capacity={6} scalable />
+      <PacketPool capacity={CRUSHER_POOLS.packets} scalable />
     </Group>
   );
 }

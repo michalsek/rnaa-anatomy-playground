@@ -9,8 +9,8 @@
 import type { Clock, Machine } from '../clock.ts';
 import type { PoseSource } from '../items.ts';
 import { type Spring, TAU, ease, settle } from '../math.ts';
-import { type OutPort, type Located, type Receiver, type V3, createOut } from '../ports.ts';
-import { type PhaseWord, type SpinController, type SpinIO, type SyncInfo, createSpinController } from './controller.ts';
+import { type OutPort, type Located, type Receiver, type SyncInfo, type V3, createOut } from '../ports.ts';
+import { type PhaseWord, type SpinController, type SpinIO, createSpinController } from './controller.ts';
 import { CF, type SpinMode, type Tray, type TrayState, createTray } from './packets.ts';
 
 export { CF, type SpinMode } from './packets.ts';
@@ -19,7 +19,6 @@ export {
   type PhaseWord,
   type SpinController,
   type SpinIO,
-  type SyncInfo,
   createRampController,
   createSpinController,
 } from './controller.ts';
@@ -88,6 +87,7 @@ const openAt = (age: number) =>
   age < 0 ? 0 : age < 0.08 ? ease(age / 0.08) : age < CF.TA + 0.12 ? 1 : 1 - ease((age - CF.TA - 0.12) / 0.25);
 
 export function createCentrifuge(clock: Readonly<Clock>, o: CentrifugeOptions): Centrifuge {
+  if (o.controller && o.hold !== undefined) throw new Error(`${o.id}: pass hold to the controller, not with one`);
   const ctl = o.controller ?? createSpinController(o.hold !== undefined ? { hold: o.hold } : {});
   const tray = createTray(clock, ctl);
   // Asks first: a release waits for the receiver's `canAccept(lead)` (via canRelease).

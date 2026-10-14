@@ -7,9 +7,8 @@
  */
 import type { SegmentSpec } from '@anatomy/engine';
 import { Box, Glow, Group, Halo, Lathe, Marks, Tube } from '../../blocks/blocks.tsx';
-import { type V3, corners, screws } from '../kit.ts';
-import { turned } from '../conveyor/dims.ts';
-import { CR, FY, FZ, LENS, circle, slot } from './dims.ts';
+import { FY, FZ, type V3, circle, corners, screws, slot, turned } from '../kit.ts';
+import { CR, LENS } from './dims.ts';
 
 const D = CR.DIAL;
 const L = CR.LAMP;

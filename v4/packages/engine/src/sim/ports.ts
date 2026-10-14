@@ -8,6 +8,12 @@ import type { Item } from './items.ts';
 
 export type V3 = [number, number, number];
 
+/** A receiver's quanta, for a sender that locks to them: `phase` wraps 0 → 1 once per `period` s. */
+export interface SyncInfo {
+  phase: number;
+  period: number;
+}
+
 /**
  * Something that takes items in (a machine's input port).
  *
@@ -17,6 +23,13 @@ export type V3 = [number, number, number];
  * would have answered no, so whatever feeds it must ask first: a conveyor with `hold: true`, a
  * source (its timer holds), or another machine whose out port `asks`. `link` refuses to wire a
  * strict receiver to a sender that doesn't ask, and in DEV `send` checks before handing on.
+ *
+ * The contract:
+ * - **Asking:** a sender that asks calls `canAccept(lead)` with the true lead (the seconds until
+ *   the item will arrive) and then sends at that time. One sender per receiver: `canAccept` doesn't
+ *   reserve, so two senders asking the same receiver could both be told yes.
+ * - **No double step:** a receiver never moves an item on the step it accepts it (the sender
+ *   already moved it that step; receivers record `born = clock.t` and skip it).
  */
 export interface Receiver {
   /** Throws in `accept` when `canAccept()` is false (see above). */
