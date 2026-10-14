@@ -190,9 +190,11 @@ export function Tube(
     bend?: number;
     caps?: readonly [boolean, boolean];
     closed?: boolean;
+    /** A piece of the tube between two arc lengths (see `TubeSpec.range`). */
+    range?: readonly [number, number];
   },
 ) {
-  const { path, radius, sides, bend, caps, closed } = props;
+  const { path, radius, sides, bend, caps, closed, range } = props;
   return usePart(props, {
     kind: 'tube',
     path,
@@ -201,6 +203,7 @@ export function Tube(
     ...(bend !== undefined && { bend }),
     ...(caps && { caps }),
     ...(closed !== undefined && { closed }),
+    ...(range && { range }),
   });
 }
 

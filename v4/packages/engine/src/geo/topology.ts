@@ -87,6 +87,9 @@ export function buildTopology(mesh: Mesh): Topology {
   };
   const marked = new Set<number>();
   for (let k = 0; k < marks.length; k += 2) marked.add(edgeKey(marks[k]!, marks[k + 1]!));
+  const joined = new Set<number>();
+  const joins = mesh.joins;
+  if (joins) for (let k = 0; k < joins.length; k += 2) joined.add(edgeKey(joins[k]!, joins[k + 1]!));
 
   // ---- face normals ----------------------------------------------------------------------
   const faceNormals = new Float32Array(triCount * 3);
@@ -142,7 +145,9 @@ export function buildTopology(mesh: Mesh): Topology {
     const xi = h - xt * 3;
     const g = twin[h]!;
     if (g < 0) {
-      flags[xt]! |= FLAG.boundary(xi);
+      // A joined edge (it continues in another mesh) borders its own triangle: no outline.
+      if (joined.size > 0 && joined.has(edgeKey(corner(xt, xi + 1), corner(xt, xi + 2)))) adj[h] = xt;
+      else flags[xt]! |= FLAG.boundary(xi);
       continue;
     }
     if (g < h) continue; // each pair once

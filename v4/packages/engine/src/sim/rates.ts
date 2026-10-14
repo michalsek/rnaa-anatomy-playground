@@ -17,6 +17,10 @@ export const RATES = {
   beltSpeed: 14,
   /** The crusher's drawer dumps after this many packets' flakes (v2: 10). */
   binDump: 10,
+  /** Belt D (scanner → elevator), world units/s (v2 A: 28). */
+  beltDSpeed: 28,
+  /** The scanner scene's feed: one packet every `scannerFeed` s onto the loop (v2's scanner page: 2.2). */
+  scannerFeed: 2.2,
   /** The crusher scene's feed: one garbage packet every `crusherFeed` s (v2's standalone page: 2.4). */
   crusherFeed: 2.4,
 } as const;

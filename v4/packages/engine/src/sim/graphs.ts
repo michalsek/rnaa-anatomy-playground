@@ -7,12 +7,16 @@
  * - `line`: source → belt B → centrifuge → audio loop → belt C → crusher, at the final layout's
  *   positions (notes/M5-M11-plan.md §2.1, from v2 `assembly/build.mjs`);
  * - `crusher`: v2's crusher page: a source drops garbage onto a short belt C that feeds the crusher.
+ * - `line` also runs the read path (M7): the scanner reads the loop, belt D carries its packets to
+ *   a sink where the elevator will stand; `scanner`: v2's scanner page (a source over the loop).
  */
 import { type Factory, createFactory } from './clock.ts';
 import { type Conveyor, createConveyor } from './conveyor.ts';
 import { CF, type Centrifuge, createCentrifuge } from './centrifuge/index.ts';
 import { CR, type Crusher, createCrusher } from './crusher.ts';
-import { type Loop, createLoop, syncToLoop } from './loop.ts';
+import { fallTime } from './fall.ts';
+import { type Loop, createLoop, loopGeometry, syncToLoop } from './loop.ts';
+import { SCANNER_OUT, type Scanner, createScanner, scannerReadAt } from './scanner.ts';
 import type { V3 } from './ports.ts';
 import { type Sink, createSink } from './sink.ts';
 import { RATES } from './rates.ts';
@@ -28,6 +32,17 @@ export interface LineGraph {
   beltC: Conveyor | null;
   crusher: Crusher | null;
   sink: Sink | null;
+  /** The read path (the line's layout): the scanner, belt D and the sink at its end. */
+  scanner: Scanner | null;
+  beltD: Conveyor | null;
+  sinkD: Sink | null;
+}
+
+/** Belt D's run: from under the scanner's hand-on point (local) along −y to `headY` (world). */
+export interface BeltDLayout {
+  origin: V3;
+  length: number;
+  inAt: number;
 }
 
 export interface LineLayout {
@@ -36,6 +51,23 @@ export interface LineLayout {
   audio: { origin: V3; length: number; inAt: number; readAt: number };
   /** Belt C and the crusher; without them a sink takes the garbage. */
   garbage?: { beltC: { origin: V3; length: number; inAt: number }; crusher: V3 };
+  /** The scanner and belt D; with them the loop's read point snaps to the scanner (`scannerReadAt`). */
+  read?: { scanner: V3; beltD: BeltDLayout };
+}
+
+/** Belt D's surface: the preamp's lip (v2 A: top 24). */
+const TOP_D = SCANNER_OUT.at[2];
+
+/**
+ * Belt D under a scanner at `scanner` (world), running −y to its head drum at `headY`: the packet
+ * leaves the lip moving at the push's speed and lands where that motion takes it in the belt's
+ * shortest fall (the in point, 1 inside the tail), so it barely bends.
+ */
+export function beltDUnder(scanner: V3, headY: number): BeltDLayout {
+  const { at, v } = SCANNER_OUT;
+  const inY = scanner[1] + at[1] + v[1] * fallTime(0, 0);
+  const tail = inY + 1;
+  return { origin: [scanner[0] + at[0], headY, 0], length: tail - headY, inAt: tail - headY - 1 };
 }
 
 const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -55,6 +87,7 @@ export const LINE_LAYOUT: LineLayout = (() => {
   const audioHead = -90;
   const beltC: V3 = [audioHead, out[1] - 22, 0];
   const lengthC = 110;
+  const scanner: V3 = [30, out[1] - 38, 0];
   return {
     centrifuge: centri,
     // Head drum and rails stop before the funnel lip (v2 A: CENTRI.y − 49).
@@ -64,6 +97,9 @@ export const LINE_LAYOUT: LineLayout = (() => {
     // Belt C runs under the loop's head drum (garbage lands 22 along it) and ends at the crusher's
     // feed point (v2 A put the crusher 30 past its end, 4 more than the crusher's own drop).
     garbage: { beltC: { origin: beltC, length: lengthC, inAt: 22 }, crusher: [audioHead, beltC[1] + lengthC - C_END, 0] },
+    // The scanner 38 behind the loop's centreline (v2 A: its head over the near margin); belt D
+    // from under its lip to the elevator's chute (v2 A: ELEV_Y + 51 = −175).
+    read: { scanner, beltD: beltDUnder(scanner, -175) },
   };
 })();
 
@@ -79,8 +115,12 @@ export function createLine(layout: LineLayout = LINE_LAYOUT, o: { seed?: number 
   const { clock, ledger } = factory;
   const b = layout.beltB;
   const a = layout.audio;
-  // The loop first (the centrifuge syncs to it), then every machine in step order.
-  const audio = createLoop(clock, { id: 'audio', origin: a.origin, axis: 'x', dir: -1, length: a.length, top: TOP_AUDIO, drum: 15, inAt: a.inAt, readAt: a.readAt });
+  const rd = layout.read;
+  // The loop first (the centrifuge syncs to it), then every machine in step order. With a
+  // scanner, its read point is the scanner's (one source of reads).
+  const loopOpts = { id: 'audio', origin: a.origin, axis: 'x', dir: -1, length: a.length, top: TOP_AUDIO, drum: 15, inAt: a.inAt, readAt: a.readAt } as const;
+  const readAt = rd ? scannerReadAt(loopGeometry(loopOpts), a.origin, rd.scanner) : a.readAt;
+  const audio = createLoop(clock, { ...loopOpts, readAt });
   // Packets appear 24 above belt B's in point (inside the hopper the blocks draw there).
   const source = factory.add(createSource(clock, ledger, { id: 'source', origin: b.origin, from: [0, b.inAt, TOP_B + 24], seed: o.seed ?? 0 }));
   const beltB = factory.add(
@@ -91,23 +131,89 @@ export function createLine(layout: LineLayout = LINE_LAYOUT, o: { seed?: number 
   const centrifuge = factory.add(
     createCentrifuge(clock, { id: 'centrifuge', origin: layout.centrifuge, sync: syncToLoop(audio, add(layout.centrifuge, HAND), CF.spout.v) }),
   );
+  // The scanner reads the loop as the loop stood after the last step (it steps first).
+  const scanner = rd ? factory.add(createScanner(clock, ledger, { id: 'scanner', origin: rd.scanner, loop: audio })) : null;
   factory.add(audio);
   factory.link(source, 'out', beltB);
   factory.link(beltB, 'out', centrifuge);
   factory.link(centrifuge, 'out', audio);
   const gb = layout.garbage;
-  if (!gb) {
-    const sink = factory.add(createSink(clock, ledger, { id: 'sink', origin: a.origin, floorZ: 0 }));
+  let beltC: Conveyor | null = null;
+  let crusher: Crusher | null = null;
+  let sink: Sink | null = null;
+  if (gb) {
+    const c = gb.beltC;
+    // Belt C holds so the crusher takes one packet at a time (its hopper's `canAccept`).
+    beltC = factory.add(createConveyor(clock, { id: 'beltC', origin: c.origin, axis: 'y', dir: 1, length: c.length, top: TOP_C, inAt: c.inAt, tip: false, hold: true }));
+    crusher = factory.add(createCrusher(clock, ledger, { id: 'crusher', origin: gb.crusher }));
+    factory.link(audio, 'drop', beltC);
+    factory.link(beltC, 'out', crusher);
+  } else {
+    sink = factory.add(createSink(clock, ledger, { id: 'sink', origin: a.origin, floorZ: 0 }));
     factory.link(audio, 'drop', sink);
-    return { factory, source, beltB, centrifuge, audio, beltC: null, crusher: null, sink };
   }
-  const c = gb.beltC;
-  // Belt C holds so the crusher takes one packet at a time (its hopper's `canAccept`).
-  const beltC = factory.add(createConveyor(clock, { id: 'beltC', origin: c.origin, axis: 'y', dir: 1, length: c.length, top: TOP_C, inAt: c.inAt, tip: false, hold: true }));
-  const crusher = factory.add(createCrusher(clock, ledger, { id: 'crusher', origin: gb.crusher }));
-  factory.link(audio, 'drop', beltC);
-  factory.link(beltC, 'out', crusher);
-  return { factory, source, beltB, centrifuge, audio, beltC, crusher, sink: null };
+  const { beltD, sinkD } = scanner && rd ? readPath(factory, scanner, rd.beltD) : { beltD: null, sinkD: null };
+  return { factory, source, beltB, centrifuge, audio, beltC, crusher, sink, scanner, beltD, sinkD };
+}
+
+/** Belt D from the scanner, tipping off its head drum into a sink (the elevator's stand-in, M8). */
+function readPath(factory: Factory, scanner: Scanner, d: BeltDLayout) {
+  const { clock, ledger } = factory;
+  const beltD = factory.add(
+    createConveyor(clock, { id: 'beltD', origin: d.origin, axis: 'y', dir: -1, length: d.length, top: TOP_D, width: 18, speed: RATES.beltDSpeed, inAt: d.inAt, outAt: 0 }),
+  );
+  const sinkD = factory.add(createSink(clock, ledger, { id: 'sinkD', origin: d.origin, floorZ: 0 }));
+  factory.link(scanner, 'out', beltD);
+  factory.link(beltD, 'out', sinkD);
+  return { beltD, sinkD };
+}
+
+export interface ScannerPageGraph {
+  factory: Factory;
+  source: Source;
+  audio: Loop;
+  scanner: Scanner;
+  beltD: Conveyor;
+  /** Under the loop's drop, and at belt D's end. */
+  sink: Sink;
+  sinkD: Sink;
+}
+
+/**
+ * v2's scanner page (`parts/scanner/build.mjs`): the audio loop (L 170) fed a packet every
+ * RATES.scannerFeed s from a hopper over its in point, the scanner behind it (loop origin +
+ * [90, −38]), belt D from the scanner's lip (shortened: the elevator comes in M8).
+ */
+export function createScannerPage(o: { seed?: number } = {}): ScannerPageGraph {
+  const factory = createFactory();
+  const { clock, ledger } = factory;
+  const aOrigin: V3 = [-120, 70, 0];
+  const at: V3 = [aOrigin[0] + 90, aOrigin[1] - 38, 0];
+  const loopOpts = { id: 'audio', origin: aOrigin, axis: 'x', dir: -1, length: 170, top: TOP_AUDIO, drum: 15 } as const;
+  const g0 = loopGeometry(loopOpts);
+  const audio = createLoop(clock, { ...loopOpts, readAt: scannerReadAt(g0, aOrigin, at) });
+  const g = audio.geometry;
+  // The hopper's mouth 14 over the cleats at the in point (a short fall).
+  const source = factory.add(
+    createSource(clock, ledger, {
+      id: 'source',
+      origin: aOrigin,
+      from: [g.inS, 0, g.T + g.CH + 14],
+      every: RATES.scannerFeed,
+      delay: 0.3,
+      burst: 1,
+      rest: 0,
+      kinds: ['control', 'graph', 'data'],
+      seed: o.seed ?? 0,
+    }),
+  );
+  const scanner = factory.add(createScanner(clock, ledger, { id: 'scanner', origin: at, loop: audio }));
+  factory.add(audio);
+  const sink = factory.add(createSink(clock, ledger, { id: 'sink', origin: aOrigin, floorZ: 0 }));
+  factory.link(source, 'out', audio);
+  factory.link(audio, 'drop', sink);
+  const { beltD, sinkD } = readPath(factory, scanner, beltDUnder(at, at[1] - 60));
+  return { factory, source, audio, scanner, beltD, sinkD, sink };
 }
 
 export interface ConveyorPageGraph {

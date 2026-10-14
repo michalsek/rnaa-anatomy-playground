@@ -64,6 +64,7 @@ export type GeoSpec =
       bend?: number;
       caps?: readonly [boolean, boolean];
       closed?: boolean;
+      range?: readonly [number, number];
     }
   | { kind: 'belt'; a: Vec3; ra: number; b: Vec3; rb: number; radius: number }
   | ({ kind: 'band'; lines?: { outer?: LineSetSpec; inner?: LineSetSpec } } & BandSpec);

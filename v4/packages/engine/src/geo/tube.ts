@@ -14,6 +14,13 @@ export interface TubeSpec {
    * with no caps and no seam. Planar loops only, so the frames close up without a twist.
    */
   closed?: boolean;
+  /**
+   * Only the part of the tube between these arc lengths along the (filleted) centreline. The
+   * frames are the whole tube's, so pieces of one path meet ring to ring: an end inside the path
+   * is a join (no cap, and its rim draws no outline), so a cable cut into pieces (each its own
+   * live part: the scanner's pulse, E2) still reads as one tube.
+   */
+  range?: readonly [number, number];
 }
 
 type V = [number, number, number];
@@ -78,6 +85,18 @@ function centreline(path: readonly Vec3[], bend: number, closed: boolean) {
   return out;
 }
 
+/**
+ * The filleted centreline of an open path (the tube's own, `bend` default 3 × radius), as
+ * points with cumulative arc lengths: a sim moving something along a tube (a pulse) and the
+ * tube agree on every length.
+ */
+export function tubeCentreline(path: readonly Vec3[], bend: number): { points: V[]; lengths: number[]; total: number } {
+  const line = centreline(path, bend, false);
+  const lengths = [0];
+  for (let k = 1; k < line.length; k++) lengths.push(lengths[k - 1]! + Math.hypot(...sub(line[k]!.p, line[k - 1]!.p)));
+  return { points: line.map((x) => x.p), lengths, total: lengths[lengths.length - 1]! };
+}
+
 /** Unit normal of a closed path's plane; throws if the path is not planar. */
 function planeOf(path: readonly Vec3[]): V {
   // Newell's method: robust for any simple polygon.
@@ -108,6 +127,7 @@ export function tube({
   bend = 3 * radius,
   caps = [true, true],
   closed = false,
+  range,
 }: TubeSpec): Mesh {
   if (path.length < (closed ? 3 : 2)) throw new Error('tube: path is too short');
   const b = new MeshBuilder();
@@ -122,23 +142,50 @@ export function tube({
   const helper: V = Math.abs(t0[2]) > 0.9 ? [1, 0, 0] : [0, 0, 1];
   let u = closed ? planeOf(path) : unit(cross(helper, t0));
   let length = 0;
-  const rings: number[][] = [];
-  const frames: { u: V; v: V }[] = [];
+  let frames: { p: V; t: V; u: V; v: V; s: number }[] = [];
   line.forEach(({ p, t }, k) => {
     if (k > 0) {
       length += Math.hypot(...sub(p, line[k - 1]!.p));
       u = unit(sub(u, scale(t, dot(u, t))));
     }
-    const v = cross(t, u);
-    frames.push({ u, v });
+    frames.push({ p, t, u, v: cross(t, u), s: length });
+  });
+  // A piece: the samples inside the range, plus a ring interpolated at each cut.
+  let join: [boolean, boolean] = [false, false];
+  if (range && !closed) {
+    const [s0, s1] = [Math.max(0, range[0]), Math.min(length, range[1])];
+    if (!(s1 > s0)) throw new Error(`tube: empty range ${range[0]}..${range[1]} (length ${length})`);
+    const at = (s: number) => {
+      let k = 0;
+      while (k < frames.length - 2 && frames[k + 1]!.s < s) k++;
+      const a = frames[k]!;
+      const c = frames[k + 1]!;
+      const f = (s - a.s) / Math.max(1e-9, c.s - a.s);
+      const lerp = (x: V, y: V): V => add(scale(x, 1 - f), scale(y, f));
+      const t = unit(lerp(a.t, c.t));
+      const uu = unit(sub(lerp(a.u, c.u), scale(t, dot(lerp(a.u, c.u), t))));
+      return { p: lerp(a.p, c.p), t, u: uu, v: cross(t, uu), s };
+    };
+    const eps = 1e-6;
+    frames = [at(s0), ...frames.filter((x) => x.s > s0 + eps && x.s < s1 - eps), at(s1)];
+    join = [s0 > eps, s1 < length - eps];
+  }
+  const rings: number[][] = [];
+  for (const { p, t, u: fu, v: fv, s } of frames) {
     const ring: number[] = [];
     for (let j = 0; j <= sides; j++) {
       const a = (j / sides) * Math.PI * 2;
-      const radial = add(scale(u, Math.cos(a)), scale(v, Math.sin(a)));
-      ring.push(b.vertex(add(p, scale(radial, radius)), radial, [j / sides, length], t));
+      const radial = add(scale(fu, Math.cos(a)), scale(fv, Math.sin(a)));
+      ring.push(b.vertex(add(p, scale(radial, radius)), radial, [j / sides, s], t));
     }
     rings.push(ring);
-  });
+  }
+  // A cut's rim joins the next piece: never an outline.
+  const joinRing = (ring: number[]) => {
+    for (let j = 0; j < sides; j++) b.join(ring[j]!, ring[j + 1]!);
+  };
+  if (join[0]) joinRing(rings[0]!);
+  if (join[1]) joinRing(rings[rings.length - 1]!);
   b.smooth(true);
   for (let k = 0; k + 1 < rings.length; k++) {
     const r0 = rings[k]!;
@@ -147,8 +194,7 @@ export function tube({
   }
 
   const cap = (k: number, sign: 1 | -1) => {
-    const { p, t } = line[k]!;
-    const { u: cu, v: cv } = frames[k]!;
+    const { p, t, u: cu, v: cv } = frames[k]!;
     const n = scale(t, sign);
     const centre = b.vertex(p, n);
     const ring: number[] = [];
@@ -163,7 +209,7 @@ export function tube({
     }
   };
   b.smooth(false);
-  if (!closed && caps[0]) cap(0, -1);
-  if (!closed && caps[1]) cap(line.length - 1, 1);
+  if (!closed && caps[0] && !join[0]) cap(0, -1);
+  if (!closed && caps[1] && !join[1]) cap(frames.length - 1, 1);
   return b.build();
 }

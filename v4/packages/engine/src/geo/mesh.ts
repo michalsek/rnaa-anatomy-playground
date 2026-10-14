@@ -21,6 +21,11 @@ export interface Mesh {
   /** Vertex-index pairs of edges that must be drawn as lines (e.g. a ring on a smooth face). */
   marks: Uint32Array;
   /**
+   * Vertex-index pairs of open edges that continue in another mesh (a tube piece's cut): no
+   * boundary outline there (the topology treats the edge as bordering its own triangle).
+   */
+  joins?: Uint32Array;
+  /**
    * Per triangle: the other half of its quad (−1 = none). In-face lines are drawn across the
    * whole quad, or a long thin quad's diagonal would cut notches into its edge lines.
    */
@@ -49,6 +54,7 @@ export class MeshBuilder {
   private indices: number[] = [];
   private tags: number[] = [];
   private marks: number[] = [];
+  private joins: number[] = [];
   private partners: number[] = [];
   private smoothFlags: number[] = [];
   private currentTag = 0;
@@ -76,6 +82,11 @@ export class MeshBuilder {
   /** Force the edge (a, b) to be drawn as a crease-style line. */
   mark(a: number, b: number) {
     this.marks.push(a, b);
+  }
+
+  /** The open edge (a, b) continues in another mesh: no outline along it. */
+  join(a: number, b: number) {
+    this.joins.push(a, b);
   }
 
   /** Adds a triangle and returns its index, or −1 if it was too small to keep. */
@@ -115,6 +126,7 @@ export class MeshBuilder {
       indices: new Uint32Array(this.indices),
       tags: new Uint32Array(this.tags),
       marks: new Uint32Array(this.marks),
+      ...(this.joins.length > 0 && { joins: new Uint32Array(this.joins) }),
       partners: new Int32Array(this.partners),
       smooth: new Uint8Array(this.smoothFlags),
     };
