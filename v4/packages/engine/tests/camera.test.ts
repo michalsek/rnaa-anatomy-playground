@@ -6,6 +6,7 @@ import {
   KIT_YAW,
   cameraMatrices,
   fitToBounds,
+  frameRect,
   kitProject,
 } from '../src/camera/camera.ts';
 
@@ -61,5 +62,53 @@ describe('camera', () => {
     const [, , far] = toPixels(viewProjection, [-10, -10, 0], viewport.width, viewport.height);
     const [, , near] = toPixels(viewProjection, [10, 10, 5], viewport.width, viewport.height);
     expect(near).toBeLessThan(far);
+  });
+});
+
+describe('camera frame (pads, 16:9)', () => {
+  const box: Bounds = { min: [-180, -380, 0], max: [180, 380, 280] };
+  it('fits into the largest centred 16:9 rectangle inside the padded viewport, touching one pair of its edges', () => {
+    for (const [W, H, dpr, pad] of [
+      [874, 402, 3, { t: 12, r: 74, b: 33, l: 74 }],
+      [1600, 900, 1, { t: 60, r: 40, b: 50, l: 40 }],
+      [390, 844, 3, { t: 100, r: 12, b: 40, l: 12 }],
+    ] as const) {
+      const viewport = { width: W * dpr, height: H * dpr, dpr };
+      const aspect = 16 / 9;
+      const rect = frameRect(viewport, { pad, aspect });
+      expect(rect.w / rect.h).toBeCloseTo(aspect, 6);
+      // Centred in the padded viewport, inside it.
+      expect(rect.x + rect.w / 2).toBeCloseTo(pad.l + (W - pad.l - pad.r) / 2, 6);
+      expect(rect.y + rect.h / 2).toBeCloseTo(pad.t + (H - pad.t - pad.b) / 2, 6);
+      expect(rect.x).toBeGreaterThanOrEqual(pad.l - 1e-9);
+      expect(rect.y).toBeGreaterThanOrEqual(pad.t - 1e-9);
+      const state = fitToBounds(box, viewport, { pad, aspect });
+      const { viewProjection } = cameraMatrices(state, viewport);
+      let l = Infinity;
+      let r = -Infinity;
+      let t = Infinity;
+      let b = -Infinity;
+      for (const x of [box.min[0], box.max[0]])
+        for (const y of [box.min[1], box.max[1]])
+          for (const z of [box.min[2], box.max[2]]) {
+            const [px, py] = toPixels(viewProjection, [x, y, z], viewport.width, viewport.height);
+            l = Math.min(l, px / dpr);
+            r = Math.max(r, px / dpr);
+            t = Math.min(t, py / dpr);
+            b = Math.max(b, py / dpr);
+          }
+      // Inside the rectangle (the pixel snap moves it ≤ 1 device px).
+      const e = 1 / dpr + 1e-6;
+      expect(l).toBeGreaterThanOrEqual(rect.x - e);
+      expect(r).toBeLessThanOrEqual(rect.x + rect.w + e);
+      expect(t).toBeGreaterThanOrEqual(rect.y - e);
+      expect(b).toBeLessThanOrEqual(rect.y + rect.h + e);
+      // Touching one pair of its edges, centred along the other.
+      const touchesX = Math.abs(l - rect.x) < e && Math.abs(r - rect.x - rect.w) < e;
+      const touchesY = Math.abs(t - rect.y) < e && Math.abs(b - rect.y - rect.h) < e;
+      expect(touchesX || touchesY).toBe(true);
+      expect((l + r) / 2).toBeCloseTo(rect.x + rect.w / 2, 0);
+      expect((t + b) / 2).toBeCloseTo(rect.y + rect.h / 2, 0);
+    }
   });
 });

@@ -4,6 +4,7 @@ import type { TgpuRoot } from 'typegpu';
 import {
   type CanvasContext,
   type DebugMode,
+  type FrameSpec,
   type SceneStore,
   type Theme,
   type ViewPreset,
@@ -39,6 +40,8 @@ export interface ShellControls {
   view: string | ViewPreset;
   paused: boolean;
   debug: DebugMode;
+  /** Where fits go: pads from the canvas edges (the overlays' room), an optional aspect (16:9 recordings). */
+  frame: FrameSpec;
 }
 
 export interface Shell {
@@ -51,6 +54,7 @@ export interface Shell {
   refreshView(): void;
   setPaused(paused: boolean): void;
   setDebug(mode: DebugMode): void;
+  setFrame(frame: FrameSpec): void;
   stop(): void;
 }
 
@@ -97,6 +101,7 @@ export function createShell(
     store,
     theme: controls.theme,
   });
+  renderer.setFrame(controls.frame);
   let view = controls.view;
   const applyView = () => {
     const list = views();
@@ -182,6 +187,7 @@ export function createShell(
       paused = next;
     },
     setDebug: (mode) => renderer.setDebug(mode),
+    setFrame: (frame) => renderer.setFrame(frame),
     stop() {
       stopped = true;
       cancelAnimationFrame(raf);

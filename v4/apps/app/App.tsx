@@ -8,6 +8,7 @@ import { CARD, type DebugMode, type SceneStore, type Theme, type ViewPreset } fr
 import { Scene } from './src/blocks/Scene.tsx';
 import { acquireRoot } from './src/gpuRoot.ts';
 import { Card } from './src/overlay/Card.tsx';
+import { overlayLayout } from './src/overlay/layout.ts';
 import { SCENES } from './src/scenes.tsx';
 
 export default function App() {
@@ -24,7 +25,7 @@ function Main() {
   const [picked, setPicked] = useState<Theme | null>(null);
   const theme = picked ?? system;
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const win = useWindowDimensions();
   const [sceneIndex, setSceneIndex] = useState(0);
   const scene = SCENES[sceneIndex]!;
   const storeRef = useRef<SceneStore | null>(null);
@@ -33,7 +34,17 @@ function Main() {
   const [paused, setPaused] = useState(false);
   const [debug, setDebug] = useState<DebugMode>(0);
   const [chrome, setChrome] = useState(true);
-  const controls = useMemo(() => ({ theme, view, paused, debug }), [theme, view, paused, debug]);
+  // Full-bleed (no card frame or texts) and the 16:9 recording frame: overlays and camera pads
+  // only; the stage always fills the window.
+  const [bare, setBare] = useState(false);
+  const [rec, setRec] = useState(false);
+  // The chip bar's width (landscape: the card's top row keeps clear of it).
+  const [chipsWidth, setChipsWidth] = useState(0);
+  const layout = overlayLayout(win, insets, { bare, chrome, rec });
+  const frameKey = JSON.stringify(layout.frame);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const frame = useMemo(() => layout.frame, [frameKey]);
+  const controls = useMemo(() => ({ theme, view, paused, debug, frame }), [theme, view, paused, debug, frame]);
 
   // Dev-only hook for driving the views from a debugger or the browser console.
   useEffect(() => {
@@ -68,8 +79,12 @@ function Main() {
       setPaused,
       setDebug,
       setTheme: setPicked,
-      /** Hide the chip bar for clean captures (the card moves up into its place). */
+      /** Hide the chip bar for clean captures (overlays and the camera's pads only). */
       setChrome,
+      /** Full-bleed: no card frame, texts or sheet (`bare` chip). */
+      setBare: (on: boolean) => setBare(!!on),
+      /** Fit every view into a centred 16:9 rectangle (recordings). */
+      record: (on: boolean) => setRec(!!on),
       /** The scene's own hook (the centrifuge: time control, see live.ts). */
       sim: scene.dev,
     };
@@ -95,32 +110,43 @@ function Main() {
   const content = useMemo(() => <scene.Content />, [scene]);
 
   const ink = CARD[theme].text;
-  const narrow = width < 600;
-  const side = narrow ? 8 : 12;
-  const inset = {
-    top: insets.top + (chrome ? 52 : 12),
-    right: insets.right + side,
-    bottom: insets.bottom + side,
-    left: insets.left + side,
-  };
+  const narrow = layout.narrow;
   const viewIndex = typeof view === 'string' ? Math.max(0, scene.views.findIndex((v) => v.name === view)) : -1;
   const viewName = typeof view === 'string' ? (scene.views[viewIndex]?.name ?? 'fit') : view.name;
   return (
     <View style={[styles.fill, { backgroundColor: CARD[theme].page }]}>
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
-      <Card theme={theme} text={scene.card} inset={inset}>
+      {/* The stage fills the window in every mode; only the window resizes it. */}
+      <View
+        style={StyleSheet.absoluteFill}
+        accessible={bare}
+        accessibilityRole={bare ? 'image' : undefined}
+        accessibilityLabel={bare ? `${scene.card.title}. ${scene.card.label}` : undefined}
+      >
         {root && (
           <Scene key={scene.name} root={root} views={scene.views} controls={controls} storeRef={storeRef}>
             {content}
           </Scene>
         )}
-      </Card>
+      </View>
+      {layout.card && (
+        <Card
+          theme={theme}
+          text={scene.card}
+          edges={layout.card}
+          landscape={layout.landscape}
+          reserveRight={layout.landscape && chrome ? chipsWidth : 0}
+        />
+      )}
       {error !== null && (
         <View style={styles.center}>
           <Text style={[styles.label, { color: ink }]}>WebGPU unavailable: {error}</Text>
         </View>
       )}
-      <View style={[styles.bar, { top: insets.top + 4, right: insets.right + side - 4 }, !chrome && styles.hidden]}>
+      <View
+        onLayout={(e) => setChipsWidth(Math.ceil(e.nativeEvent.layout.width))}
+        style={[styles.bar, { top: layout.chips.top, right: layout.chips.right }, !chrome && styles.hidden]}
+      >
         <Chip
           compact={narrow}
           theme={theme}
@@ -156,6 +182,14 @@ function Main() {
           onPress={() => setDebug(((debug + 1) % 3) as DebugMode)}
         >
           {`dbg ${debug}`}
+        </Chip>
+        <Chip
+          compact={narrow}
+          theme={theme}
+          label={bare ? 'Full-bleed. Show the card' : 'Card. Go full-bleed'}
+          onPress={() => setBare(!bare)}
+        >
+          {bare ? 'bare' : 'card'}
         </Chip>
         <Chip
           compact={narrow}

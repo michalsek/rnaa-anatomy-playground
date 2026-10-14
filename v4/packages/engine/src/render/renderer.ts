@@ -10,6 +10,7 @@ import { DEV, PLATFORM, log, now } from '#platform/env.ts';
 import {
   type Bounds,
   type CameraState,
+  type FrameSpec,
   type ViewPreset,
   type Viewport,
   basisOf,
@@ -85,6 +86,11 @@ export interface Renderer {
   fit(): void;
   /** Camera for a view preset (zoom relative to the fit at the preset's angles). */
   setView(view: ViewPreset): void;
+  /**
+   * Where fits go (CSS px pads from the canvas edges, an optional aspect: `frameRect`). A preset
+   * camera is refitted; the canvas keeps its size (overlays change the pads, never the canvas).
+   */
+  setFrame(frame: FrameSpec): void;
   getCamera(): CameraState;
   setCamera(state: CameraState): void;
   setDebug(mode: DebugMode): void;
@@ -339,13 +345,14 @@ export function createRenderer(options: RendererOptions): Renderer {
   let basisElevation = NaN;
   let clear: [number, number, number, number] = [0, 0, 0, 1];
 
+  let frameSpec: FrameSpec = {};
   const fitZoomNow = () =>
-    fitToBounds(bounds, viewport, { yaw: camera.yaw, elevation: camera.elevation }).zoom;
+    fitToBounds(bounds, viewport, { ...frameSpec, yaw: camera.yaw, elevation: camera.elevation }).zoom;
   function applyPreset() {
     if (scene) bounds = scene.build.bounds;
     camera = preset
-      ? viewCamera(bounds, viewport, preset)
-      : fitToBounds(bounds, viewport, { yaw: camera.yaw, elevation: camera.elevation });
+      ? viewCamera(bounds, viewport, preset, frameSpec)
+      : fitToBounds(bounds, viewport, { ...frameSpec, yaw: camera.yaw, elevation: camera.elevation });
     onPreset = true;
     refZoom = fitZoomNow();
   }
@@ -471,6 +478,11 @@ export function createRenderer(options: RendererOptions): Renderer {
     setView: (view) => {
       preset = view;
       applyPreset();
+    },
+    setFrame: (frame) => {
+      frameSpec = { ...frame };
+      if (onPreset) applyPreset();
+      else refZoom = fitZoomNow();
     },
     getCamera: () => copyCamera(camera),
     setCamera: (state) => {

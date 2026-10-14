@@ -103,12 +103,16 @@ export function Stage({
     };
   }, [root, hasLayout, store]);
 
-  const { theme, view, paused, debug } = controls;
+  const { theme, view, paused, debug, frame } = controls;
+  const frameKey = JSON.stringify(frame);
   useEffect(() => shellRef.current?.setTheme(theme), [theme]);
   useEffect(() => shellRef.current?.setView(view), [view]);
   useEffect(() => shellRef.current?.refreshView(), [views]);
   useEffect(() => shellRef.current?.setPaused(paused), [paused]);
   useEffect(() => shellRef.current?.setDebug(debug), [debug]);
+  // By value: a new object with the same pads doesn't refit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => shellRef.current?.setFrame(frame), [frameKey]);
 
   return (
     <View style={styles.fill}>

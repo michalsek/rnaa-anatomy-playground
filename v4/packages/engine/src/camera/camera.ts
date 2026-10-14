@@ -112,14 +112,61 @@ function cornersOf({ min, max, points }: Bounds): [number, number, number][] {
   return out;
 }
 
+/** Padding in CSS px from the viewport's edges (top, right, bottom, left). */
+export interface Pad {
+  t: number;
+  r: number;
+  b: number;
+  l: number;
+}
+
+/**
+ * Where fits go: the viewport minus `pad`, or with `aspect` (width / height) the largest centred
+ * rectangle of that aspect inside it (a 16:9 recording crop). Pads are clamped so a tiny
+ * viewport keeps a rectangle at least 1 px across.
+ */
+export interface FrameSpec {
+  pad?: number | Pad;
+  aspect?: number | null;
+}
+
+/** A rectangle in CSS px from the viewport's top-left. */
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export const padOf = (pad: number | Pad = 24): Pad => (typeof pad === 'number' ? { t: pad, r: pad, b: pad, l: pad } : pad);
+
+/** The rectangle fits fill (CSS px), for a viewport and a frame spec. */
+export function frameRect(viewport: Viewport, frame: FrameSpec = {}): Rect {
+  const cssW = viewport.width / viewport.dpr;
+  const cssH = viewport.height / viewport.dpr;
+  const p = padOf(frame.pad);
+  const x = Math.min(p.l, cssW - 1);
+  const y = Math.min(p.t, cssH - 1);
+  let w = Math.max(1, cssW - p.l - p.r);
+  let h = Math.max(1, cssH - p.t - p.b);
+  const a = frame.aspect;
+  if (!a || !(a > 0)) return { x, y, w, h };
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  if (w / h > a) w = h * a;
+  else h = w / a;
+  return { x: cx - w / 2, y: cy - h / 2, w, h };
+}
+
 /**
  * Fit a box into the viewport (the kit's `fitProjection`): pick the zoom that makes the
- * projected box fill the viewport minus `pad` CSS px, and centre it.
+ * projected box fill the frame rectangle (`frameRect`: the viewport minus `pad` CSS px, at
+ * `aspect` if given), and centre it there.
  */
 export function fitToBounds(
   bounds: Bounds,
   viewport: Viewport,
-  { pad = 24, yaw = KIT_YAW, elevation = KIT_ELEVATION } = {},
+  { pad = 24, aspect = null, yaw = KIT_YAW, elevation = KIT_ELEVATION }: FrameSpec & { yaw?: number; elevation?: number } = {},
 ): CameraState {
   const flat = cornersOf(bounds).map((p) => kitProject(p, yaw, elevation));
   const xs = flat.map(([x]) => x);
@@ -128,20 +175,19 @@ export function fitToBounds(
   const right = Math.max(...xs);
   const top = Math.min(...ys);
   const bottom = Math.max(...ys);
-  const cssW = viewport.width / viewport.dpr;
-  const cssH = viewport.height / viewport.dpr;
-  const zoom = Math.max(
-    1e-6,
-    Math.min((cssW - pad * 2) / (right - left || 1), (cssH - pad * 2) / (bottom - top || 1)),
-  );
+  const rect = frameRect(viewport, { pad, aspect });
+  const zoom = Math.max(1e-6, Math.min(rect.w / (right - left || 1), rect.h / (bottom - top || 1)));
   // Any world point that projects to the box's screen centre works as the target; take the
-  // box centre and slide it along the screen axes.
+  // box centre and slide it along the screen axes, then by the rectangle's offset from the
+  // viewport's centre (CSS px → world at this zoom).
   const centre: [number, number, number] = [0, 1, 2].map(
     (i) => (bounds.min[i]! + bounds.max[i]!) / 2,
   ) as [number, number, number];
   const [cx, cy] = kitProject(centre, yaw, elevation);
-  const dx = (left + right) / 2 - cx;
-  const dy = (top + bottom) / 2 - cy;
+  const ox = (rect.x + rect.w / 2 - viewport.width / viewport.dpr / 2) / zoom;
+  const oy = (rect.y + rect.h / 2 - viewport.height / viewport.dpr / 2) / zoom;
+  const dx = (left + right) / 2 - cx - ox;
+  const dy = (top + bottom) / 2 - cy - oy;
   const b = basisOf(yaw, elevation);
   const target = [0, 1, 2].map((i) => centre[i]! + dx * b.right[i]! - dy * b.up[i]!) as [
     number,
@@ -225,13 +271,14 @@ export interface ViewPreset {
   frame?: readonly [readonly [number, number, number], readonly [number, number, number]];
 }
 
-/** Camera for a view preset: fit the bounds (or the view's frame) at the view's angles, then
- * zoom and re-centre. */
-export function viewCamera(bounds: Bounds, viewport: Viewport, view: ViewPreset): CameraState {
+/** Camera for a view preset: fit the bounds (or the view's frame) into the frame rectangle at
+ * the view's angles, then zoom and re-centre. */
+export function viewCamera(bounds: Bounds, viewport: Viewport, view: ViewPreset, frame: FrameSpec = {}): CameraState {
   const box: Bounds = view.frame
     ? { min: [...view.frame[0]], max: [...view.frame[1]] }
     : bounds;
   const fit = fitToBounds(box, viewport, {
+    ...frame,
     yaw: view.yaw * DEG,
     elevation: view.elevation * DEG,
   });
