@@ -1,0 +1,18 @@
+/**
+ * The factory's rates, in one place: the user decides them at the M11 review. Everything here is
+ * at v2's values for now (notes/M5-M11-plan.md §6, Q5).
+ */
+export const RATES = {
+  /**
+   * The packet source standing in for the packer: v2's centrifuge page feed (`build.mjs`): one
+   * packet every `every` s for `burst` ticks, then `rest` empty ticks (8 packets per 11.7 s),
+   * the first after `delay`. The v2 factory's packer makes ≈ 0.27 packets/s instead (M9).
+   */
+  source: { every: 0.9, delay: 0.5, burst: 8, rest: 5 },
+  /** Packets the centrifuge holds before it spins up (v2: 6; 10 fills the tray). */
+  HOLD: 6,
+  /** The audio loop's speed, world units/s (v2: 32; one cleat gap = one render quantum). */
+  loopSpeed: 32,
+  /** Top belts, world units/s (v2 default: 14). */
+  beltSpeed: 14,
+} as const;
