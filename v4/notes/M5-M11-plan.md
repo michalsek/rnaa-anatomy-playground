@@ -454,3 +454,6 @@ Not needed:
   - Build cheap orbit/pan/zoom (it stays on the cut list).
   - Chips only, with no on-screen phone controls.
   - Revisit both in M11.
+- **Triangle budget (§2.4), user, 2026-10-14:** ignore the 200k triangle limit, and don't cut detail or add LOD/instancing pre-emptively.
+  - Keep reporting triangles, cold build and fps per milestone.
+  - Only if fps starts dropping: run an agent that finds where the problem lives (profile first), then report to the user, who decides what to do.
