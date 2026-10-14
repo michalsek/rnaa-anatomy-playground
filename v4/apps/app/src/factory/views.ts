@@ -21,7 +21,7 @@ export const LINE_VIEWS: ViewPreset[] = [
   /** The crusher alone (with its drawer's travel). */
   at('crusher', [[-128, 202, 0], [-50, 298, 38]]),
   /** v2 `z-scanner-read`: the arm over the loop, the preamp and the cable. */
-  at('scanner-read', [[-60, 78, 0], [56, 128, 106]]),
+  at('scanner-read', [[-56, 88, 10], [40, 124, 100]]),
   /** v2 `z-scanner-D`: the preamp's lip and the start of belt D. */
   at('scanner-D', [[-66, 60, 8], [-22, 104, 44]]),
   /** The read head: the arm, ribbon and lamp. */

@@ -48,6 +48,7 @@ packages/engine/src
              spline spans), tube (open/closed, tangents), belt, band (a conveyor belt loop whose u
              is the sim's arc length: slats as a line set); topology per prototype;
              contacts (triangle crossings); mark helpers (bolt circles, polylines); helix (E7);
+             tube pieces (`range`: one centreline, joined cuts draw no outline; `tubeCentreline`);
              circleSteps / lodSteps (E9 step LOD by radius)
   scene/     SceneStore (groups/parts/pools/marks, tokens, build → batches, flatten → instances
              and the rewritten range; moving slots last); live parts (PartHandle: mix, uShift),
@@ -56,8 +57,10 @@ packages/engine/src
              link in step order), ports (receivers, strict receivers, asking senders, local → world
              → local), items (kinds, sizes, ledger, PoseFn), math, path (belt frame, stadium loop),
              fall, conveyor (top: hop, hold, tip), loop (cleats, bails, read greying, drop,
-             quanta/phaseAt/canTake, syncToLoop), source, sink, crusher (M6), rates (the tunable
-             rates), graphs (line, centrifuge, v2 conveyor-page and crusher-page layouts);
+             quanta/phaseAt/canTake, syncToLoop), source, sink, crusher (M6), scanner (M7: reads on
+             the loop's read point, `scannerReadAt`, pulses, cells, the push onto belt D), rates
+             (the tunable rates), graphs (line with belt D, centrifuge, v2 conveyor-, crusher- and
+             scanner-page layouts); `Machine.status()` for the dev hook;
              centrifuge/ = packets (throat, pockets, release path, §A invariants) + controller (the
              swappable spin model: default and ramp)
   shading/   'use gpu' tone rules (bands, plan, tube stripes) + AA weights, line coverage
@@ -68,23 +71,28 @@ packages/engine/src
   platform/  #platform/* contract (+ Node stub for tests)
 apps/app
   src/blocks/                  React blocks: Scene, Group/Machine (contacts default), Box,
-                               Extrude, Lathe, Tube, Belt, Instances, Marks, Halo, Glow,
-                               useFrame, useNode (render null)
-  src/machines/kit.ts          shared authoring helpers (frames, discs, corners, rings, screws)
+                               Extrude, Lathe, Tube (+ range), Belt, Instances, Marks, Halo,
+                               Glow, useFrame, useNode, useNodes (render null)
+  src/machines/kit.ts          shared authoring helpers (frames, FX/FY/FZ, discs, rod, turned,
+                               corners, rings, screws, faceScrews, dots, slot, circle, ribs, plateX)
   src/machines/Packets.tsx     the packet pool every machine uses (5 kinds, straps)
   src/machines/centrifuge/     the centrifuge from v2 (dims.ts + one module per assembly;
                                views.ts: fit + 4 crops, card text); one useFrame in
                                Centrifuge.tsx; `stand` prop (default on)
   src/machines/crusher/        the crusher from v2 (Housing, Drive, Discharge, Control; one frame
                                hook in Crusher.tsx; `stand` prop, default on; dims.ts, views.ts)
+  src/machines/scanner/        the read arm from v2 (Base, Head (VCM, moving arm, ribbon, lamp),
+                               Preamp (cells, lip, cable pieces); one frame hook in Scanner.tsx;
+                               `stand` prop, default on; dims.ts, views.ts)
   src/machines/poses.ts        usePacketPoses: the one sim → packet pool writer
   src/machines/conveyor/       Top.tsx (single-sided belt) and Loop.tsx (the audio belt) from
                                v2 conveyor.mjs, Parts.tsx (belt body, lamp, motor, label, nut),
                                dims.ts (belt-coordinate kit); `legs` prop (default on)
   src/factory/                 live.ts (a graph per scene, playback, readout, `__v4.sim`; every
                                machine block calls `live.step` first), Scenes.tsx (line,
-                               centrifuge, crusher, conveyor), views.ts
-  src/overlay/Card.tsx         the kit's figure card (fig, title, hint, live readout leaf)
+                               centrifuge, crusher, scanner, conveyor), views.ts
+  src/overlay/Card.tsx         the kit's figure card (fig, title; hint and live readout share a
+                               wrapping bottom row; the stage leaves room for two lines)
   src/overlay/readout.ts       readout store (≤ 10 Hz, phase changes at once)
   src/gallery/                 M2 gallery (rows m1, ext, lathe, inst, marks, contact, fx) + M1
                                row; views.ts holds layout and view presets (no components)
@@ -102,24 +110,28 @@ view presets live in plain modules (`dims.ts`, `views.ts`). Then a prop edit pat
 the store and GPU device survive and the scene rebuilds warm.
 
 The toolbar row above the card: scene (`line` default: source → belt B → centrifuge → audio
-loop → belt C → crusher at the final layout; `centrifuge`: the centrifuge with short belts;
-`crusher`: v2's crusher page; `conveyor`: v2's conveyor page; `gallery`, `m1`), view preset
-(line: `fit`, `centrifuge-audio`, `funnel`, `release`, `read`, `head`, `audio-C`, `C-crusher`,
-`crusher`; centrifuge: `fit`, `rotor`, `instr`, `drive`, `funnel`; crusher: `fit`, `hopper`,
-`spring`, `drive`, `ctl`, `bin`), pause, debug view (`dbg 1` = line
+loop → belt C → crusher, and the scanner reading the loop → belt D → a crate, at the final
+layout; `centrifuge`: the centrifuge with short belts; `crusher`: v2's crusher page; `scanner`:
+v2's scanner page; `conveyor`: v2's conveyor page; `gallery`, `m1`), view preset (line: `fit`,
+`centrifuge-audio`, `funnel`, `release`, `read`, `head`, `audio-C`, `C-crusher`, `crusher`,
+`scanner-read`, `scanner-D`, `arm`, `preamp`, `D-end`; centrifuge: `fit`, `rotor`, `instr`,
+`drive`, `funnel`; crusher: `fit`, `hopper`, `spring`, `drive`, `ctl`, `bin`; scanner: `fit`,
+`arm`, `preamp`, `scanner`, `D`), pause, debug view (`dbg 1` = line
 classes: outline red, contour magenta, crease blue, ticks green, marks and contacts cyan;
 `dbg 2` = lines off), theme. In dev builds the same is scriptable from a debugger or the browser
 console: `__v4.setScene('m1')`, `__v4.setView('close cage')`, `__v4.look({ focus: [x, y, z],
 zoom: 8 })`, `__v4.setDebug(1)`, `__v4.setPaused(true)`, `__v4.setTheme('dark')`,
 `__v4.setPoolCount('inst.packets', 12)`, `__v4.setChrome(false)` (hide the toolbar for
 captures), `__v4.store()`; `__v4.views` / `__v4.scenes` list the names. In the line,
-centrifuge, crusher and conveyor scenes `__v4.sim` controls the scene's graph: `seek(t)` (deterministic:
+centrifuge, crusher, scanner and conveyor scenes `__v4.sim` controls the scene's graph: `seek(t)` (deterministic:
 rebuild, run, pause), `play()`, `pause()`, `speed(0.25–4)`, `seed(n)` (integer), `status(id)`
 (`machines()` lists the ids), `log()` (the centrifuge's phase changes), `ledger()`
 (created/alive/consumed), `release(false)` (the loop refuses packets). `__v4perf()` reports fps,
 rAF gaps, tick, flatten + upload and frame CPU over the last 300 frames. The rates (source,
-HOLD, loop and belt speeds, the crusher's bin dump and feed) are `RATES` in
+HOLD, loop and belt speeds, belt D's speed, the crusher's bin dump and feed, the scanner page's
+feed) are `RATES` in
 `packages/engine/src/sim/rates.ts`. DEV builds keep
 the last 50 engine log lines in `globalThis.__v4logs` (per-phase rebuild ms). Notes:
 [notes/M1.md](notes/M1.md), [notes/M2.md](notes/M2.md), [notes/M3.md](notes/M3.md),
-[notes/M4.md](notes/M4.md), [notes/M5.md](notes/M5.md), [notes/M6.md](notes/M6.md).
+[notes/M4.md](notes/M4.md), [notes/M5.md](notes/M5.md), [notes/M6.md](notes/M6.md),
+[notes/M7.md](notes/M7.md). Test timelines print with `V4_TIMELINE=1 pnpm test`.
