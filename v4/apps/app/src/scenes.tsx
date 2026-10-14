@@ -7,6 +7,7 @@ import { CentrifugeScene, ConveyorScene, CrusherScene, FactoryScene, LineScene, 
 import { centrifugeLive, conveyorLive, crusherLive, factoryLive, lineLive, outputLive, packerLive, scannerLive } from './factory/live.ts';
 import { CAPTION, CARDS, LEGEND, PHASES, READOUTS } from './factory/cards.ts';
 import { FACTORY_VIEWS } from './factory/factoryViews.ts';
+import { standsStore } from './factory/stands.ts';
 import { CONVEYOR_CARD, CONVEYOR_VIEWS, LINE_CARD, LINE_VIEWS, OUTPUT_CARD, OUTPUT_VIEWS, PACKER_CARD, PACKER_VIEWS } from './factory/views.ts';
 import { CENTRIFUGE_CARD, CENTRIFUGE_VIEWS } from './machines/centrifuge/views.ts';
 import { CRUSHER_CARD, CRUSHER_VIEWS } from './machines/crusher/views.ts';
@@ -48,7 +49,7 @@ export const SCENES: SceneEntry[] = [
     views: FACTORY_VIEWS,
     Content: FactoryScene,
     card: { ...CARDS.factory, readout: factoryLive.readout },
-    dev: factoryLive.dev,
+    dev: { ...factoryLive.dev, stands: standsStore.set },
     cardFor: (view) => ({ ...CARDS[factoryKey(view)], readout: factoryLive.readout }),
     info: { caption: CAPTION, legend: LEGEND },
     onView: (view) => {

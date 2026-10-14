@@ -41,7 +41,7 @@ export const FACTORY_LOCAL_VIEWS: readonly LocalView[] = [
   /** v2 `z-B-centrifuge`: belt B's head over the funnel. */
   { name: 'B-centrifuge', of: 'centrifuge', frame: [[-20, -78.8, 160], [25, -18.8, 215]], card: 'centrifuge' },
   /** v2 `z-centrifuge-audio`: the centrifuge over the audio belt. */
-  { name: 'centrifuge-audio', of: 'centrifuge', frame: [[-60, -48.8, 40], [40, 81.2, 205]], card: 'centrifuge' },
+  { name: 'centrifuge-audio', of: 'centrifuge', frame: [[-45, 5, 55], [30, 78, 185]], card: 'centrifuge' },
   /** The gate, the spout and the release onto a cleat. */
   { name: 'release', of: 'centrifuge', frame: [[-24, 31.2, 88], [18, 69.2, 128]], card: 'centrifuge' },
   /** v2 `z-scanner-read`: the arm over the loop, the preamp and the cable. */

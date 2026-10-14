@@ -11,7 +11,8 @@
  * belt D, the elevator and the speaker.
  * Stand-ins: the hopper hides where a source makes packets; a crate hides where a sink takes them.
  */
-import { type Conveyor, type ConveyorPageGraph, type CrusherPageGraph, FACTORY_LAYOUT, type FactoryGraph, type LineGraph, type OutputPageGraph, type PackerPageGraph, type ScannerPageGraph, type Sink, type V3 } from '@anatomy/engine';
+import { useSyncExternalStore } from 'react';
+import { type Conveyor, type ConveyorPageGraph, type CrusherPageGraph, type FactoryGraph, type LineGraph, type OutputPageGraph, type PackerPageGraph, type ScannerPageGraph, type Sink, type V3 } from '@anatomy/engine';
 import { Box, Group, Lathe, useFrame } from '../blocks/blocks.tsx';
 import { PacketPool } from '../machines/Packets.tsx';
 import { Centrifuge } from '../machines/centrifuge/Centrifuge.tsx';
@@ -25,6 +26,7 @@ import { Loop } from '../machines/conveyor/Loop.tsx';
 import { Top } from '../machines/conveyor/Top.tsx';
 import { corners, rod } from '../machines/kit.ts';
 import { usePacketPoses } from '../machines/poses.ts';
+import { standsStore } from './stands.ts';
 import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, factoryLive, lineLive, outputLive, packerLive, scannerLive } from './live.ts';
 
 /**
@@ -212,11 +214,11 @@ export function PackerScene() {
 
 /**
  * The final factory (M10): the phone (case, display, the dispenser over belt A) and every machine
- * at the line's layout, stands per `FACTORY_LAYOUT.stands`.
+ * at the line's layout, stands per `FACTORY_LAYOUT.stands` (overridable: `stands.ts`).
  */
 export function FactoryScene() {
   const live: Live<FactoryGraph> = factoryLive;
-  const st = FACTORY_LAYOUT.stands;
+  const st = useSyncExternalStore(standsStore.subscribe, standsStore.get, standsStore.get);
   const g = () => live.graph();
   return (
     <>

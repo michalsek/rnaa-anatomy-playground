@@ -92,20 +92,32 @@ export const PHONE: PhoneLayout = (() => {
 })();
 
 /**
- * Stands per machine (M10 step 6, by eye; reasons in notes/M10.md). Every machine keeps its stand
- * unless it covers another machine, a belt, a hand-off or an item path.
+ * Stands per machine (M10 step 6, by eye in `fit` and the views; shots and the table in
+ * notes/M10.md). Every machine keeps its stand unless it covers another machine, a belt, a
+ * hand-off or an item path.
  */
 export const FACTORY_STANDS: Record<StandId, boolean> = {
-  beltA: true,
-  beltB: true,
+  /** Off: its 232-tall legs stand in front of the picker's pedestal (A-packer). */
+  beltA: false,
+  /** Off: its 192-tall legs cross belt D and the elevator's boot (B-centrifuge, D-elevator). */
+  beltB: false,
+  /** On: 40 tall, under its own belt. */
   beltC: true,
+  /** On: 24 tall, behind the loop. */
   beltD: true,
-  audio: true,
+  /** Off: the head's legs stand over belt C's tail and beside the preamp (audio-C, scanner-D). */
+  audio: false,
+  /** On: under the deck at the tray's back; nothing behind it. */
   packer: true,
+  /** On: behind the loop and the release path. */
   centrifuge: true,
+  /** On: the preamp's legs, under the preamp. */
   scanner: true,
+  /** On: base plates under the tower. */
   elevator: true,
+  /** On: its posts stand behind the elevator and belt A (further back), covering nothing. */
   speaker: true,
+  /** On: skids and feet under the housing. */
   crusher: true,
 };
 
