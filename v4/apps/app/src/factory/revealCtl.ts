@@ -20,6 +20,8 @@ const state = {
   dir: 0 as -1 | 0 | 1,
   /** Poses must be (re)written: a seek, a skip or a restart while still. */
   dirty: true,
+  /** M12 (film): the sim stays held once the reveal ends. */
+  holdAfter: false,
 };
 const listeners = new Set<Listener>();
 const notify = () => {
@@ -52,7 +54,7 @@ export const revealCtl = {
     state.t = Math.min(REVEAL_PLAN.end, Math.max(0, state.t + state.dir * dt));
     if (state.t >= REVEAL_PLAN.end && state.dir > 0) {
       state.dir = 0;
-      hold(false);
+      hold(state.holdAfter);
       notify();
     } else if (state.t <= 0 && state.dir < 0) {
       state.dir = 0;
@@ -64,9 +66,13 @@ export const revealCtl = {
   written() {
     state.dirty = false;
   },
-  /** Open the phone (from wherever it is; from closed the sim restarts at 0). */
-  reveal() {
+  /**
+   * Open the phone (from wherever it is; from closed the sim restarts at 0). `holdAfter` (M12,
+   * film): the sim stays held at the end.
+   */
+  reveal(o?: { holdAfter?: boolean }) {
     if (state.t <= 0) factoryLive.restart(0);
+    state.holdAfter = o?.holdAfter === true;
     state.dir = 1;
     state.dirty = true;
     hold(true);
@@ -88,12 +94,12 @@ export const revealCtl = {
     if (state.t >= REVEAL_PLAN.end) revealCtl.restart();
     else revealCtl.reveal();
   },
-  /** Jump to open and assembled (the sim runs). */
-  skip() {
+  /** Jump to open and assembled (the sim runs; with `hold` (M12, film) it waits). */
+  skip(o?: { hold?: boolean }) {
     state.t = REVEAL_PLAN.end;
     state.dir = 0;
     state.dirty = true;
-    hold(false);
+    hold(o?.hold === true);
     notify();
   },
   /** Scrub: pose at s (0..1 of the plan: 0 closed, 1 assembled), still there; the sim waits until 1. */

@@ -37,6 +37,9 @@ export const MATERIALS = [
   'pkAudio', 'pkGarbage', 'fluff', 'mint', 'amber', 'rubber',
   // M10: the phone's display (the near-black screen and its glass edge), the screen's React logo.
   'screen', 'logo',
+  // M12: the iOS status bar drawn on the screen (white, flat, the same in both themes) and the
+  // Dynamic Island (flat black) in film mode.
+  'statusInk', 'islandInk',
 ] as const;
 export type Material = (typeof MATERIALS)[number];
 export const MATERIAL = Object.fromEntries(MATERIALS.map((name, index) => [name, index])) as {
@@ -135,6 +138,10 @@ const logo: Record<Theme, MaterialTokens> = {
   light: solid('#2fb8e6', '#2fb8e6', ['#2fb8e6', '#2fb8e6', '#2fb8e6', '#2fb8e6'], ['#2fb8e6', '#2fb8e6', '#2fb8e6', '#2fb8e6']),
   dark: solid('#61dafb', '#61dafb', ['#61dafb', '#61dafb', '#61dafb', '#61dafb'], ['#61dafb', '#61dafb', '#61dafb', '#61dafb']),
 };
+/** M12: the status bar's glyphs on the screen: flat white (the simulator's status bar over the dark splash). */
+const statusInk = solid('#ffffff', '#ffffff', ['#ffffff', '#ffffff', '#ffffff', '#ffffff'], ['#ffffff', '#ffffff', '#ffffff', '#ffffff']);
+/** M12: the Dynamic Island in film mode: flat black (the simulator's hardware island). */
+const islandInk = solid('#000000', '#000000', ['#000000', '#000000', '#000000', '#000000'], ['#000000', '#000000', '#000000', '#000000']);
 /** Rubber: near black, the same in both themes (like graphite). */
 const rubber = solid('#2e3035', '#25272b', ['#141518', '#191a1d', '#1e2023', '#232529'], ['#c8cbd1', '#6c7076', '#45484e', '#33363b'], '#c8cbd1');
 
@@ -183,6 +190,8 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
     rubber,
     screen,
     logo: logo.light,
+    statusInk,
+    islandInk,
   },
   dark: {
     steel: {
@@ -230,6 +239,8 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
     rubber,
     screen,
     logo: logo.dark,
+    statusInk,
+    islandInk,
   },
 };
 

@@ -24,6 +24,7 @@ import { Loop } from '../machines/conveyor/Loop.tsx';
 import { Top } from '../machines/conveyor/Top.tsx';
 import { corners, rod } from '../machines/kit.ts';
 import { usePacketPoses } from '../machines/poses.ts';
+import { FilmDriver } from '../film/FilmDriver.tsx';
 import { RevealDriver } from './RevealDriver.tsx';
 import { TourDriver } from './TourDriver.tsx';
 import { standsStore } from './stands.ts';
@@ -218,6 +219,9 @@ export function FactoryScene() {
   const g = () => live.graph();
   return (
     <>
+      {/* M12: film mode's timeline (does nothing unless `__v4.film.enable()`); first, so a shot's
+          start (the tour, the conceal) lands before the reveal and the tour advance. */}
+      <FilmDriver />
       <RevealDriver />
       <TourDriver />
       <Phone reveal live={live} sim={() => g().dispenser} reads={() => g().scanner.stats.delivered} />

@@ -21,6 +21,7 @@ import { Intake } from './Intake.tsx';
 import { Rotor } from './Rotor.tsx';
 import { Stand } from './Stand.tsx';
 import { DEG } from './dims.ts';
+import { filmCtl } from '../../film/filmCtl.ts';
 
 /** The needle is drawn on the sync tick (70% of the 270° sweep from −135°). */
 const SYNC_DEG = -135 + 270 * 0.7;
@@ -55,8 +56,10 @@ function useCentrifugeFrame(live: LiveHandle, sim: () => CentrifugeSim) {
     gate().translate(0, 0, CF.gateLift * o.open);
     crank().spin('z', -60 * DEG * o.open);
     needle().spin('z', (-135 + 270 * clamp01(0.7 * o.share) - SYNC_DEG) * DEG);
-    glow().level = o.lamp;
-    glowSoft().level = o.lamp;
+    // M12: film mode fades the lamp out at the conceal (filmCtl.lamp).
+    const lamp = filmCtl.lamp(o.lamp);
+    glow().level = lamp;
+    glowSoft().level = lamp;
     packets();
   });
 }

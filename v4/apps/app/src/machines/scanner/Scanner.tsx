@@ -26,6 +26,7 @@ import { Base, Pedestal } from './Base.tsx';
 import { CABLE_PIECES, CELLS, SC, SCANNER_CABLE } from './dims.ts';
 import { Arm, Fittings, Motor, Ribbon } from './Head.tsx';
 import { Cable, Preamp } from './Preamp.tsx';
+import { filmCtl } from '../../film/filmCtl.ts';
 
 interface ScannerProps {
   /** The factory's reveal moves the whole machine (its root moves, rarely) and clips it to the case. */
@@ -114,8 +115,10 @@ function Frame({ live, sim }: ScannerProps) {
     const cs = cells();
     for (let i = 0; i < cs.length; i++) cs[i]!.mix = o.cells[i]!;
     lens().mix = o.lamp;
-    glow().level = o.lamp;
-    glowSoft().level = o.lamp;
+    // M12: film mode fades the lamp out at the conceal (filmCtl.lamp).
+    const lamp = filmCtl.lamp(o.lamp);
+    glow().level = lamp;
+    glowSoft().level = lamp;
     packets();
   });
   return null;

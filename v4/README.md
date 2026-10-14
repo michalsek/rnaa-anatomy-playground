@@ -43,7 +43,8 @@ packages/engine/src
              viewport minus pads, optionally a centred 16:9 rectangle: `frameRect`), view presets
              (optional `frame` box to fit); ease.ts: eased view changes (critically damped);
              orbit.ts (M11): orbit about the target (elevation 10–80°), pan, zoom about a point
-             (0.5–12× the fit)
+             (0.5–12× the fit); film.ts (M12): the loop video's maths (the top-down screen
+             cameras, the 16:9 film band and frame, cameraLerp, smootherstep, the compositor's geometry)
   palette/   light/dark tokens (from the v2 kit) → GPU palette table (material slots, then FX
              colours: halo, glow, void, strobe); CARD tokens and MONO for the overlay
   geo/       JSON GeoSpecs → cached prototypes: box/extrude (plans, polygon smooth points, seams, side line sets: E6
@@ -138,6 +139,10 @@ apps/app
                                corner texts), layout.ts (card, chips and camera pads for card,
                                bare and 16:9), InfoSheet.tsx (the "i" sheet)
   src/overlay/readout.ts       readout store (≤ 10 Hz, phase changes at once)
+  src/film/                    M12 film mode (DEV, off by default): filmCtl.ts (the loop video's shots,
+                               `__v4.film`), FilmDriver.tsx (its frame hook in the factory scene)
+tools/film/                    M12: the loop video's capture (CDP), checks, status-bar tracer, compositor,
+                               master encode (notes/M12.md has the commands)
   src/gallery/                 M2 gallery (rows m1, ext, lathe, inst, marks, contact, fx) + M1
                                row; views.ts holds layout and view presets (no components)
   src/platform/{web,native}/   hosts for #platform/*, picked by metro.config.js
@@ -197,4 +202,18 @@ the last 50 engine log lines in `globalThis.__v4logs` (per-phase rebuild ms). No
 [notes/M1.md](notes/M1.md), [notes/M2.md](notes/M2.md), [notes/M3.md](notes/M3.md),
 [notes/M4.md](notes/M4.md), [notes/M5.md](notes/M5.md), [notes/M6.md](notes/M6.md),
 [notes/M7.md](notes/M7.md), [notes/M8.md](notes/M8.md), [notes/M9.md](notes/M9.md), [notes/M10.md](notes/M10.md),
-[notes/M11.md](notes/M11.md). Test timelines print with `V4_TIMELINE=1 pnpm test`.
+[notes/M11.md](notes/M11.md), [notes/M12.md](notes/M12.md). Test timelines print with `V4_TIMELINE=1 pnpm test`.
+
+## The loop video (M12)
+
+`loop-light-60.mp4` (16:9, 60 fps, light, silent; made from scripts, not kept in the repo):
+- **Part 1, web:** the open factory, the M11 tour, the conceal, and the camera going top-down onto the closed
+  phone's screen.
+- **Seam A:** the screen becomes the iOS simulator's.
+- **Part 2, iOS:** the camera pulls back into a phone inside the phone, tilts and opens it.
+- **Seam B:** the output zooms back into it and dissolves into Part 1's start.
+
+DEV `__v4.film`: `enable({ platform: 'web' | 'sim' })` (bare, no chips, light, the 16:9 film frame, lines in
+proportion to it, the screen's iOS status bar and Dynamic Island), `part1()`, `step()` (web: one 1/60 s
+frame, resolves when drawn), `arm({ logo })`, `go()`, `state()`, `disable()`. Commands and numbers:
+[notes/M12.md](notes/M12.md).

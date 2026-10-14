@@ -6,9 +6,12 @@
  * the island with its camera dot, the home indicator, and the four meter cells (E2: they fill
  * mint per scanner read; behind `SCREEN_METER`, off since M11). Cut (M10 plan §1): text, the ripple, the playback controls, the glare.
  */
+import { useSyncExternalStore } from 'react';
 import { Box, Extrude, Group, Lathe, Marks } from '../../blocks/blocks.tsx';
+import { filmCtl } from '../../film/filmCtl.ts';
 import { type V3, closed } from '../kit.ts';
-import { METER_CELLS, SCREEN_METER, displayDims, roundedRing } from './dims.ts';
+import { FILM_ISLAND, METER_CELLS, SCREEN_METER, SCREEN_STATUS_BAR, displayDims, roundedRing } from './dims.ts';
+import { STATUS_BAR_GLYPHS } from './statusBar.ts';
 
 /** Half an elliptic ring (θ from a0 to a0 + π) as one polygon, turned by `deg` (art units). */
 function halfRing(rx: number, ry: number, band: number, deg: number, a0: number, n = 36) {
@@ -37,6 +40,9 @@ export function Display({ reveal = false }: { reveal?: boolean }) {
   const { c, sx, sy, DZ, Z1, Z2, SW, SD, SR, s, LY } = D;
   const top = -SD / 2;
   const edge = roundedRing(SW, SD, SR, 8).points.map(([x, y]) => [x, y, 0.02] as V3);
+  // M12: the status bar (film mode only by default: SCREEN_STATUS_BAR).
+  const film = useSyncExternalStore(filmCtl.subscribe, filmCtl.snapshot, filmCtl.snapshot) !== null;
+  const statusBar = SCREEN_STATUS_BAR === true || (SCREEN_STATUS_BAR === 'film' && film);
   return (
     <Group id="display" position={[sx, sy, 0]} moves={reveal} rare={reveal} contacts={false}>
       <Extrude id="oled" material="graphite" outline="mid" plan={{ rect: [c.w - 6, c.d - 6], r: c.r - 3, steps: 10 }} position={[0, 0, DZ]} height={Z1 - DZ} seams={[1.6]} />
@@ -70,10 +76,24 @@ export function Display({ reveal = false }: { reveal?: boolean }) {
         <Group id="nucleus" moves position={[0, LY, 0]}>
           <Lathe id="disc" material="logo" width={0} profile={[[0, 0], [7.8 * s, 0], [7.8 * s, 0.5], [0, 0.5]]} steps={48} />
         </Group>
-        {/* The island and its camera, the home indicator. */}
-        <Box id="island" material="screen" outline="mid" size={[31 * s, 9 * s, 0.3]} center={[0, top + 9.5 * s, 0.15]} r={4.5 * s} />
-        <Lathe id="camera" material="screen" outline="mid" profile={[[0, 0], [1.7 * s, 0], [1.7 * s, 0.4], [0, 0.4]]} position={[9.6 * s, top + 9.5 * s, 0]} steps={20} />
+        {/* The island and its camera, the home indicator. With the status bar (M12, film mode) the
+            island is the simulator's Dynamic Island instead. */}
+        {statusBar ? (
+          <Extrude id="island" material="islandInk" width={0} plan={{ rect: [FILM_ISLAND.w, FILM_ISLAND.h], r: FILM_ISLAND.h / 2, steps: 16 }} position={[0, FILM_ISLAND.y, 0]} height={0.3} />
+        ) : (
+          <>
+            <Box id="island" material="screen" outline="mid" size={[31 * s, 9 * s, 0.3]} center={[0, top + 9.5 * s, 0.15]} r={4.5 * s} />
+            <Lathe id="camera" material="screen" outline="mid" profile={[[0, 0], [1.7 * s, 0], [1.7 * s, 0.4], [0, 0.4]]} position={[9.6 * s, top + 9.5 * s, 0]} steps={20} />
+          </>
+        )}
         <Box id="home" material="pkData" outline="lo" size={[44 * s, 2.2 * s, 0.25]} center={[0, SD / 2 - 6.1 * s, 0.125]} r={1.1 * s} />
+        {statusBar && (
+          <Group id="status">
+            {STATUS_BAR_GLYPHS.map((polygon, k) => (
+              <Extrude key={k} id={`g${k}`} material="statusInk" width={0} plan={{ polygon, smooth: polygon.map(() => true) }} height={0.3} />
+            ))}
+          </Group>
+        )}
         {SCREEN_METER && (
           <Group id="meter" position={[0, LY + 64 * s, 0]}>
             {Array.from({ length: METER_CELLS }, (_, i) => (

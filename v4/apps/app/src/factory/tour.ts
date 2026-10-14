@@ -46,6 +46,8 @@ type ViewSetter = (view: string) => void;
 
 const state = { step: -1, el: 0, active: false };
 let setView: ViewSetter | null = null;
+/** M12 (film): a view setter that takes the app's place while the film runs. */
+let override: ViewSetter | null = null;
 const listeners = new Set<() => void>();
 const notify = () => {
   for (const cb of listeners) cb();
@@ -62,7 +64,7 @@ function enter(i: number) {
     return;
   }
   factoryLive.ctl.speed = s.speed ?? 1;
-  setView?.(s.view);
+  (override ?? setView)?.(s.view);
   notify();
 }
 
@@ -74,10 +76,15 @@ export const tourCtl = {
   get active() {
     return state.active;
   },
-  play() {
+  /** From the first step (opening the phone), or (M12, film) from step `from`, without the reveal. */
+  play(o?: { from?: number; reveal?: boolean }) {
     state.active = true;
-    revealCtl.restart();
-    enter(0);
+    if (o?.reveal !== false) revealCtl.restart();
+    enter(o?.from ?? 0);
+  },
+  /** M12 (film): route the tour's views elsewhere (null: back to the app's setter). */
+  overrideView(fn: ViewSetter | null) {
+    override = fn;
   },
   stop() {
     if (!state.active) return;

@@ -94,3 +94,16 @@ export function dispenserDims(p: PhoneLayout = PHONE) {
 export const METER_CELLS = 4;
 /** Whether the screen shows the meter (M11, the user: hidden; the code stays). */
 export const SCREEN_METER = false;
+/**
+ * M12: the iOS status bar on the screen (`statusBar.ts`, traced from the simulator's), so the loop
+ * video's splash continues into the simulator's real one. 'film': only in film mode (at the normal
+ * `phone` view it would sit well below the rendered island, where the splash framing puts it).
+ */
+export const SCREEN_STATUS_BAR: boolean | 'film' = 'film';
+/**
+ * M12: with the status bar, the island is drawn as the simulator's Dynamic Island (flat black,
+ * no camera dot): 94.8 × 36.8 pt, centre 32.3 pt down in the recording at the splash camera C0
+ * (zoom 1.42002 pt/unit), so the hardware island the simulator draws over the recording hides it.
+ * Screen-art units: size, centre y, corner radius (a stadium).
+ */
+export const FILM_ISLAND = { w: 66.78, h: 25.94, y: -347.9 } as const;

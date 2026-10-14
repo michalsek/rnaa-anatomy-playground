@@ -9,6 +9,7 @@ import { type Dispenser as DispenserSim, type DispenserOutputs, type GroupHandle
 import { useState } from 'react';
 import { Group, useFrame, useNode, useNodes } from '../../blocks/blocks.tsx';
 import type { LiveHandle } from '../../factory/live.ts';
+import { filmCtl } from '../../film/filmCtl.ts';
 import { Case } from './Case.tsx';
 import { Display } from './Display.tsx';
 import { Dispenser } from './Dispenser.tsx';
@@ -63,8 +64,9 @@ function Frame({ live, sim, reads }: PhoneProps) {
     const d = sim();
     d.outputs(w.o);
     rotor().spin('y', -w.o.rotor);
-    logo().spin('z', w.o.spin);
-    nucleus().set({ scale: 1 + 0.2 * Math.exp(-w.o.tap / 0.18) });
+    // M12 (film mode): the film's logo angle and the tap pulse decaying while the sim is held.
+    logo().spin('z', filmCtl.logo() ?? w.o.spin);
+    nucleus().set({ scale: 1 + 0.2 * Math.exp(-filmCtl.tap(w.o.tap) / 0.18) });
     if (SCREEN_METER) {
       const k = reads() % METER_CELLS;
       const cs = cells();

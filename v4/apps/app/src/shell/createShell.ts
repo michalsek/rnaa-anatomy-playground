@@ -64,6 +64,17 @@ export interface Shell {
   refZoom(): number;
   /** Ease back to the current view's preset (double tap). */
   resetView(): void;
+  /** M12 (film): the camera a named view (or preset) would get now, without applying it. */
+  cameraFor(view: string | ViewPreset): CameraState;
+  /** M12 (film): the eases' clock (ms; null: wall time) and pinned line widths (null: the view's). */
+  setClock(clock: (() => number) | null): void;
+  setLines(lines: { scale: number; ref: number } | null): void;
+  /**
+   * M12 (film): manual stepping. `setManual(true)` stops the rAF loop; `step(dt)` then ticks and
+   * draws one frame of exactly dt seconds and resolves once the GPU has finished it.
+   */
+  setManual(on: boolean): void;
+  step(dt: number): Promise<void>;
   stop(): void;
 }
 
@@ -131,11 +142,8 @@ export function createShell(
   const gaps = new Float32Array(PERF_N);
   const ticks = new Float32Array(PERF_N);
   let frames = 0;
-  const loop = (now: number) => {
-    if (stopped) return;
-    const dt = Math.min(Math.max(0, (now - last) / 1000), MAX_DT);
-    const gap = now - last;
-    last = now;
+  /** One frame: tick the scene by dt (0 while paused), draw. False after a fatal error. */
+  const tickDraw = (dt: number, gap: number) => {
     try {
       // Tick every frame (dt 0 while paused), so poses written while paused (a seek) render.
       if (!paused) time += dt;
@@ -147,8 +155,17 @@ export function createShell(
       renderer.frame();
     } catch (err) {
       fatal(err);
-      return;
+      return false;
     }
+    return true;
+  };
+  let manual = false;
+  const loop = (now: number) => {
+    if (stopped || manual) return;
+    const dt = Math.min(Math.max(0, (now - last) / 1000), MAX_DT);
+    const gap = now - last;
+    last = now;
+    if (!tickDraw(dt, gap)) return;
     raf = requestAnimationFrame(loop);
   };
   raf = requestAnimationFrame(loop);
@@ -201,6 +218,29 @@ export function createShell(
     setCamera: (state, o) => renderer.setCamera(state, o),
     refZoom: () => renderer.refZoom(),
     resetView: () => applyView({ ease: true }),
+    cameraFor(v) {
+      const list = views();
+      const preset = typeof v === 'string' ? (list.find((x) => x.name === v) ?? list[0]) : v;
+      if (!preset) throw new Error(`no view ${JSON.stringify(v)}`);
+      return renderer.cameraFor(preset);
+    },
+    setClock: (clock) => renderer.setClock(clock),
+    setLines: (lines) => renderer.setLines(lines),
+    setManual(on) {
+      if (on === manual || stopped) return;
+      manual = on;
+      cancelAnimationFrame(raf);
+      if (!on) {
+        last = performance.now();
+        raf = requestAnimationFrame(loop);
+      }
+    },
+    async step(dt) {
+      if (stopped) throw new Error('the shell stopped');
+      if (!manual) throw new Error('step() needs setManual(true)');
+      if (!tickDraw(dt, dt * 1000)) throw new Error('the frame failed');
+      await device.queue.onSubmittedWorkDone();
+    },
     stop() {
       stopped = true;
       cancelAnimationFrame(raf);

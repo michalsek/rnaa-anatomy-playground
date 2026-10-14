@@ -25,6 +25,7 @@ import { Bin, Chute } from './Discharge.tsx';
 import { Drive, Rollers, SPRING_AT } from './Drive.tsx';
 import { Base, Housing, Hopper } from './Housing.tsx';
 import { CR, FLAKE, VBELT } from './dims.ts';
+import { filmCtl } from '../../film/filmCtl.ts';
 
 interface CrusherProps {
   /** The factory's reveal moves the whole machine (its root moves, rarely) and clips it to the case. */
@@ -162,8 +163,10 @@ function Frame({ live, sim }: CrusherProps) {
     flk.count = c.flakes(s.flake);
     needle().spin('z', o.needle);
     lens().mix = o.lamp;
-    glow().level = o.lamp;
-    glowSoft().level = o.lamp;
+    // M12: film mode fades the lamp out at the conceal (filmCtl.lamp).
+    const lamp = filmCtl.lamp(o.lamp);
+    glow().level = lamp;
+    glowSoft().level = lamp;
     packetPoses();
     c.scales(s.squash);
   });

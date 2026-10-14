@@ -12,6 +12,7 @@ import {
   createShell,
 } from './shell/createShell.ts';
 import { type Point, createGestures } from './shell/gestures.ts';
+import { filmCtl } from './film/filmCtl.ts';
 
 declare const __DEV__: boolean;
 
@@ -108,7 +109,10 @@ export function Stage({
       reset: () => shell.resetView(),
     };
     if (__DEV__) probe.__v4cam = cam;
+    // M12: film mode drives this shell (DEV hook `__v4.film`).
+    if (__DEV__) filmCtl.attach(shell, () => layoutRef.current);
     return () => {
+      if (__DEV__) filmCtl.attach(null, null);
       shell.stop();
       if (shellRef.current === shell) shellRef.current = null;
       if (probe.__v4sizes === sizes) delete probe.__v4sizes;

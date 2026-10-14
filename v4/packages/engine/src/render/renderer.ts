@@ -107,6 +107,18 @@ export interface Renderer {
   setCamera(state: CameraState, o?: { ease?: boolean }): void;
   /** The line-width reference zoom: the fit at the view's angles (orbit's zoom limits are relative to it). */
   refZoom(): number;
+  /** The camera a view preset would get now (nothing changes; M12's scripted moves). */
+  cameraFor(view: ViewPreset): CameraState;
+  /**
+   * M12 (film): the clock eased moves read (ms), instead of `performance.now()`; null restores it.
+   * A frame-stepped capture feeds its own clock so the eases are deterministic.
+   */
+  setClock(clock: (() => number) | null): void;
+  /**
+   * M12 (film): line widths `dpr · scale · zoom / ref` with a pinned reference zoom (lines in
+   * proportion to the film's band on every device); null restores the view's reference.
+   */
+  setLines(lines: { scale: number; ref: number } | null): void;
   setDebug(mode: DebugMode): void;
   setTheme(theme: Theme): void;
   /**
@@ -370,6 +382,10 @@ export function createRenderer(options: RendererOptions): Renderer {
   const ease = createCameraEase();
   let easing = false;
   let easeLast = 0;
+  // M12 (film): an injected clock and pinned line widths (null: today's behaviour).
+  let clock: (() => number) | null = null;
+  const easeNow = () => (clock ? clock() : now());
+  let lines: { scale: number; ref: number } | null = null;
   function applyPreset() {
     // A refit (resize, rebuild, new frame) cuts to the preset: no easing toward a stale goal.
     easing = false;
@@ -422,7 +438,7 @@ export function createRenderer(options: RendererOptions): Renderer {
     }
     const { color, depth } = ensureTargets(texture.width, texture.height);
     if (easing) {
-      const t = now();
+      const t = easeNow();
       refZoom = ease.step(Math.min(0.1, Math.max(0, (t - easeLast) / 1000)), camera);
       easeLast = t;
       if (ease.done()) easing = false;
@@ -454,7 +470,7 @@ export function createRenderer(options: RendererOptions): Renderer {
     frameF32[FW.viewport] = viewport.width;
     frameF32[FW.viewport + 1] = viewport.height;
     // Line widths scale with zoom like a pinch-zoomed SVG: 1 CSS px at the fit zoom.
-    frameF32[FW.pxPerCss] = viewport.dpr * (camera.zoom / refZoom);
+    frameF32[FW.pxPerCss] = lines ? viewport.dpr * lines.scale * (camera.zoom / lines.ref) : viewport.dpr * (camera.zoom / refZoom);
     frameF32[FW.pxPerUnit] = viewport.dpr * camera.zoom;
     frameU32[FW.debug] = debug;
     frameF32.set(clear, FW.paper);
@@ -533,7 +549,7 @@ export function createRenderer(options: RendererOptions): Renderer {
         camera = from;
         refZoom = fromRef;
         easing = true;
-        easeLast = now();
+        easeLast = easeNow();
       }
     },
     setFrame: (frame) => {
@@ -546,7 +562,7 @@ export function createRenderer(options: RendererOptions): Renderer {
       if (o?.ease && scene) {
         ease.to(camera, refZoom, state, refZoom);
         easing = true;
-        easeLast = now();
+        easeLast = easeNow();
       } else {
         easing = false;
         ease.cancel();
@@ -555,6 +571,14 @@ export function createRenderer(options: RendererOptions): Renderer {
       onPreset = false;
     },
     refZoom: () => refZoom,
+    cameraFor: (view) => viewCamera(scene ? scene.build.bounds : bounds, viewport, view, frameSpec),
+    setClock: (next) => {
+      clock = next;
+      easeLast = easeNow();
+    },
+    setLines: (next) => {
+      lines = next ? { ...next } : null;
+    },
     setDebug: (mode) => {
       debug = mode;
     },

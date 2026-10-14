@@ -43,3 +43,4 @@ export * from './camera/ease.ts';
 export * from './camera/orbit.ts';
 export * from './assembly/origins.ts';
 export * from './assembly/reveal.ts';
+export * from './camera/film.ts';

@@ -11,6 +11,7 @@ import { Card } from './src/overlay/Card.tsx';
 import { InfoSheet } from './src/overlay/InfoSheet.tsx';
 import { overlayLayout } from './src/overlay/layout.ts';
 import { SCENES, type SceneEntry } from './src/scenes.tsx';
+import { filmCtl } from './src/film/filmCtl.ts';
 
 export default function App() {
   return (
@@ -24,7 +25,9 @@ function Main() {
   const system: Theme = useColorScheme() === 'dark' ? 'dark' : 'light';
   // null = follow the system scheme until the user picks one.
   const [picked, setPicked] = useState<Theme | null>(null);
-  const theme = picked ?? system;
+  // M12: film mode (DEV, `__v4.film`; null otherwise) forces light, bare, no chrome, its frame.
+  const film = useSyncExternalStore(filmCtl.subscribe, filmCtl.snapshot, filmCtl.snapshot);
+  const theme = film ? 'light' : (picked ?? system);
   const insets = useSafeAreaInsets();
   const win = useWindowDimensions();
   const [sceneIndex, setSceneIndex] = useState(0);
@@ -44,10 +47,10 @@ function Main() {
   const [chipsWidth, setChipsWidth] = useState(0);
   // The "i" sheet (scenes with an `info` caption; never in bare mode).
   const [sheet, setSheet] = useState(false);
-  const layout = overlayLayout(win, insets, { bare, chrome, rec });
-  const frameKey = JSON.stringify(layout.frame);
+  const layout = overlayLayout(win, insets, film ? { bare: true, chrome: false, rec: false } : { bare, chrome, rec });
+  const frameKey = JSON.stringify(film?.frame ?? layout.frame);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const frame = useMemo(() => layout.frame, [frameKey]);
+  const frame = useMemo(() => film?.frame ?? layout.frame, [frameKey]);
   const controls = useMemo(() => ({ theme, view, paused, debug, frame }), [theme, view, paused, debug, frame]);
 
   // Dev-only hook for driving the views from a debugger or the browser console.
@@ -100,6 +103,8 @@ function Main() {
       reveal: scene.reveal,
       /** The camera tour: play(), stop(), state(). */
       tour: scene.tour,
+      /** M12: the loop video's film mode (factory scene): enable, part1, step, arm, go, state, disable. */
+      film: filmCtl.api,
     };
     return () => {
       delete g.__v4;
@@ -165,7 +170,7 @@ function Main() {
           reserveRight={layout.landscape && chrome ? chipsWidth : 0}
         />
       )}
-      {sheet && !bare && scene.info && (
+      {sheet && !bare && !film && scene.info && (
         <InfoSheet
           theme={theme}
           caption={scene.info.caption}
@@ -182,7 +187,7 @@ function Main() {
       )}
       <View
         onLayout={(e) => setChipsWidth(Math.ceil(e.nativeEvent.layout.width))}
-        style={[styles.bar, { top: layout.chips.top, right: layout.chips.right }, !chrome && styles.hidden]}
+        style={[styles.bar, { top: layout.chips.top, right: layout.chips.right }, (!chrome || film !== null) && styles.hidden]}
       >
         <Chip
           compact={narrow}
