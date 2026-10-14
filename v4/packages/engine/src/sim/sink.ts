@@ -18,6 +18,8 @@ export interface SinkItem {
   item: Item;
   p: V3;
   v: V3;
+  /** Sim time it was handed on (it does not move in that step). */
+  born: number;
 }
 
 export interface Sink extends Machine, Located, Receiver {
@@ -46,11 +48,12 @@ export function createSink(clock: Readonly<Clock>, ledger: Ledger, o: SinkOption
         ledger.consume(item);
         return;
       }
-      falling.push({ item, p: [from[0], from[1], from[2]], v: [v[0], v[1], v[2]] });
+      falling.push({ item, p: [from[0], from[1], from[2]], v: [v[0], v[1], v[2]], born: clock.t });
     },
     step(h) {
       for (let i = falling.length - 1; i >= 0; i--) {
         const f = falling[i]!;
+        if (f.born === clock.t) continue;
         f.v[2] -= FALL_G * h;
         f.p[0] += f.v[0] * h;
         f.p[1] += f.v[1] * h;

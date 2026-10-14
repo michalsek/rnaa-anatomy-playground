@@ -214,3 +214,50 @@ describe('v2 conveyor page graph', () => {
     expect(g.sink.taken).toBeGreaterThan(5);
   });
 });
+
+describe('hand-offs', () => {
+  it('no pops: every item moves continuously in world space across machines', () => {
+    const g = createLine(LINE_LAYOUT);
+    const f = g.factory;
+    const last = new Map<number, [number, number, number]>();
+    let worst = 0;
+    let handOffs = 0;
+    let worstHand = 0;
+    const owner = new Map<number, string>();
+    for (let i = 0; i < 70 * 120; i++) {
+      f.run(H);
+      const seen = new Map<number, [string, number, number, number]>();
+      const at = (m: string, o: readonly number[]) => (id: number, x: number, y: number, z: number) =>
+        seen.set(id, [m, x + o[0]!, y + o[1]!, z + o[2]!]);
+      const b = at('beltB', g.beltB.origin);
+      g.beltB.poses((_, item, x, y, z) => b(item.id, x, y, z));
+      const c = at('centrifuge', g.centrifuge.origin);
+      g.centrifuge.poses((_, item, x, y, z) => c(item.id, x, y, z));
+      const a = at('audio', g.audio.origin);
+      g.audio.poses((_, item, __, x, y, z) => a(item.id, x, y, z));
+      const s = at('sink', g.sink.origin);
+      g.sink.items((_, item, x, y, z) => s(item.id, x, y, z));
+      for (const [id, [m, x, y, z]] of seen) {
+        const p = last.get(id);
+        if (p) {
+          // A hanging parcel's pose origin is its top (upside down); the sink's is its bottom.
+          const flip = owner.get(id) === 'audio' && m === 'sink' ? 7 : 0;
+          const d = Math.hypot(x - p[0], y - p[1], z + flip - p[2]);
+          if (owner.get(id) !== m) {
+            handOffs++;
+            worstHand = Math.max(worstHand, d);
+          }
+          worst = Math.max(worst, d);
+        }
+        last.set(id, [x, y, z]);
+        owner.set(id, m);
+      }
+    }
+    // 3 units per 1/120 s step is 360 units/s: faster than anything moves here.
+    expect(handOffs).toBeGreaterThan(20);
+    expect(worst).toBeLessThan(3);
+    // At a hand-off the step is no bigger than the motion either side of it.
+    expect(worstHand).toBeLessThan(2.5);
+    process.stdout.write(`hand-offs ${handOffs}, worst step ${worst.toFixed(2)}, worst at a hand-off ${worstHand.toFixed(2)}\n`);
+  });
+});

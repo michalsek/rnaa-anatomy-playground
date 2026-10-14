@@ -77,6 +77,8 @@ export interface TopItem {
   /** Pose this step, and its change over the last step (render extrapolation). */
   p: V3;
   d: V3;
+  /** Sim time it was handed on: it does not move in that step (the sender already moved it). */
+  born: number;
 }
 
 export interface Conveyor extends Machine, Located, Receiver {
@@ -207,6 +209,7 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
         lim: Infinity,
         p: [start[0], start[1], start[2]],
         d: [v[0] * clock.H, v[1] * clock.H, v[2] * clock.H],
+        born: clock.t,
       });
     },
     step(h) {
@@ -227,6 +230,8 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
       }
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i]!;
+        // Handed on this step by a machine that steps first: it has already moved this step.
+        if (it.born === clock.t) continue;
         const half = halfOf(it.item.kind);
         if (it.phase === 'fall') {
           const f = it.fall!;

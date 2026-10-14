@@ -135,8 +135,14 @@ describe('centrifuge between real belts (checkpoint A rig)', () => {
       expect(b.f.ledger.created).toBe(b.f.alive() + b.f.ledger.consumed);
     });
     b.centrifuge.releaseOverride = null;
-    b.f.run(8);
-    expect(held(b.centrifuge.tray.state)).toBe(0);
+    // Restoring drains the tray (the rig's receiver, a top belt, takes a packet only once the
+    // last has cleared its in point, so it can skip a crossing).
+    let drained = false;
+    for (let t = 0; t < 12 && !drained; t += H) {
+      b.f.run(H);
+      drained = held(b.centrifuge.tray.state) === 0;
+    }
+    expect(drained).toBe(true);
 
     const [x, y, z] = CF.spout.hand;
     expect(x).toBeCloseTo(-4.47, 2);

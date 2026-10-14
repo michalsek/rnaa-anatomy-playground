@@ -92,6 +92,8 @@ export interface LoopItem {
   dTilt: number;
   /** The bail's reach below the cleat (0 on the top run). */
   hook: number;
+  /** Sim time it was handed on: it does not move in that step (the sender already moved it). */
+  born: number;
 }
 
 export interface Bail {
@@ -291,6 +293,7 @@ export function createLoop(clock: Readonly<Clock>, o: LoopOptions): Loop {
         tilt: 0,
         dTilt: 0,
         hook: 0,
+        born: clock.t,
       });
     },
     step(h) {
@@ -302,6 +305,7 @@ export function createLoop(clock: Readonly<Clock>, o: LoopOptions): Loop {
       }
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i]!;
+        if (it.born === clock.t) continue;
         const u = cleatU(it.cleat);
         if (it.phase === 'fall') {
           const f = it.fall!;
