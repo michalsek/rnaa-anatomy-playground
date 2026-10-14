@@ -19,7 +19,7 @@ import {
   viewCamera,
 } from '../camera/camera.ts';
 import type { LineSetSpec } from '../geo/spec.ts';
-import { FX, PALETTE_SIZE, PAPER, SLOT, type Theme, hexToRgb, paletteTable } from '../palette/tokens.ts';
+import { FX, LINE_GAIN, PALETTE_SIZE, PAPER, SLOT, type Theme, hexToRgb, paletteTable } from '../palette/tokens.ts';
 import type { SceneBuild, SceneStore } from '../scene/store.ts';
 import {
   Frame,
@@ -34,6 +34,7 @@ import {
   Style,
   assertLayouts,
   sceneLayout,
+  spriteLayout,
 } from './schemas.ts';
 import { fillFragment, fillVertex, marksFragment, marksVertex, spriteFragment, spriteVertex } from './shaders.ts';
 
@@ -224,8 +225,8 @@ export function createRenderer(options: RendererOptions): Renderer {
       palette,
       marks,
       gradients,
-      sprites,
     });
+    const spriteGroup = root.createBindGroup(spriteLayout, { frame: frameBuffer, instances, palette, sprites });
     const boundsChanged = !scene || !sameBounds(scene.build.bounds, build.bounds);
     scene = {
       version: store.version,
@@ -236,9 +237,9 @@ export function createRenderer(options: RendererOptions): Renderer {
       fill: fillPipeline.with(bindGroup),
       open: openPipeline.with(bindGroup),
       marks: marksPipeline.with(bindGroup),
-      spriteNormal: spriteNormal.with(bindGroup),
-      spriteMultiply: spriteMultiply.with(bindGroup),
-      spriteScreen: spriteScreen.with(bindGroup),
+      spriteNormal: spriteNormal.with(spriteGroup),
+      spriteMultiply: spriteMultiply.with(spriteGroup),
+      spriteScreen: spriteScreen.with(spriteGroup),
     };
     if (boundsChanged && onPreset) applyPreset();
     if (DEV) {
@@ -360,6 +361,7 @@ export function createRenderer(options: RendererOptions): Renderer {
       pxPerUnit: viewport.dpr * camera.zoom,
       debug,
       paper: d.vec4f(...clear),
+      lineGain: LINE_GAIN[theme],
     });
 
     const encoder = device.createCommandEncoder();

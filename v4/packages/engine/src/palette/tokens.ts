@@ -135,15 +135,17 @@ export const TOKENS: Record<Theme, Record<Material, MaterialTokens>> = {
     steel: {
       paper: '#131313',
       face: '#1b1b1b',
-      top: '#1c1c1c',
+      // v4 dark lift vs kit (M3 compare): kit top #1c1c1c, too close to s3 #181818.
+      top: '#202020',
       s0: '#0f0f0f',
       s1: '#121212',
       s2: '#151515',
       s3: '#181818',
       hi: '#d4d4d4',
-      mid: '#6a6a6a',
+      // v4 dark lift vs kit (M3 compare): kit mid #6a6a6a, faint #2a2a2a.
+      mid: '#767676',
       lo: '#3e3e3e',
-      faint: '#2a2a2a',
+      faint: '#303030',
       lit: '#ffffff',
       dot: '#e6e6e6',
     },
@@ -237,6 +239,13 @@ export const CARD: Record<Theme, { page: string; card: string; text: string; str
   light: { page: '#f2f2ef', card: '#fbfbfa', text: '#57575a', strong: '#18181a', muted: '#8c8c90', frame: '#8a8a8f' },
   dark: { page: '#0b0b0b', card: '#131313', text: '#a3a3a3', strong: '#e6e6e6', muted: '#6e6e6e', frame: '#6a6a6a' },
 };
+
+/**
+ * Line ink gain per theme. v4 dark lift vs kit (M3 compare): on dark, SVG outlines read
+ * brighter than v4's in-face lines (each SVG solid strokes its whole outline, straddling it), so
+ * line coverage is boosted by 15%.
+ */
+export const LINE_GAIN: Record<Theme, number> = { light: 1, dark: 1.15 };
 
 /** The kit's mono stack per host. */
 export const MONO = { web: 'ui-monospace,"SF Mono",Menlo,Consolas,monospace', ios: 'Menlo' } as const;

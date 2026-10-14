@@ -24,7 +24,7 @@ import {
   tickCoverage,
   wire,
 } from '../shading/lines.ts';
-import { INSTANCE, LINE_KIND, MARK, SPRITE, TONE_RULE, sceneLayout as L } from './schemas.ts';
+import { INSTANCE, LINE_KIND, MARK, SPRITE, TONE_RULE, sceneLayout as L, spriteLayout as S } from './schemas.ts';
 
 const toPixels = (clip: d.v4f, viewport: d.v2f) => {
   'use gpu';
@@ -413,7 +413,7 @@ export const fillFragment = tgpu.fragmentFn({
           GREEN,
           debug === 1,
         );
-        color = std.mix(color, ink, tickCoverage(dist, line.x, alpha));
+        color = std.mix(color, ink, std.min(tickCoverage(dist, line.x, alpha) * frame.lineGain, 1));
       }
     }
 
@@ -464,16 +464,17 @@ export const fillFragment = tgpu.fragmentFn({
       contour = edgeCoverage((0.5 * facing) / std.max(input.facingGrad, 1e-6), line.x, line.y);
     }
 
+    const gain = frame.lineGain;
     color = std.mix(
       color,
       std.select(tone(m, st.creaseSlot), BLUE, debug === 1),
-      crease,
+      std.min(crease * gain, 1),
     );
     if (debug === 1) {
       color = std.mix(color, MAGENTA, contour);
       color = std.mix(color, RED, outline);
     } else {
-      color = std.mix(color, tone(m, st.outlineSlot), std.max(outline, contour));
+      color = std.mix(color, tone(m, st.outlineSlot), std.min(std.max(outline, contour) * gain, 1));
     }
   }
   return d.vec4f(color.xyz, 1);
@@ -577,7 +578,7 @@ export const marksVertex = tgpu.vertexFn({
     std.add(endWorld, std.add(std.mul(frame.right, dx), std.mul(frame.up, dy))),
     std.mul(frame.toward, lift),
   );
-  let alpha = std.select(line.y, dotOpacity(mark.slot), isDot);
+  let alpha = std.select(std.min(line.y * frame.lineGain, 1), dotOpacity(mark.slot), isDot);
   if (hasNormal && !isContact) {
     alpha = alpha * std.select(std.smoothstep(mark.fade.x, mark.fade.y, facing), 0, facing <= 0);
   }
@@ -667,13 +668,13 @@ export const spriteVertex = tgpu.vertexFn({
   },
 })((input) => {
   'use gpu';
-  const sp = L.$.sprites[input.iid];
-  const inst = L.$.instances[sp.instance];
-  const frame = L.$.frame;
+  const sp = S.$.sprites[input.iid];
+  const inst = S.$.instances[sp.instance];
+  const frame = S.$.frame;
   const k = cornerOf(input.vid);
   const sx = k.x * 2 - 1;
   const sy = k.y;
-  const color = fx(sp.fx);
+  const color = d.vec4f(S.$.palette[d.u32(MATERIALS.length * SLOT_COUNT) + sp.fx]);
   let clip = d.vec4f(HIDDEN);
   let local = d.vec2f(0, 0);
   let center = d.vec2f(0, 0);
@@ -729,8 +730,8 @@ export const spriteFragment = tgpu.fragmentFn({
   out: d.vec4f,
 })((input) => {
   'use gpu';
-  const sp = L.$.sprites[input.sprite];
-  const frame = L.$.frame;
+  const sp = S.$.sprites[input.sprite];
+  const frame = S.$.frame;
   // The halo's edge distance in device px: the plan SDF over its screen gradient (exact for
   // the round corners, close on the straight sides).
   const sdf = roundedRectSdf(input.local, sp.half, sp.corner);

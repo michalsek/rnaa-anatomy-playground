@@ -148,6 +148,8 @@ export const Frame = d.struct({
   debug: d.u32,
   /** The page paper (debug view 1 fills every face with it). */
   paper: d.vec4f,
+  /** Ink gain on line coverage (edges, ticks, mark segments): `LINE_GAIN[theme]`. */
+  lineGain: d.f32,
 });
 
 export const sceneLayout = tgpu.bindGroupLayout({
@@ -160,6 +162,16 @@ export const sceneLayout = tgpu.bindGroupLayout({
   palette: { storage: (n: number) => d.arrayOf(d.vec4f, n), visibility: ['vertex', 'fragment'] },
   marks: { storage: (n: number) => d.arrayOf(Mark, n), visibility: ['vertex'] },
   gradients: { storage: (n: number) => d.arrayOf(Gradient, n), visibility: ['vertex', 'fragment'] },
+});
+
+/**
+ * The sprite pass has its own layout: the scene layout is at the 8 storage buffers per stage
+ * that WebGPU guarantees (`maxStorageBuffersPerShaderStage`).
+ */
+export const spriteLayout = tgpu.bindGroupLayout({
+  frame: { uniform: Frame },
+  instances: { storage: (n: number) => d.arrayOf(Instance, n), visibility: ['vertex'] },
+  palette: { storage: (n: number) => d.arrayOf(d.vec4f, n), visibility: ['vertex', 'fragment'] },
   sprites: { storage: (n: number) => d.arrayOf(Sprite, n), visibility: ['vertex', 'fragment'] },
 });
 
