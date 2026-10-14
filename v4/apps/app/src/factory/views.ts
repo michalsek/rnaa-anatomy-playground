@@ -17,7 +17,9 @@ export const LINE_VIEWS: ViewPreset[] = [
   /** v2 `z-audio-C`: the loop's head drum over belt C, where garbage drops. */
   at('audio-C', [[-125, 92, 0], [-55, 160, 112]]),
   /** v2 `z-C-crusher`: belt C's end and the crusher. */
-  at('C-crusher', [[-130, 180, 0], [-50, 300, 45]]),
+  at('C-crusher', [[-122, 196, 0], [-58, 290, 40]]),
+  /** The crusher alone (with its drawer's travel). */
+  at('crusher', [[-128, 202, 0], [-50, 298, 38]]),
 ];
 
 export const LINE_CARD = {

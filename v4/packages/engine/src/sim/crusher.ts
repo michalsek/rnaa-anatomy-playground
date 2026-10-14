@@ -188,6 +188,9 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
   let laneNext = 0;
   let nextRelease = 0;
 
+  // Scratch: the sliding flakes per lane (no allocation per step).
+  const lanes: Flake[][] = Array.from({ length: LANES }, () => []);
+  const frontFirst = (a: Flake, b: Flake) => b.y - a.y;
   /** The pile's height above the mat (the slab rises out of it, so the first flakes are chips). */
   const pileH = () => Math.max(0, fill * (CR.PILE_MAX + CR.PILE_SINK) - CR.PILE_SINK);
   const laneTail = (lane: number) => {
@@ -358,10 +361,12 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
         nextRelease = t + 0.085;
       }
       const shut = bin.mode !== 'home' || gate.x < 0.8;
-      for (let lane = 0; lane < LANES; lane++) {
+      for (const l of lanes) l.length = 0;
+      for (const f of flakes) if (f.mode === 'slide') lanes[f.lane]!.push(f);
+      for (const inLane of lanes) {
         let limit = Infinity;
         // Front of the lane first (largest y).
-        const inLane = flakes.filter((f) => f.mode === 'slide' && f.lane === lane).sort((a, b) => b.y - a.y);
+        inLane.sort(frontFirst);
         for (const f of inLane) {
           const stop = shut && f.y <= gateY - 0.9 ? Math.min(limit, gateY - 0.9) : limit;
           if (t >= f.wait) f.y = Math.max(f.y, Math.min(f.y + VS * LANE_V[f.lane]! * h, stop));

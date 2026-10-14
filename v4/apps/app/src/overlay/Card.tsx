@@ -35,7 +35,9 @@ export function Card({
 }) {
   const ink = CARD[theme];
   const [width, setWidth] = useState<number | null>(null);
-  const narrow = width !== null && width < NARROW;
+  // Narrow, or the hint and a long readout (≈ 60 chars) would meet on one row (mono 10.5 px:
+  // ≈ 6.3 px a char, the hint's letter spacing adds 1.05).
+  const narrow = width !== null && (width < NARROW || text.hint.length * 7.4 + 60 * 6.3 + 80 > width);
   const onLayout = (e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width);
   const corner = [styles.corner, { fontFamily: FONT, color: ink.muted }];
   return (
