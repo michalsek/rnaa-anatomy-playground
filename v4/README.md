@@ -39,25 +39,32 @@ Android: `pnpm android` (config only so far, not built).
 
 ```
 packages/engine/src
-  camera/    2:1 dimetric ortho camera (kit projection), fit-to-bounds, view presets, pixel snap
-  palette/   light/dark tokens (from the v2 kit) → GPU palette table (fill + line tones)
-  geo/       box, lathe (spline-refined smooth spans), tube; mesh merge; topology (adjacency,
-             crease/boundary/smooth flags)
-  shading/   'use gpu' tone bands (+ AA weights), line coverage, per-frame edge modes
-  render/    vertex pulling, in-face lines (outline/crease/contour/UV ticks), MSAA 4× + depth,
-             one encoder/submit per frame
-  scene/     M1 line-spike scene (box + tach, rotor with ribs and dial, tube) and its views
+  camera/    2:1 dimetric ortho camera (kit projection), fit (to part box corners), view presets
+  palette/   light/dark tokens (from the v2 kit) → GPU palette table (fill, line and dot tones)
+  geo/       JSON GeoSpecs → cached prototypes: box/extrude (plans, seams), lathe (seams, poles,
+             spline spans), tube (open/closed, tangents), belt; topology per prototype;
+             contacts (triangle crossings); mark helpers (bolt circles, polylines)
+  scene/     SceneStore (groups/parts/pools/marks, tokens, build → batches, flatten → instances);
+             M1 profiles and line sets
+  shading/   'use gpu' tone rules (bands, plan, tube stripes) + AA weights, line coverage
+  render/    vertex pulling, instance/style/mark tables, in-face lines, marks pipeline,
+             MSAA 4× + depth, one encoder/submit per frame
   platform/  #platform/* contract (+ Node stub for tests)
 apps/app
+  src/blocks/                  React blocks: Scene, Group/Machine, Box, Extrude, Lathe, Tube,
+                               Belt, Instances, Marks, useFrame, useNode (render null)
+  src/gallery/                 M2 gallery (rows m1, ext, lathe, inst, marks, contact) + M1 row
   src/platform/{web,native}/   hosts for #platform/*, picked by metro.config.js
-  src/shell/                   rAF loop + context.present?.()
+  src/shell/                   rAF loop: store.tick (dt ≤ 0.1 s) → renderer.frame → present?.()
   src/Stage.tsx                <Canvas> + layout → configure → shell (rebuilt on Fast Refresh)
 ```
 
-## Controls (M1)
+## Controls
 
-Top-right toolbar: view preset (cycles `fit`, yaw/elevation variants, `0.5× thin`, 4× zooms),
-pause, debug view (`dbg 1` = line classes: outline red, contour magenta, crease blue, ticks
-green; `dbg 2` = lines off), theme. In dev builds the same is scriptable from a debugger or the
-browser console: `__v4.setView('4× tach')`, `__v4.setDebug(1)`, `__v4.setPaused(true)`,
-`__v4.setTheme('dark')`; `__v4.views` lists the presets. Notes: [notes/M1.md](notes/M1.md).
+Top-right toolbar: scene (`gallery`, `m1`), view preset, pause, debug view (`dbg 1` = line
+classes: outline red, contour magenta, crease blue, ticks green, marks and contacts cyan;
+`dbg 2` = lines off), theme. In dev builds the same is scriptable from a debugger or the browser
+console: `__v4.setScene('m1')`, `__v4.setView('close cage')`, `__v4.look({ focus: [x, y, z],
+zoom: 8 })`, `__v4.setDebug(1)`, `__v4.setPaused(true)`, `__v4.setTheme('dark')`,
+`__v4.setPoolCount('inst.packets', 12)`, `__v4.store()`; `__v4.views` / `__v4.scenes` list the
+names. Notes: [notes/M1.md](notes/M1.md), [notes/M2.md](notes/M2.md).
