@@ -6,10 +6,12 @@
  *   inst      instances: spinner (carousel + 10 vanes + bolt circle), packet pool (3 materials)
  *   marks     needle on a moving group, polyline rules, dots on a box top
  *   contact   post through ring, ribs sunk into a drum, saddle pad on a cylinder, flush control
+ *   fx        halo under a box, glow on a lit lens, gradient void in a lip, strobe sectors
  */
 import {
   type GroupHandle,
   type PoolHandle,
+  type SpriteHandle,
   type ProfilePoint,
   type Vec3,
   boltCircle,
@@ -20,7 +22,9 @@ import {
   Belt,
   Box,
   Extrude,
+  Glow,
   Group,
+  Halo,
   Instances,
   Lathe,
   Marks,
@@ -312,6 +316,73 @@ function Contacts() {
   );
 }
 
+// ---- row: effects ---------------------------------------------------------------------------
+
+const polar = (deg: number, r: number, z: number): Vec3 => [
+  r * Math.cos((deg * Math.PI) / 180),
+  r * Math.sin((deg * Math.PI) / 180),
+  z,
+];
+const STROBE: ProfilePoint[] = [
+  [0, 0],
+  [5, 0],
+  [5, 1],
+  [4.5, 1],
+  [4.3, 1], // segment 4: sectors
+  [1.5, 1],
+  [1.2, 1],
+  [0, 1],
+];
+
+function Effects() {
+  const strobe = useNode<GroupHandle>('fx.strobe');
+  const glow = useNode<SpriteHandle>('fx.lamp.glow');
+  const soft = useNode<SpriteHandle>('fx.lamp.soft');
+  useFrame(({ t }) => {
+    strobe().spin('z', t * 0.4);
+    const level = 0.45 + 0.4 * Math.max(0, Math.sin(t * 2));
+    glow().level = level;
+    soft().level = level;
+  });
+  return (
+    <Group id="fx" position={cell('fx', 2)}>
+      <Group id="shadow" position={local('fx', 0)}>
+        <Halo id="halo" plan={{ w: 8, d: 8, r: 2 }} sigma={1.2} shift={0.4} />
+        <Box id="block" material="steel" size={[8, 8, 4]} center={[0, 0, 3]} />
+      </Group>
+      <Group id="lamp" position={local('fx', 1)}>
+        <Box id="body" material="graphite" size={[6, 6, 3]} center={[0, 0, 1.5]} />
+        <Lathe id="lens" material="lit" outline="hi" profile={sphereProfile(2.1, 10)} subdivisions={2} position={[0, 0, 3]} />
+        <Glow id="soft" fx="glowSoft" radius={2.4} grow={3.2} opacity={0.35} blend="normal" bias={2.2} level={0.45} position={[0, 0, 3]} />
+        <Glow id="glow" fx="glow" radius={1.6} opacity={0.85} cap={0.85} blend="glow" bias={2.2} level={0.45} position={[0, 0, 3]} />
+      </Group>
+      <Group id="void" position={local('fx', 2)}>
+        <Lathe id="lip" material="steel" profile={[[0, 0], [5.5, 0], [5.5, 2], [0, 2]]} />
+        <Lathe
+          id="hole"
+          material="steel"
+          outline="lo"
+          tone="gradient"
+          gradient={{ from: polar(225, 4.5, 2.02), to: polar(45, 4.5, 2.02), stops: ['void0', 'void1', 'void2'], mid: 0.55 }}
+          profile={[[4.5, 2.02], [0, 2.02]]}
+          contacts={false}
+        />
+      </Group>
+      <Group id="strobe" moves position={local('fx', 3)}>
+        <Lathe
+          id="disc"
+          material="steel"
+          outline="hi"
+          crease="lo"
+          profile={STROBE}
+          marks={[3, 6]}
+          lineSets={[{ segment: 4, lines: { count: 10, phase: 0, first: 0, last: 9, majorEvery: 0, minor: 'lo', major: 'lo', width: 0, majorWidth: 0, fade: [0, 0], kind: 'sectors', duty: 0.5, fill: 'strobe' } }]}
+        />
+      </Group>
+    </Group>
+  );
+}
+
 export function Gallery() {
   return (
     <>
@@ -321,6 +392,7 @@ export function Gallery() {
       <InstancesRow />
       <MarksRow />
       <Contacts />
+      <Effects />
     </>
   );
 }
