@@ -16,3 +16,4 @@ export * from './scene/m1.ts';
 export * from './scene/store.ts';
 export * from './shading/lines.ts';
 export * from './shading/tone.ts';
+export * from './sim/centrifuge.ts';
