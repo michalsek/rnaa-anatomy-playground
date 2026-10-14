@@ -23,6 +23,10 @@ export interface SinkItem {
 }
 
 export interface Sink extends Machine, Located, Receiver, PoseSource {
+  /** Pool sizes the blocks need (read at mount): items falling into the crate. */
+  readonly pools: { readonly packets: number };
+  /** Where falling items are consumed (local z; undefined: at once). */
+  readonly floorZ: number | undefined;
   readonly falling: readonly SinkItem[];
   /** Items taken so far. */
   readonly taken: number;
@@ -35,6 +39,8 @@ export function createSink(clock: Readonly<Clock>, ledger: Ledger, o: SinkOption
   return {
     id: o.id,
     origin: o.origin,
+    pools: { packets: 8 },
+    floorZ: floor,
     falling,
     get taken() {
       return taken;

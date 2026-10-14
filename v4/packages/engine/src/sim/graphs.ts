@@ -4,8 +4,9 @@
  *
  * - `centrifuge`: the centrifuge on its own, between a short belt B (fed by a source) and a short
  *   audio loop (drained by a sink); the centrifuge's frame is the world.
- * - `line`: source → belt B → centrifuge → audio loop → belt C → crusher, at the final layout's
- *   positions (notes/M5-M11-plan.md §2.1, from v2 `assembly/build.mjs`);
+ * - `line`: bead source → belt A → packer → belt B → centrifuge → audio loop → belt C → crusher,
+ *   at the final layout's positions (notes/M5-M11-plan.md §2.1, from v2 `assembly/build.mjs`);
+ * - `packer`: the input path on its own (bead source → belt A → packer → a short belt → crate).
  * - `crusher`: v2's crusher page: a source drops garbage onto a short belt C that feeds the crusher.
  * - `line` also runs the read path (M7) and the output path (M8): the scanner reads the loop, belt
  *   D carries its packets to the elevator, which lifts them to the speaker; `scanner`: v2's scanner
@@ -13,21 +14,26 @@
  */
 import { type Factory, createFactory } from './clock.ts';
 import { type Conveyor, createConveyor } from './conveyor.ts';
-import { CF, type Centrifuge, createCentrifuge } from './centrifuge/index.ts';
+import { CF, type Centrifuge, type SpinController, createCentrifuge } from './centrifuge/index.ts';
 import { CR, type Crusher, createCrusher } from './crusher.ts';
 import { type Elevator, createElevator, elevatorGeometry } from './elevator.ts';
-import { type Speaker, createSpeaker } from './speaker.ts';
+import { type Speaker, createSpeaker, speakerGeometry } from './speaker.ts';
+import { type Packer, createPacker } from './packer.ts';
 import { fallTime } from './fall.ts';
 import { type Loop, createLoop, loopGeometry, syncToLoop } from './loop.ts';
 import { SCANNER_OUT, type Scanner, createScanner, scannerReadAt } from './scanner.ts';
 import type { V3 } from './ports.ts';
 import { type Sink, createSink } from './sink.ts';
 import { RATES } from './rates.ts';
-import { type Source, createSource } from './source.ts';
+import { type BeadSource, type Source, createBeadSource, createSource } from './source.ts';
 
 export interface LineGraph {
   factory: Factory;
-  source: Source;
+  /** Belt B's feed: the packet source (the centrifuge's layout), or the input path (the line's). */
+  source: Source | null;
+  beadSource: BeadSource | null;
+  beltA: Conveyor | null;
+  packer: Packer | null;
   beltB: Conveyor;
   centrifuge: Centrifuge;
   audio: Loop;
@@ -53,13 +59,32 @@ export interface LineLayout {
   centrifuge: V3;
   beltB: { origin: V3; length: number; inAt: number };
   audio: { origin: V3; length: number; inAt: number; readAt: number };
+  /** The input path (bead source → belt A → packer); without it a packet source feeds belt B. */
+  input?: InputLayout;
   /** Belt C and the crusher; without them a sink takes the garbage. */
   garbage?: { beltC: { origin: V3; length: number; inAt: number }; crusher: V3 };
   /**
-   * The scanner, belt D, the elevator at belt D's head and the speaker under its spout; with them
-   * the loop's read point snaps to the scanner (`scannerReadAt`) and `audio.readAt` is unused.
+   * The scanner and belt D; with them the loop's read point snaps to the scanner
+   * (`scannerReadAt`) and `audio.readAt` is unused.
    */
-  read?: { scanner: V3; beltD: BeltDLayout; elevator: V3; speaker: V3 };
+  read?: { scanner: V3; beltD: BeltDLayout };
+  /** The output path at belt D's head (needs `read`). */
+  output?: OutputLayout;
+}
+
+/** Belt A from the bead source to the packer (v2 A: axis x, top 232, w 20). */
+export interface InputLayout {
+  beltA: { origin: V3; length: number; inAt: number };
+  packer: V3;
+}
+
+/** The elevator (lift, spout reach) and the speaker under its spout (baffle height). */
+export interface OutputLayout {
+  elevator: V3;
+  lift: number;
+  reach: number;
+  speaker: V3;
+  height: number;
 }
 
 /** Belt D's surface: the preamp's lip (v2 A: top 24). */
@@ -89,18 +114,34 @@ const C_END = CR.drop[1];
 
 /** The elevator's in-feed chute starts this far past belt D's head drum (v2 A: ELEV_Y + 51 = belt D's head). */
 const ELEV_BACK = 51;
-/** The elevator's lift and spout reach on the line (v2 A), and the speaker's baffle height. */
-const ELEV_LIFT = 210;
-const ELEV_REACH = 40;
-const SPEAKER_HEIGHT = 220;
-/** The speaker sits so its ledge's end is 2 past the spout's centre (v2 A: speaker = spout − [62, 0]). */
-const SPEAKER_BACK = 62;
 
-/** The elevator under belt D's head and the speaker under the elevator's spout (world). */
-function outputAt(beltDHead: V3): { elevator: V3; speaker: V3 } {
+/**
+ * The elevator under belt D's head and the speaker under the elevator's spout (world), at v2 A's
+ * lift 210, reach 40 and baffle height 220. The speaker sits so its ledge's end is 2 past the
+ * spout's centre (v2 A: speaker = spout − [62, 0]).
+ */
+function outputAt(beltDHead: V3, o: { lift?: number; reach?: number; height?: number } = {}): OutputLayout {
+  const lift = o.lift ?? 210;
+  const reach = o.reach ?? 40;
+  const height = o.height ?? 220;
   const elevator: V3 = [beltDHead[0], beltDHead[1] - ELEV_BACK, 0];
-  const spout = elevatorGeometry({ lift: ELEV_LIFT, reach: ELEV_REACH }).spout;
-  return { elevator, speaker: [elevator[0] + spout[0] - SPEAKER_BACK, elevator[1] + spout[1], 0] };
+  const spout = elevatorGeometry({ lift, reach }).spout;
+  const back = speakerGeometry({ height }).ledge.x1 - 2;
+  return { elevator, lift, reach, speaker: [elevator[0] + spout[0] - back, elevator[1] + spout[1], 0], height };
+}
+
+/** Belt A's surface and width (v2 A), and its length: its head drum 43 short of the packer's lane axis. */
+const TOP_A = 232;
+const BELT_A_SHORT = 43;
+
+/**
+ * The input path for a packer at `packer` (world): belt A along +x on its gutter line from x =
+ * `originX`, its head drum 43 short of the packer's lane axis (v2 A: clear of the deck), beads
+ * landing at world x `inX` (v2 A: under the dispenser).
+ */
+export function inputAt(packer: V3, originX: number, inX: number): InputLayout {
+  const length = packer[0] - BELT_A_SHORT - originX;
+  return { beltA: { origin: [originX, packer[1], 0], length, inAt: inX - originX }, packer };
 }
 
 /** The final layout (§2.1): world positions, from v2 A's own derivations. */
@@ -113,8 +154,11 @@ export const LINE_LAYOUT: LineLayout = (() => {
   const lengthC = 110;
   const scanner: V3 = [30, out[1] - 38, 0];
   const beltD = beltDUnder(scanner, -175);
+  const packer: V3 = [100, -190, 0];
   return {
     centrifuge: centri,
+    // v2 A: belt A from x −4 to the packer's gutter, beads dropped at the dispenser's x 20.
+    input: inputAt(packer, -4, 20),
     // Head drum and rails stop before the funnel lip (v2 A: CENTRI.y − 49).
     beltB: { origin: beltBOrigin, length: centri[1] - 49 - beltBOrigin[1], inAt: 2 },
     // Tail drum 12 past the spout's hand-on point; parcels land under it. readAt is v2's; with the
@@ -126,7 +170,8 @@ export const LINE_LAYOUT: LineLayout = (() => {
     // The scanner 38 behind the loop's centreline (v2 A: its head over the near margin); belt D
     // from under its lip to the elevator's chute (v2 A: ELEV_Y + 51 = −175); the speaker under the
     // elevator's spout.
-    read: { scanner, beltD, ...outputAt(beltD.origin) },
+    read: { scanner, beltD },
+    output: outputAt(beltD.origin),
   };
 })();
 
@@ -137,7 +182,8 @@ export const CENTRIFUGE_LAYOUT: LineLayout = {
   audio: { origin: [HAND[0] + 12 - 120, HAND[1], 0], length: 120, inAt: 108, readAt: 60 },
 };
 
-export function createLine(layout: LineLayout = LINE_LAYOUT, o: { seed?: number } = {}): LineGraph {
+/** `controller`: the centrifuge's spin model (default: the default controller). */
+export function createLine(layout: LineLayout = LINE_LAYOUT, o: { seed?: number; controller?: SpinController } = {}): LineGraph {
   const factory = createFactory();
   const { clock, ledger } = factory;
   const b = layout.beltB;
@@ -148,20 +194,28 @@ export function createLine(layout: LineLayout = LINE_LAYOUT, o: { seed?: number 
   const loopOpts = { id: 'audio', origin: a.origin, axis: 'x', dir: -1, length: a.length, top: TOP_AUDIO, drum: 15, inAt: a.inAt, readAt: a.readAt } as const;
   const readAt = rd ? scannerReadAt(loopGeometry(loopOpts), a.origin, rd.scanner) : a.readAt;
   const audio = createLoop(clock, { ...loopOpts, readAt });
-  // Packets appear 24 above belt B's in point (inside the hopper the blocks draw there).
-  const source = factory.add(createSource(clock, ledger, { id: 'source', origin: b.origin, from: [0, b.inAt, TOP_B + 24], seed: o.seed ?? 0 }));
+  // Belt B's feed: the input path (it steps first), or a packet source in a hopper 24 above
+  // belt B's in point.
+  const input = layout.input ? inputPath(factory, layout.input, o.seed ?? 0) : null;
+  const source = input ? null : factory.add(createSource(clock, ledger, { id: 'source', origin: b.origin, from: [0, b.inAt, TOP_B + 24], seed: o.seed ?? 0 }));
   const beltB = factory.add(
     createConveyor(clock, { id: 'beltB', origin: b.origin, axis: 'y', dir: 1, length: b.length, top: TOP_B, width: 18, inAt: b.inAt, tip: false, hold: true }),
   );
   // The centrifuge locks onto the cleats at the in point, a fall after the hand-on: a released
   // packet then lands on a cleat (the fall bends to it either way, but barely has to).
   const centrifuge = factory.add(
-    createCentrifuge(clock, { id: 'centrifuge', origin: layout.centrifuge, sync: syncToLoop(audio, add(layout.centrifuge, HAND), CF.spout.v) }),
+    createCentrifuge(clock, {
+      id: 'centrifuge',
+      origin: layout.centrifuge,
+      sync: syncToLoop(audio, add(layout.centrifuge, HAND), CF.spout.v),
+      ...(o.controller && { controller: o.controller }),
+    }),
   );
   // The scanner reads the loop as the loop stood after the last step (it steps first).
   const scanner = rd ? factory.add(createScanner(clock, ledger, { id: 'scanner', origin: rd.scanner, loop: audio })) : null;
   factory.add(audio);
-  factory.link(source, 'out', beltB);
+  if (input) factory.link(input.packer, 'out', beltB);
+  else factory.link(source!, 'out', beltB);
   factory.link(beltB, 'out', centrifuge);
   factory.link(centrifuge, 'out', audio);
   const gb = layout.garbage;
@@ -185,9 +239,9 @@ export function createLine(layout: LineLayout = LINE_LAYOUT, o: { seed?: number 
   if (scanner && rd) {
     beltD = factory.add(createBeltD(factory, rd.beltD, 'hand'));
     factory.link(scanner, 'out', beltD);
-    ({ elevator, speaker } = outputPath(factory, beltD, rd, { prefill: true }));
+    if (layout.output) ({ elevator, speaker } = outputPath(factory, beltD, layout.output, { prefill: true }));
   }
-  return { factory, source, beltB, centrifuge, audio, beltC, crusher, sink, scanner, beltD, elevator, speaker };
+  return { factory, source, beadSource: input?.beadSource ?? null, beltA: input?.beltA ?? null, packer: input?.packer ?? null, beltB, centrifuge, audio, beltC, crusher, sink, scanner, beltD, elevator, speaker };
 }
 
 /**
@@ -211,14 +265,61 @@ function createBeltD(factory: Factory, d: BeltDLayout, end: 'tip' | 'hand') {
 }
 
 /** The output path after belt D (added after it, in step order): belt D → elevator → speaker. */
-function outputPath(factory: Factory, beltD: Conveyor, at: { elevator: V3; speaker: V3 }, o: { prefill: boolean }) {
+function outputPath(factory: Factory, beltD: Conveyor, at: OutputLayout, o: { prefill: boolean }) {
   const { clock, ledger } = factory;
   if (beltD.geometry.tip) throw new Error('outputPath: belt D must hand on at its head (tip: false)');
-  const elevator = factory.add(createElevator(clock, ledger, { id: 'elevator', origin: at.elevator, lift: ELEV_LIFT, reach: ELEV_REACH, prefill: o.prefill }));
-  const speaker = factory.add(createSpeaker(clock, ledger, { id: 'speaker', origin: at.speaker, height: SPEAKER_HEIGHT }));
+  const elevator = factory.add(createElevator(clock, ledger, { id: 'elevator', origin: at.elevator, lift: at.lift, reach: at.reach, prefill: o.prefill }));
+  const speaker = factory.add(createSpeaker(clock, ledger, { id: 'speaker', origin: at.speaker, height: at.height }));
   factory.link(beltD, 'out', elevator);
   factory.link(elevator, 'out', speaker);
   return { elevator, speaker };
+}
+
+/**
+ * The input path (added before belt B, in step order): a bead source in a hopper 24 above belt
+ * A's in point, belt A (holds while the packer's gutter is full), the packer (v2 A's prefill).
+ * The caller links `packer.out` to belt B.
+ */
+function inputPath(factory: Factory, at: InputLayout, seed: number) {
+  const { clock, ledger } = factory;
+  const a = at.beltA;
+  const beadSource = factory.add(createBeadSource(clock, ledger, { id: 'beads', origin: a.origin, from: [a.inAt, 0, TOP_A + 24], seed }));
+  const beltA = factory.add(
+    createConveyor(clock, { id: 'beltA', origin: a.origin, axis: 'x', dir: 1, length: a.length, top: TOP_A, width: 20, inAt: a.inAt, tip: false, hold: true }),
+  );
+  const packer = factory.add(createPacker(clock, ledger, { id: 'packer', origin: at.packer, prefill: true, seed }));
+  factory.link(beadSource, 'out', beltA);
+  factory.link(beltA, 'out', packer);
+  return { beadSource, beltA, packer };
+}
+
+export interface PackerPageGraph {
+  factory: Factory;
+  beadSource: BeadSource;
+  beltA: Conveyor;
+  packer: Packer;
+  beltB: Conveyor;
+  sink: Sink;
+}
+
+/** v2's packer page stands everything on a raised floor (its `floor: 120`), so the stand's shelf reads. */
+export const PACKER_FLOOR = 120;
+
+/**
+ * The input path on its own (v2's packer page, at v2 A's relative layout): the bead source over
+ * belt A, the packer at the origin, a 60-long belt B that tips into a crate on the page's raised
+ * floor (`PACKER_FLOOR`).
+ */
+export function createPackerPage(o: { seed?: number } = {}): PackerPageGraph {
+  const factory = createFactory();
+  const { clock, ledger } = factory;
+  const { beadSource, beltA, packer } = inputPath(factory, inputAt([0, 0, 0], -104, -80), o.seed ?? 0);
+  const bOrigin: V3 = [0, 32, 0];
+  const beltB = factory.add(createConveyor(clock, { id: 'beltB', origin: bOrigin, axis: 'y', dir: 1, length: 60, top: TOP_B, width: 18, inAt: 2 }));
+  const sink = factory.add(createSink(clock, ledger, { id: 'sink', origin: bOrigin, floorZ: PACKER_FLOOR }));
+  factory.link(packer, 'out', beltB);
+  factory.link(beltB, 'out', sink);
+  return { factory, beadSource, beltA, packer, beltB, sink };
 }
 
 export interface ScannerPageGraph {

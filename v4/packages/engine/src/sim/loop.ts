@@ -107,6 +107,8 @@ export interface Quanta {
 }
 
 export interface Loop extends Machine, Located, Receiver, PoseSource {
+  /** Pool sizes the blocks need (read at mount): cleats, bail straps (two per cleat), parcels. */
+  readonly pools: { readonly cleats: number; readonly bails: number; readonly packets: number };
   readonly geometry: LoopGeometry;
   readonly frame: BeltFrame;
   readonly path: Stadium;
@@ -229,6 +231,7 @@ export function createLoop(clock: Readonly<Clock>, o: LoopOptions): Loop {
   const xAxis = D.axis === 'x';
 
   const loop: Loop = {
+    pools: { cleats: D.nCleats, bails: 2 * D.nCleats, packets: D.nCleats + 4 },
     id: o.id,
     origin: o.origin,
     geometry: D,

@@ -35,3 +35,5 @@ export * from './sim/crusher.ts';
 export * from './sim/scanner.ts';
 export * from './sim/elevator.ts';
 export * from './sim/speaker.ts';
+export * from './sim/arm.ts';
+export * from './sim/packer.ts';

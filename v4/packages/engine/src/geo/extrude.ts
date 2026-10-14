@@ -14,7 +14,11 @@ type V2 = readonly [number, number];
 export type Plan =
   | { rect: readonly [number, number]; r?: number; steps?: number }
   | { circle: number; steps?: number }
-  | { polygon: readonly V2[] }
+  /**
+   * `smooth[i]`: vertex i is on a curve (rounded corners drawn as points): its two sides share an
+   * averaged normal there, so no crease line is drawn at it.
+   */
+  | { polygon: readonly V2[]; smooth?: readonly boolean[] }
   /** Angles in degrees, counter-clockwise from +x; r0 = 0 is a pie. */
   | { sector: { r0: number; r1: number; a0: number; a1: number }; steps?: number };
 
@@ -126,9 +130,32 @@ function outlineOf(plan: Plan): Outline {
   }
   if ('polygon' in plan) {
     let p = [...plan.polygon];
+    let sm = plan.smooth ? [...plan.smooth] : null;
     if (p.length < 3) throw new Error('extrude: polygon needs at least 3 points');
-    if (signedArea(p) < 0) p = p.reverse();
+    if (sm && sm.length !== p.length) throw new Error('extrude: polygon smooth flags need one per point');
+    if (signedArea(p) < 0) {
+      p = p.reverse();
+      sm = sm?.reverse() ?? null;
+    }
     const edges = p.map((a, i) => flat(a, p[(i + 1) % p.length]!));
+    if (sm) {
+      const n = edges.length;
+      const at = edges.map((e, i) => {
+        if (!sm![i]) return null;
+        const prev = edges[(i + n - 1) % n]!;
+        const x = prev.nb[0] + e.na[0];
+        const y = prev.nb[1] + e.na[1];
+        const l = Math.hypot(x, y) || 1;
+        return [x / l, y / l] as V2;
+      });
+      edges.forEach((e, i) => {
+        const a = at[i];
+        const b = at[(i + 1) % n];
+        if (a) e.na = a;
+        if (b) e.nb = b;
+        e.smooth = !!(a || b);
+      });
+    }
     const convex = p.every((b, i) => {
       const a = p[(i + p.length - 1) % p.length]!;
       const c = p[(i + 1) % p.length]!;

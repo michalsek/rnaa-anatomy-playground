@@ -84,6 +84,8 @@ export interface TopItem {
 }
 
 export interface Conveyor extends Machine, Located, Receiver, PoseSource {
+  /** Pool sizes the blocks need (read at mount): packets, or beads (a belt full at queue spacing, plus 4). */
+  readonly pools: { readonly packets: number; readonly beads: number };
   readonly geometry: TopGeometry;
   readonly frame: BeltFrame;
   readonly outs: { out: OutPort };
@@ -174,6 +176,7 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
   };
 
   const conveyor: Conveyor = {
+    pools: { packets: Math.ceil(D.L / D.spacing) + 4, beads: Math.ceil(D.L / (2 * halfOf('fluff') + QUEUE_GAP)) + 4 },
     id: o.id,
     origin: o.origin,
     geometry: D,

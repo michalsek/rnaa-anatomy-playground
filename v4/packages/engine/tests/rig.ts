@@ -55,9 +55,10 @@ export function topRig(o: { seed?: number; controller?: SpinController } = {}) {
   return { f, source, beltB, centrifuge, audio, sink };
 }
 
-/** Plain-data snapshot of every machine (determinism checks). */
+/** Plain-data snapshot of every machine's `status()` plus `parts` (determinism checks). */
 export function snapshot(f: Factory, parts: Record<string, unknown>) {
-  return structuredClone({ t: f.clock.t, acc: f.clock.acc, created: f.ledger.created, consumed: f.ledger.consumed, ...parts });
+  const status = Object.fromEntries(f.machines.map((m) => [m.id, m.status()]));
+  return structuredClone({ t: f.clock.t, acc: f.clock.acc, created: f.ledger.created, consumed: f.ledger.consumed, status, ...parts });
 }
 
 /** Print a timeline for the notes (only with V4_TIMELINE=1: the test output stays quiet). */

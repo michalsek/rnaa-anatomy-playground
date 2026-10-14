@@ -3,6 +3,7 @@ import type { Factory } from '../src/sim/clock.ts';
 import { CF, type Centrifuge } from '../src/sim/centrifuge/index.ts';
 import type { TrayState } from '../src/sim/centrifuge/packets.ts';
 import { mod } from '../src/sim/math.ts';
+import { LINE_LAYOUT, createLine } from '../src/sim/graphs.ts';
 import { CONTROLLERS, report, snapshot, topRig } from './rig.ts';
 
 const H = 1 / 120;
@@ -155,91 +156,107 @@ describe.each(CONTROLLERS)('centrifuge between real belts (checkpoint A rig), %s
     expect(z).toBe(100);
   });
 
-  it('§A: no pocket entry while not indexing', () => {
-    const r = rig();
-    let puts = 0;
-    walk(r.f, r.centrifuge, 90, (prev) => {
-      if (held(r.centrifuge.tray.state) > prev.held) {
-        puts++;
-        // Landings come before the controller in a step, so the step started indexing.
-        expect(prev.mode).toBe('index');
-      }
-    });
-    expect(puts).toBeGreaterThan(10);
-  });
+  it('§A: no pocket entry while not indexing', () => checkNoEntry(rig(), 90));
+  it('§A: from spin-up, held only falls, to 0, before the next entry; the tray never turns back', () => checkDrain(rig(), 90));
+  it('§A: held packets ride the tray; released packets move forward only', () => checkRide(rig(), 60));
+});
 
-  it('§A: from spin-up, held only falls, to 0, before the next entry; the tray never turns back', () => {
-    const r = rig();
-    const c = r.centrifuge;
-    let draining = false;
-    let cycles = 0;
-    walk(r.f, c, 90, (prev) => {
-      const now = held(c.tray.state);
-      expect(c.controller.A).toBeGreaterThanOrEqual(prev.A);
-      if (prev.mode === 'index' && c.controller.mode === 'spin') {
-        // The last landing may share the step with the switch.
-        draining = true;
-        return;
-      }
-      if (draining) {
-        expect(now).toBeLessThanOrEqual(prev.held);
-        if (now === 0 && c.controller.mode !== 'spin') {
-          draining = false;
-          cycles++;
-        }
-      } else if (now > prev.held) {
-        expect(prev.held).toBeLessThan(CF.HOLD);
-      }
-      // No entry while draining: an entry means the last drain had reached 0.
-      if (now > prev.held) expect(draining).toBe(false);
-    });
-    expect(cycles).toBeGreaterThanOrEqual(3);
-  });
+interface SectionARig {
+  f: Factory;
+  centrifuge: Centrifuge;
+}
 
-  it('§A: held packets ride the tray; released packets move forward only', () => {
-    const r = rig();
-    const c = r.centrifuge;
-    const lastAngle = new Map<number, number>();
-    let checkedSpin = 0;
-    let checkedRelease = 0;
-    walk(r.f, c, 60, () => {
-      const s = c.tray.state;
-      const A = c.controller.A;
-      const poses: { x: number; y: number; z: number; yaw: number }[] = [];
-      c.poses((_, __, x, y, z, yaw) => poses.push({ x, y, z, yaw }));
-      let i = s.queue.length + s.falling.length;
-      const seen = new Set<number>();
-      for (let k = 0; k < CF.POCKETS; k++) {
-        const it = s.pockets[k];
-        if (!it) continue;
-        const p = poses[i++]!;
-        const want = A + (k + 0.5) * CF.ALPHA;
-        if (c.controller.mode === 'spin') {
-          expect(Math.abs(diff(Math.atan2(p.y, p.x), want))).toBeLessThan(1e-4);
-          expect(Math.abs(diff(p.yaw, want))).toBeLessThan(1e-4);
-          checkedSpin++;
-        }
-        const prev = lastAngle.get(it.id);
-        if (prev !== undefined) expect(diff(want, prev)).toBeGreaterThanOrEqual(-1e-9);
-        lastAngle.set(it.id, want);
-        seen.add(it.id);
-      }
-      for (const rel of s.releasing) {
-        const p = poses[i++]!;
-        const a = Math.atan2(p.y, p.x);
-        const prev = lastAngle.get(rel.item.id);
-        if (prev !== undefined && r.f.clock.t - rel.t0 < CF.TA) {
-          // Forward: never back, and never a whole turn either way.
-          expect(diff(a, prev)).toBeGreaterThanOrEqual(-1e-6);
-          expect(diff(a, prev)).toBeLessThan(0.1);
-          checkedRelease++;
-        }
-        lastAngle.set(rel.item.id, a);
-        seen.add(rel.item.id);
-      }
-      for (const id of lastAngle.keys()) if (!seen.has(id)) lastAngle.delete(id);
-    });
-    expect(checkedSpin).toBeGreaterThan(1000);
-    expect(checkedRelease).toBeGreaterThan(100);
+function checkNoEntry(r: SectionARig, seconds: number) {
+  let puts = 0;
+  walk(r.f, r.centrifuge, seconds, (prev) => {
+    if (held(r.centrifuge.tray.state) > prev.held) {
+      puts++;
+      // Landings come before the controller in a step, so the step started indexing.
+      expect(prev.mode).toBe('index');
+    }
   });
+  expect(puts).toBeGreaterThan(10);
+}
+
+function checkDrain(r: SectionARig, seconds: number) {
+  const c = r.centrifuge;
+  let draining = false;
+  let cycles = 0;
+  walk(r.f, c, seconds, (prev) => {
+    const now = held(c.tray.state);
+    expect(c.controller.A).toBeGreaterThanOrEqual(prev.A);
+    if (prev.mode === 'index' && c.controller.mode === 'spin') {
+      // The last landing may share the step with the switch.
+      draining = true;
+      return;
+    }
+    if (draining) {
+      expect(now).toBeLessThanOrEqual(prev.held);
+      if (now === 0 && c.controller.mode !== 'spin') {
+        draining = false;
+        cycles++;
+      }
+    } else if (now > prev.held) {
+      expect(prev.held).toBeLessThan(CF.HOLD);
+    }
+    // No entry while draining: an entry means the last drain had reached 0.
+    if (now > prev.held) expect(draining).toBe(false);
+  });
+  expect(cycles).toBeGreaterThanOrEqual(3);
+}
+
+function checkRide(r: SectionARig, seconds: number) {
+  const c = r.centrifuge;
+  const lastAngle = new Map<number, number>();
+  let checkedSpin = 0;
+  let checkedRelease = 0;
+  walk(r.f, c, seconds, () => {
+    const s = c.tray.state;
+    const A = c.controller.A;
+    const poses: { x: number; y: number; z: number; yaw: number }[] = [];
+    c.poses((_, __, x, y, z, yaw) => poses.push({ x, y, z, yaw }));
+    let i = s.queue.length + s.falling.length;
+    const seen = new Set<number>();
+    for (let k = 0; k < CF.POCKETS; k++) {
+      const it = s.pockets[k];
+      if (!it) continue;
+      const p = poses[i++]!;
+      const want = A + (k + 0.5) * CF.ALPHA;
+      if (c.controller.mode === 'spin') {
+        expect(Math.abs(diff(Math.atan2(p.y, p.x), want))).toBeLessThan(1e-4);
+        expect(Math.abs(diff(p.yaw, want))).toBeLessThan(1e-4);
+        checkedSpin++;
+      }
+      const prev = lastAngle.get(it.id);
+      if (prev !== undefined) expect(diff(want, prev)).toBeGreaterThanOrEqual(-1e-9);
+      lastAngle.set(it.id, want);
+      seen.add(it.id);
+    }
+    for (const rel of s.releasing) {
+      const p = poses[i++]!;
+      const a = Math.atan2(p.y, p.x);
+      const prev = lastAngle.get(rel.item.id);
+      if (prev !== undefined && r.f.clock.t - rel.t0 < CF.TA) {
+        // Forward: never back, and never a whole turn either way.
+        expect(diff(a, prev)).toBeGreaterThanOrEqual(-1e-6);
+        expect(diff(a, prev)).toBeLessThan(0.1);
+        checkedRelease++;
+      }
+      lastAngle.set(rel.item.id, a);
+      seen.add(rel.item.id);
+    }
+    for (const id of lastAngle.keys()) if (!seen.has(id)) lastAngle.delete(id);
+  });
+  expect(checkedSpin).toBeGreaterThan(1000);
+  expect(checkedRelease).toBeGreaterThan(100);
+}
+
+describe.each(CONTROLLERS)('§A on the line, fed by the packer (bead source → belt A → packer → belt B), %s controller', (_name, controller) => {
+  const rig = () => {
+    const g = createLine(LINE_LAYOUT, { controller: controller() });
+    return { f: g.factory, centrifuge: g.centrifuge };
+  };
+  it('§A: no pocket entry while not indexing', () => checkNoEntry(rig(), 150));
+  it('§A: from spin-up, held only falls, to 0, before the next entry; the tray never turns back', () => checkDrain(rig(), 150));
+  it('§A: held packets ride the tray; released packets move forward only', () => checkRide(rig(), 150));
 });

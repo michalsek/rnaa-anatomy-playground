@@ -70,6 +70,8 @@ export interface CentrifugeOptions {
 }
 
 export interface Centrifuge extends Machine, Located, Receiver, PoseSource {
+  /** Pool sizes the blocks need (read at mount). */
+  readonly pools: { readonly packets: number };
   readonly state: CentrifugeState;
   readonly tray: Tray;
   readonly controller: SpinController;
@@ -109,6 +111,7 @@ export function createCentrifuge(clock: Readonly<Clock>, o: CentrifugeOptions): 
     tray,
   };
   const c: Centrifuge = {
+    pools: { packets: CF.capacity },
     id: o.id,
     origin: o.origin,
     state,

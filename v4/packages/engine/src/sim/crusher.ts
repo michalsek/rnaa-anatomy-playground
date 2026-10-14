@@ -117,6 +117,8 @@ export interface CrusherOptions {
 }
 
 export interface Crusher extends Machine, Located, Receiver, PoseSource {
+  /** Pool sizes the blocks need (read at mount). */
+  readonly pools: typeof CRUSHER_POOLS;
   /** Packets crushed, the bin fill 0..1, the drawer's state. */
   stats(): { count: number; fill: number; bin: BinMode };
   outputs(o: CrusherOutputs): CrusherOutputs;
@@ -147,7 +149,7 @@ const LANE_GAP = 1.9;
  * T_END, plus slack for a sender that doesn't ask), flakes alive (sliding, queued behind the gate
  * through a dump, falling, landing), chips on the pile (the sim keeps the newest).
  */
-export const CRUSHER_POOLS = { packets: 6, flakes: CR.PER * 12, chips: CHIPS_MAX } as const;
+const CRUSHER_POOLS = { packets: 6, flakes: CR.PER * 12, chips: CHIPS_MAX } as const;
 const byDue = (a: { due: number }, b: { due: number }) => a.due - b.due;
 const queueOrder = (a: Flake, b: Flake) => b.y - a.y || a.lane - b.lane;
 
@@ -294,6 +296,7 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
   };
 
   const crusher: Crusher = {
+    pools: CRUSHER_POOLS,
     id: o.id,
     origin: o.origin,
     pilePlan,

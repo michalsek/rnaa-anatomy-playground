@@ -16,11 +16,19 @@ export const wrapPi = (a: number) => a - TAU * Math.floor((a + Math.PI) / TAU);
 /** Wrap a length into [−total/2, total/2) (a signed distance round a loop). */
 export const wrapSym = (x: number, total: number) => x - total * Math.floor(x / total + 0.5);
 
+/** A deterministic stand-in for `Math.random()`: a hash of the integer n into [0, 1). */
+export const hash01 = (n: number) => (Math.imul(n + 1, 2654435761) >>> 0) / 4294967296;
+
 /** Smoothstep on 0..1 (clamped). */
 export const ease = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 /** Smoothstep from a to b (clamped). */
 export const smooth = (a: number, b: number, x: number) => ease((x - a) / (b - a));
 export const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
+/** v2's `smoother` (quintic smootherstep on 0..1, clamped). */
+export const smoother = (x: number) => {
+  const t = clamp01(x);
+  return t * t * t * (t * (t * 6 - 15) + 10);
+};
 
 /** A spring state (position, velocity). */
 export interface Spring {

@@ -43,9 +43,27 @@ export const EL = {
   pitch: 4,
   /** The in port: the chute's mouth (belt D ends ≈ 11 past it). */
   in: [0, 39, 24] as V3,
-  /** A cradle across x; the packet's seat on it in the chain frame (n out, t along). */
+  /** A cradle across x (v2 `wrapCradle`). */
   cradle: { x0: -5.5, x1: 5.5 },
-  seat: { n: 5.9, t: 1.2 },
+  /**
+   * The cradle's five plates in its chain frame: [x0, x1, n0, n1, t0, t1] (n out, t along the
+   * travel); the base plate is the packet's seat.
+   */
+  plates: [
+    { id: 'back', p: [-5.5, 5.5, 0.7, 1.9, 1.2, 10] },
+    { id: 'cheekL', p: [-5.5, -4.7, 1.9, 9, 1.2, 4] },
+    { id: 'base', p: [-5.5, 5.5, 0.7, 11.2, 0, 1.2] },
+    { id: 'cheekR', p: [4.7, 5.5, 1.9, 9, 1.2, 4] },
+    { id: 'lip', p: [-5.5, 5.5, 10, 11.2, 1.2, 3] },
+  ] as const,
+  /** The packet's seat on the cradle: the base plate's middle (n) and top (t). */
+  seat: { n: (0.7 + 11.2) / 2, t: 1.2 },
+  /** The chain band: pitch radius ± half its depth (its outer radius `r + depth / 2`), width across. */
+  chain: { R: 13.5 + 0.7, depth: 1.4, across: 1.2 },
+  /** The boot housing (its +y face is the feed's face, under the flange at 40). */
+  boot: { x0: -7.5, x1: 7.5, y0: -26, y1: 26, z1: 40 },
+  /** The duct's half width (x). */
+  ductHalf: 6,
   /**
    * The in-feed chute (floor at z, mouth to the boot's +y face), the slide's speed and the
    * time constant it eases to it; a packet is inside the boot once its centre is `inside` past

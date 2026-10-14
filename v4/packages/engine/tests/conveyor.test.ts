@@ -32,6 +32,15 @@ describe('factory clock', () => {
     expect(() => f.link(belt, 'out', sink)).toThrow(/step before/);
   });
 
+  it('refuses a second sender that asks into one receiver (canAccept does not reserve)', () => {
+    const f = createFactory();
+    const a = f.add(createSource(f.clock, f.ledger, { id: 'a', origin: [0, 51, 0], from: [0, 52, 48] }));
+    const b = f.add(createSource(f.clock, f.ledger, { id: 'b', origin: [0, 51, 0], from: [0, 52, 48] }));
+    const belt = f.add(createConveyor(f.clock, { id: 'belt', origin: [0, 0, 0], axis: 'x', length: 60, top: 40 }));
+    f.link(a, 'out', belt);
+    expect(() => f.link(b, 'out', belt)).toThrow(/already has a sender that asks/);
+  });
+
   it('refuses a strict receiver behind a sender that does not ask (no hold, or a tipping hold)', () => {
     const f = createFactory();
     const strict = { ...createSink(f.clock, f.ledger, { id: 'strict', origin: [0, 0, 0] }), strict: true };

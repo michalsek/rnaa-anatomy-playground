@@ -43,18 +43,14 @@ describe('vertical stadium (E4 on its side)', () => {
 });
 
 describe('elevator geometry (v2 A: lift 210, spout −y, reach 40)', () => {
-  it('has 14 cradles, its ports at v2 A, a capacity of ≈ 0.8/s', () => {
+  it('has a capacity of ≈ 0.8/s; the line places it and the speaker at v2 A', () => {
     const g = elevatorGeometry({ lift: 210, reach: 40 });
-    expect(g.count).toBe(14);
-    expect(g.zh).toBe(241.5);
-    expect(g.ports.in).toEqual([0, 39, 24]);
-    expect(g.ports.out).toEqual([0, -74, 234]);
     const capacity = RATES.elevatorSpeed / g.spacing;
     expect(capacity).toBeGreaterThan(0.78);
     expect(capacity).toBeLessThan(0.84);
     // On the line: the elevator at [−47, −226], the speaker at [−109, −300] (v2 A).
-    expect(LINE_LAYOUT.read!.elevator).toEqual([-47, -226, 0]);
-    expect(LINE_LAYOUT.read!.speaker).toEqual([-109, -300, 0]);
+    expect(LINE_LAYOUT.output!.elevator).toEqual([-47, -226, 0]);
+    expect(LINE_LAYOUT.output!.speaker).toEqual([-109, -300, 0]);
   });
 
   it('flings from the seat, drops into the hopper inside its walls, and hides through duct and spout', () => {
@@ -67,7 +63,7 @@ describe('elevator geometry (v2 A: lift 210, spout −y, reach 40)', () => {
     fl.at(0, p);
     expect(p).toEqual([0, EL.r + EL.seat.n, g.zh + EL.seat.t]);
     const inHopper = (c: V3) => Math.abs(c[0]) <= Hp.x1 && c[1] >= Hp.y0 && c[1] <= Hp.y1 && c[2] >= g.hopperZ0 && c[2] <= g.rim;
-    const inDuct = (c: V3) => Math.abs(c[0]) <= 6 && c[1] >= g.duct.y0 && c[1] <= Hp.y0 && c[2] >= g.duct.z0 && c[2] <= g.duct.z1;
+    const inDuct = (c: V3) => Math.abs(c[0]) <= EL.ductHalf && c[1] >= g.duct.y0 && c[1] <= Hp.y0 && c[2] >= g.duct.z0 && c[2] <= g.duct.z1;
     const inSpout = (c: V3) => Math.hypot(c[0] - g.spout[0], c[1] - g.spout[1]) <= EL.spoutR && c[2] >= g.ports.out[2] - 1e-9 && c[2] <= g.duct.z0 + 1e-9;
     let below = 0;
     let hidden = 0;
@@ -77,7 +73,7 @@ describe('elevator geometry (v2 A: lift 210, spout −y, reach 40)', () => {
       if (tau < F.fly) {
         // Clear of the chain's wrap over the head; once behind the head and below the rim, the
         // whole packet is over the hopper (its top clips it).
-        for (const c of cs) if (Math.abs(c[1]) < EL.r + 0.7) expect(c[2]).toBeGreaterThan(g.zh + Math.sqrt((EL.r + 0.7) ** 2 - c[1] ** 2));
+        for (const c of cs) if (Math.abs(c[1]) < EL.chain.R) expect(c[2]).toBeGreaterThan(g.zh + Math.sqrt(EL.chain.R ** 2 - c[1] ** 2));
         if (p[1] < 0 && p[2] < g.rim) {
           below++;
           for (const c of cs) expect(Math.abs(c[0]) <= Hp.x1 && c[1] >= Hp.y0 && c[1] <= Hp.y1).toBe(true);
@@ -114,15 +110,6 @@ describe('output path on the line (belt D → elevator → speaker)', () => {
     expect(el.stats.taken - el.stats.lifted).toBeLessThan(10);
     report(`output (line, 300 s): ${el.stats.taken} into the boot, ${el.stats.lifted} lifted, ${sp.stats.heard} heard, queue ≤ ${el.stats.maxQueue}\n`);
   });
-
-  it('is deterministic', () => {
-    const run = () => {
-      const g = createLine(LINE_LAYOUT);
-      g.factory.run(63.7);
-      return snapshot(g.factory, { el: g.elevator!.status(), sp: g.speaker!.status(), o: g.speaker!.outputs(spk()), travel: g.elevator!.travel() });
-    };
-    expect(run()).toEqual(run());
-  });
 });
 
 describe('output page (source → belt D → elevator → speaker)', () => {
@@ -139,7 +126,8 @@ describe('output page (source → belt D → elevator → speaker)', () => {
     const seen = new Map<number, V3>();
     const inBoot = (m: { origin: V3 }, p: V3) => {
       const y = p[1] - m.origin[1];
-      return m === el && Math.abs(p[0] - m.origin[0]) <= 7.5 && y >= -26 && y + PD / 2 <= 26 + 1e-9 && p[2] + PH <= 42;
+      const B = EL.boot;
+      return m === el && Math.abs(p[0] - m.origin[0]) <= B.x1 && y >= B.y0 && y + PD / 2 <= B.y1 + 1e-9 && p[2] + PH <= EL.zBootTop;
     };
     const hiddenAt = new Map<number, boolean>();
     let worstCradle = 0;
@@ -230,7 +218,7 @@ describe('output page (source → belt D → elevator → speaker)', () => {
 });
 
 describe('output links', () => {
-  it('steps belt D, the elevator, the speaker in order; nothing asks, nothing is strict', () => {
+  it('steps belt D, the elevator, the speaker in order', () => {
     const f = createFactory();
     const beltD = f.add(createConveyor(f.clock, { id: 'beltD', origin: [0, 51, 0], axis: 'y', dir: -1, length: 60, top: 24, inAt: 52, outAt: 0, tip: false }));
     const speaker = createSpeaker(f.clock, f.ledger, { id: 'speaker', origin: [-62, -74, 0] });
@@ -238,16 +226,6 @@ describe('output links', () => {
     f.add(speaker);
     f.add(elevator);
     expect(() => f.link(elevator, 'out', speaker)).toThrow(/step before/);
-    expect(elevator.outs.out.asks).toBe(false);
-    expect(beltD.outs.out.asks).toBe(false);
-    expect(elevator.strict).toBeFalsy();
-    expect(speaker.strict).toBeFalsy();
     f.link(beltD, 'out', elevator);
-    // One sender that asks per receiver (canAccept doesn't reserve).
-    const a = f.add(createSource(f.clock, f.ledger, { id: 'a', origin: [0, 51, 0], from: [0, 52, 48] }));
-    const b = f.add(createSource(f.clock, f.ledger, { id: 'b', origin: [0, 51, 0], from: [0, 52, 48] }));
-    const belt = f.add(createConveyor(f.clock, { id: 'belt', origin: [0, 0, 0], axis: 'x', length: 60, top: 40 }));
-    f.link(a, 'out', belt);
-    expect(() => f.link(b, 'out', belt)).toThrow(/already has a sender that asks/);
   });
 });

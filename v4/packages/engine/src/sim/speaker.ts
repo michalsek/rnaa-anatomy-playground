@@ -14,7 +14,7 @@
 import type { Clock, Machine } from './clock.ts';
 import { type Fall, createFall, fallAt } from './fall.ts';
 import { type Item, type Ledger, PACKET_SIZE, type PoseSource } from './items.ts';
-import { smooth } from './math.ts';
+import { hash01, smooth } from './math.ts';
 import type { Located, Receiver, V3 } from './ports.ts';
 
 /** v2 speaker constants (build L11–224), in the local frame; `height` = the baffle's top. */
@@ -99,9 +99,6 @@ export interface Speaker extends Machine, Located, Receiver, PoseSource {
   readonly stats: { readonly heard: number };
   outputs(o: SpeakerOutputs): SpeakerOutputs;
 }
-
-/** v2's random kick, deterministic: a hash of n in [0, 1). */
-const hash01 = (n: number) => (Math.imul(n + 1, 2654435761) >>> 0) / 4294967296;
 
 export function createSpeaker(clock: Readonly<Clock>, ledger: Ledger, o: SpeakerOptions): Speaker {
   const g = speakerGeometry(o);

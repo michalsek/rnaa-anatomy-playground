@@ -44,8 +44,6 @@ const SAMPLES = 4;
 /** `GPUTextureUsage.RENDER_ATTACHMENT`; the literal avoids relying on a host global. */
 const RENDER_ATTACHMENT = 0x10;
 const DEPTH_FORMAT = 'depth24plus';
-/** DEV warning: the triangle budget (M3: target 120k, warn above 150k). */
-const TRIANGLE_WARNING = 150_000;
 /** Placeholder so the line-set table is never empty (draws nothing: last < first). */
 const NO_LINES: LineSetSpec = {
   count: 1, phase: 0, first: 0, last: -1, majorEvery: 0,
@@ -108,6 +106,8 @@ export interface RendererPerf {
   bytesPerFrame: number;
   build: SceneBuild['stats'] | null;
   buildMs: number;
+  /** The size of the texture the last frame drew into (0 × 0 before the first frame). */
+  texture: { width: number; height: number };
 }
 
 const PERF_N = 600;
@@ -300,9 +300,6 @@ export function createRenderer(options: RendererOptions): Renderer {
           `${build.vertexCount} vertices, ${s.parts} parts, ${s.pools} pools, ${s.instances} instances, ` +
           `${s.marks} marks (${s.contacts} contact segments), ${s.sprites} sprites, ${build.batches.length} batches`,
       );
-      if (s.triangles > TRIANGLE_WARNING) {
-        log(`[engine] warning: ${s.triangles} triangles is over the ${TRIANGLE_WARNING} budget`);
-      }
     }
   };
 
@@ -376,6 +373,7 @@ export function createRenderer(options: RendererOptions): Renderer {
     target: [...state.target],
   });
 
+  const lastTexture = { width: 0, height: 0 };
   const frame = () => {
     const f0 = DEV ? now() : 0;
     if (!scene || scene.version !== store.version) rebuild();
@@ -384,6 +382,8 @@ export function createRenderer(options: RendererOptions): Renderer {
     // asking for its texture would raise a validation error, so skip until it has some.
     if (context.canvas.width === 0 || context.canvas.height === 0) return;
     const texture = context.getCurrentTexture();
+    lastTexture.width = texture.width;
+    lastTexture.height = texture.height;
     // The canvas may have been resized by the host since the last layout; trust the texture.
     if (texture.width !== viewport.width || texture.height !== viewport.height) {
       resize(texture.width, texture.height, viewport.dpr);
@@ -491,6 +491,7 @@ export function createRenderer(options: RendererOptions): Renderer {
         bytesPerFrame: perfFrames ? uploaded / perfFrames : 0,
         build: scene?.build.stats ?? null,
         buildMs,
+        texture: { ...lastTexture },
       };
     },
     destroy() {

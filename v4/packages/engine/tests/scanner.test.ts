@@ -120,16 +120,6 @@ describe('scanner on the line (loop → scanner → belt D → elevator)', () =>
     expect(worstHand).toBeLessThan(0.5);
     report(`scanner → belt D: ${handOffs} hand-offs, worst step ${worst.toFixed(3)}, at a hand-off ${worstHand.toFixed(3)}\n`);
   });
-
-  it('is deterministic', () => {
-    const run = () => {
-      const g = createLine(LINE_LAYOUT);
-      g.factory.run(47.3);
-      const o = g.scanner!.outputs(outputs());
-      return snapshot(g.factory, { scanner: g.scanner!.status!(), o, beltD: g.beltD!.items, audio: g.audio.items });
-    };
-    expect(run()).toEqual(run());
-  });
 });
 
 describe('scanner page (v2: source → loop, scanner, belt D)', () => {

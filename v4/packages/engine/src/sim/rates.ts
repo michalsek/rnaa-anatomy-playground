@@ -9,6 +9,18 @@ export const RATES = {
    * the first after `delay`. The v2 factory's packer makes ≈ 0.27 packets/s instead (M9).
    */
   source: { every: 0.9, delay: 0.5, burst: 8, rest: 5 },
+  /**
+   * The bead source standing in for the phone's dispenser (M10 builds the real one): v2
+   * `phone.mjs`'s timing, from a hash instead of `Math.random`: a burst of 2–3 beads every
+   * 2.6–3.6 s, one released per 0.9–1.25 s (≈ 0.8 beads/s, so ≈ 0.27 packets/s), the first burst at
+   * 1.0 s, the first release at 1.8 s.
+   */
+  beads: { burstEvery: [2.6, 3.6], burst: [2, 3], release: [0.9, 1.25], firstBurst: 1.0, firstRelease: 1.8 },
+  /**
+   * The packer's tempo: everything speeds up by `per` for each bead waiting beyond the three
+   * pockets, up to `max` (v2: 0.25 per bead, up to +0.8).
+   */
+  packerTempo: { per: 0.25, max: 0.8 },
   /** Packets the centrifuge holds before it spins up (v2: 6; 10 fills the tray). */
   HOLD: 6,
   /** The audio loop's speed, world units/s (v2: 32; one cleat gap = one render quantum). */

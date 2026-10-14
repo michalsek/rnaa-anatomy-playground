@@ -34,6 +34,22 @@ describe('extrude', () => {
     for (const [a, b] of edges) expect(a[2]).toBeCloseTo(b[2]!, 6); // only the rims
   });
 
+  it('a polygon with smooth corner points has vertical creases only at its sharp points', () => {
+    // A square with one corner rounded by 5 points (the arc's ends meet the sides tangentially).
+    const arc = [0, 1, 2, 3, 4].map((k) => [3 + Math.cos((k * Math.PI) / 8), 3 + Math.sin((k * Math.PI) / 8)] as const);
+    const polygon = [[0, 0], [4, 0], ...arc, [0, 4]] as const;
+    const smooth = polygon.map((_, i) => i >= 2 && i <= 6);
+    const vertical = (plan: Parameters<typeof extrude>[0]['plan']) => {
+      const mesh = extrude({ plan, height: 1 });
+      const topo = buildTopology(mesh);
+      expect(boundaries(topo)).toBe(0);
+      return creases(mesh, topo).filter(([a, b]) => Math.abs(a[2]! - b[2]!) > 1e-6).length / 2;
+    };
+    // Sharp points: the three square corners.
+    expect(vertical({ polygon })).toBe(polygon.length);
+    expect(vertical({ polygon, smooth })).toBe(polygon.length - 5);
+  });
+
   it('a sector is closed and manifold', () => {
     for (const r0 of [0, 1.5]) {
       const mesh = extrude({ plan: { sector: { r0, r1: 3, a0: 20, a1: 250 } }, height: 1 });
