@@ -19,22 +19,26 @@ export interface TourStep {
   max: number;
 }
 
-/** First events come late at 1× (the centrifuge fills for ≈ 24 s): the waits run faster. */
+/**
+ * First events come late at 1× (the centrifuge fills for ≈ 24 s): the waits run faster (4× is the
+ * clock's ceiling at 60 fps: 8 steps a frame). M11: shorter holds and higher speeds (≈ 76 → ≈ 50 s
+ * with the shorter reveal).
+ */
 export const TOUR: readonly TourStep[] = [
   // The phone opens; then the assembled factory.
-  { view: 'fit', until: () => !revealCtl.playing && revealCtl.t >= revealCtl.plan.end, min: 2, max: 30 },
-  { view: 'phone', min: 3, max: 3 },
-  { view: 'dispenser-A', speed: 2, until: (g) => g.beltA.items.length > 0, min: 3, max: 10 },
-  { view: 'A-packer', speed: 2, until: (g) => g.packer.stats.packets >= 1, min: 4, max: 14 },
-  { view: 'packer-B', min: 3, max: 3 },
-  { view: 'B-centrifuge', speed: 3, until: (g) => g.centrifuge.controller.mode === 'spin', min: 3, max: 30 },
-  { view: 'centrifuge-audio', speed: 1, until: (g) => g.audio.items.length > 0, min: 3, max: 15 },
-  { view: 'scanner-read', min: 3, max: 3 },
-  { view: 'audio-C', speed: 2, until: (g) => g.audio.stats.dropped >= 1, min: 3, max: 20 },
-  { view: 'C-crusher', speed: 2, until: (g) => g.crusher.stats().count >= 1, min: 3, max: 15 },
-  { view: 'scanner-D', min: 3, max: 3 },
-  { view: 'D-elevator', min: 3, max: 3 },
-  { view: 'elevator-speaker', until: (g) => g.speaker.stats.heard >= 1, min: 4, max: 10 },
+  { view: 'fit', until: () => !revealCtl.playing && revealCtl.t >= revealCtl.plan.end, min: 1, max: 30 },
+  { view: 'phone', min: 2.5, max: 2.5 },
+  { view: 'dispenser-A', speed: 3, until: (g) => g.beltA.items.length > 0, min: 2, max: 6 },
+  { view: 'A-packer', speed: 3, until: (g) => g.packer.stats.packets >= 1, min: 3, max: 10 },
+  { view: 'packer-B', speed: 2, min: 2, max: 2 },
+  { view: 'B-centrifuge', speed: 4, until: (g) => g.centrifuge.controller.mode === 'spin', min: 2, max: 20 },
+  { view: 'centrifuge-audio', speed: 1.5, until: (g) => g.audio.items.length > 0, min: 2.5, max: 10 },
+  { view: 'scanner-read', speed: 1.5, min: 2.5, max: 2.5 },
+  { view: 'audio-C', speed: 4, until: (g) => g.audio.stats.dropped >= 1, min: 2, max: 12 },
+  { view: 'C-crusher', speed: 3, until: (g) => g.crusher.stats().count >= 1, min: 2, max: 10 },
+  { view: 'scanner-D', speed: 1.5, min: 2.5, max: 2.5 },
+  { view: 'D-elevator', speed: 1.5, min: 2.5, max: 2.5 },
+  { view: 'elevator-speaker', speed: 1.5, until: (g) => g.speaker.stats.heard >= 1, min: 3, max: 8 },
   { view: 'fit', min: 3, max: 3 },
 ];
 

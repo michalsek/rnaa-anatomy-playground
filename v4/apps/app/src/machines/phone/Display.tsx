@@ -4,11 +4,11 @@
  * band through the logo), and the screen art on it: the React logo (three orbit rings, flat
  * half-annuli, on a `logo` group that turns; the nucleus on its own group that pulses on a tap),
  * the island with its camera dot, the home indicator, and the four meter cells (E2: they fill
- * mint per scanner read). Cut (M10 plan §1): text, the ripple, the playback controls, the glare.
+ * mint per scanner read; behind `SCREEN_METER`, off since M11). Cut (M10 plan §1): text, the ripple, the playback controls, the glare.
  */
 import { Box, Extrude, Group, Lathe, Marks } from '../../blocks/blocks.tsx';
 import { type V3, closed } from '../kit.ts';
-import { METER_CELLS, displayDims, roundedRing } from './dims.ts';
+import { METER_CELLS, SCREEN_METER, displayDims, roundedRing } from './dims.ts';
 
 /** Half an elliptic ring (θ from a0 to a0 + π) as one polygon, turned by `deg` (art units). */
 function halfRing(rx: number, ry: number, band: number, deg: number, a0: number, n = 36) {
@@ -74,21 +74,23 @@ export function Display({ reveal = false }: { reveal?: boolean }) {
         <Box id="island" material="screen" outline="mid" size={[31 * s, 9 * s, 0.3]} center={[0, top + 9.5 * s, 0.15]} r={4.5 * s} />
         <Lathe id="camera" material="screen" outline="mid" profile={[[0, 0], [1.7 * s, 0], [1.7 * s, 0.4], [0, 0.4]]} position={[9.6 * s, top + 9.5 * s, 0]} steps={20} />
         <Box id="home" material="pkData" outline="lo" size={[44 * s, 2.2 * s, 0.25]} center={[0, SD / 2 - 6.1 * s, 0.125]} r={1.1 * s} />
-        <Group id="meter" position={[0, LY + 64 * s, 0]}>
-          {Array.from({ length: METER_CELLS }, (_, i) => (
-            <Box
-              key={i}
-              id={`cell${i}`}
-              material="graphite"
-              outline="mid"
-              live
-              blend={{ material: 'pkAudio', outline: 'hi' }}
-              size={[5.2 * s, 3.6 * s, 0.3]}
-              center={[(17 + i * 6.2 + 2.6) * s, 0, 0.15]}
-              r={0.8 * s}
-            />
-          ))}
-        </Group>
+        {SCREEN_METER && (
+          <Group id="meter" position={[0, LY + 64 * s, 0]}>
+            {Array.from({ length: METER_CELLS }, (_, i) => (
+              <Box
+                key={i}
+                id={`cell${i}`}
+                material="graphite"
+                outline="mid"
+                live
+                blend={{ material: 'pkAudio', outline: 'hi' }}
+                size={[5.2 * s, 3.6 * s, 0.3]}
+                center={[(17 + i * 6.2 + 2.6) * s, 0, 0.15]}
+                r={0.8 * s}
+              />
+            ))}
+          </Group>
+        )}
       </Group>
     </Group>
   );

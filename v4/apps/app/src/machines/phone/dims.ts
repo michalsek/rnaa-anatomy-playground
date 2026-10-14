@@ -92,3 +92,5 @@ export function dispenserDims(p: PhoneLayout = PHONE) {
 
 /** The screen meter's cells (v2 controls: 4 cells under the logo, right of the play button). */
 export const METER_CELLS = 4;
+/** Whether the screen shows the meter (M11, the user: hidden; the code stays). */
+export const SCREEN_METER = false;

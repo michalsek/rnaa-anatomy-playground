@@ -2,8 +2,8 @@
  * The phone (v2 `parts/screen/phone.mjs`): the low case the factory stands in, the display
  * floating above it with the React screen, and the fluff dispenser hanging under the display. Its
  * sim is the dispenser (`Dispenser` in the scene's graph); one frame hook turns the valve's rotor,
- * writes the beads, turns the logo (pulsing the nucleus on a tap) and fills the screen's meter
- * cells with the scanner's reads (one cell per read, four per audio packet).
+ * writes the beads, turns the logo (pulsing the nucleus on a tap) and, with `SCREEN_METER`, fills
+ * the screen's meter cells with the scanner's reads (one cell per read, four per audio packet).
  */
 import { type Dispenser as DispenserSim, type DispenserOutputs, type GroupHandle, type PartHandle, type PoolHandle, dispenserOutputs } from '@anatomy/engine';
 import { useState } from 'react';
@@ -12,7 +12,7 @@ import type { LiveHandle } from '../../factory/live.ts';
 import { Case } from './Case.tsx';
 import { Display } from './Display.tsx';
 import { Dispenser } from './Dispenser.tsx';
-import { METER_CELLS } from './dims.ts';
+import { METER_CELLS, SCREEN_METER } from './dims.ts';
 
 declare const __DEV__: boolean;
 
@@ -65,9 +65,11 @@ function Frame({ live, sim, reads }: PhoneProps) {
     rotor().spin('y', -w.o.rotor);
     logo().spin('z', w.o.spin);
     nucleus().set({ scale: 1 + 0.2 * Math.exp(-w.o.tap / 0.18) });
-    const k = reads() % METER_CELLS;
-    const cs = cells();
-    for (let i = 0; i < cs.length; i++) cs[i]!.mix = i < k ? 1 : 0;
+    if (SCREEN_METER) {
+      const k = reads() % METER_CELLS;
+      const cs = cells();
+      for (let i = 0; i < cs.length; i++) cs[i]!.mix = i < k ? 1 : 0;
+    }
     w.beads(d, beads());
   });
   return null;

@@ -35,9 +35,10 @@ function Main() {
   const [paused, setPaused] = useState(false);
   const [debug, setDebug] = useState<DebugMode>(0);
   const [chrome, setChrome] = useState(true);
-  // Full-bleed (no card frame or texts) and the 16:9 recording frame: overlays and camera pads
-  // only; the stage always fills the window.
-  const [bare, setBare] = useState(false);
+  // Full-bleed (no card frame or texts; the default since M11, the card is opt-in through its
+  // chip) and the 16:9 recording frame: overlays and camera pads only; the stage always fills
+  // the window.
+  const [bare, setBare] = useState(true);
   const [rec, setRec] = useState(false);
   // The chip bar's width (landscape: the card's top row keeps clear of it).
   const [chipsWidth, setChipsWidth] = useState(0);
