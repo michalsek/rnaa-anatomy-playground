@@ -32,7 +32,10 @@ export function createReadout<S>(
   const set = (s: S, now: number) => {
     const nextPhase = phaseOf(s);
     const nextText = format(s);
-    if (nextText === text && nextPhase === phase) return;
+    if (nextText === text && nextPhase === phase) {
+      last = now; // unchanged: check again only after minMs, so idle frames don't re-format
+      return;
+    }
     text = nextText;
     phase = nextPhase;
     last = now;

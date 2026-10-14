@@ -25,10 +25,8 @@ describe('centrifuge sim', () => {
     const a = createCentrifugeSim();
     const b = createCentrifugeSim();
     const ra = lcg(7);
-    const rb = lcg(7);
     for (let t = 0; t < 45; ) {
       const dt = (1 / 30) * ra();
-      expect(rb()).toBeCloseTo(dt * 30, 12);
       a.advance(dt);
       b.advance(dt);
       t += dt;
@@ -91,7 +89,8 @@ describe('centrifuge sim', () => {
 
     // Hold the receiver for 6 s from the first "in sync": nothing lost, nothing released.
     const b = createCentrifugeSim();
-    while (!b.state.inSync) b.run(H);
+    for (let t = 0; !b.state.inSync && t < 30; t += H) b.run(H);
+    expect(b.state.inSync).toBe(true);
     b.canRelease = () => false;
     const h0 = held(b.state);
     const belt0 = b.state.belt.length;

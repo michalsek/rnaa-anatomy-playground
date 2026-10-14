@@ -48,8 +48,7 @@ interface Falling extends Item {
 interface Releasing extends Item {
   k: number;
   t0: number;
-  a0: number;
-  /** a0 + wrapπ(GATE − a0): the gate angle just ahead of the pocket. */
+  /** a0 + wrapπ(GATE − a0), a0 = the pocket angle at release: the gate angle just ahead of the pocket. */
   aGate: number;
 }
 interface OnBelt extends Item {
@@ -83,7 +82,6 @@ export interface SimState {
   prevP: number | null;
   emptyFor: number;
   lastLanding: number;
-  lastDrop: number;
   releaseAt: number;
   motorA: number;
   lamp: Spring;
@@ -92,8 +90,6 @@ export interface SimState {
   log: { t: number; phase: PhaseWord }[];
   pockets: (Item | null)[];
   reserved: boolean[];
-  /** Pockets in the order they were filled. */
-  order: number[];
   feed: FeedItem[];
   queue: Queued[];
   falling: Falling[];
@@ -259,7 +255,6 @@ function initial(seed: number): SimState {
     prevP: null,
     emptyFor: 0,
     lastLanding: -10,
-    lastDrop: -10,
     releaseAt: -10,
     motorA: 0,
     lamp: { x: 0, v: 0 },
@@ -268,7 +263,6 @@ function initial(seed: number): SimState {
     log: [{ t: 0, phase: 'idle' }],
     pockets: Array.from({ length: POCKETS }, () => null),
     reserved: Array.from({ length: POCKETS }, () => false),
-    order: [],
     feed: [],
     queue: [],
     falling: [],
@@ -301,13 +295,10 @@ export function createCentrifugeSim(o: { seed?: number } = {}): CentrifugeSim {
     if (s.mode !== 'index') throw new Error(`centrifuge: put into pocket ${k} in mode ${s.mode}`);
     if (k < 0 || s.pockets[k]) throw new Error(`centrifuge: pocket ${k} is not free`);
     s.pockets[k] = item;
-    s.order.push(k);
   };
   const take = (k: number): Item => {
     const item = s.pockets[k]!;
     s.pockets[k] = null;
-    const i = s.order.indexOf(k);
-    if (i >= 0) s.order.splice(i, 1);
     return item;
   };
   const fallOf = (q: Queued) => Math.sqrt((2 * Math.max(0, q.z - Z_POCKET)) / GRAVITY);
@@ -446,13 +437,12 @@ export function createCentrifugeSim(o: { seed?: number } = {}): CentrifugeSim {
     const q = s.queue.shift()!;
     s.reserved[k] = true;
     s.falling.push({ id: q.id, kind: q.kind, k, t0: s.t, z0: q.z, fall: Math.sqrt((2 * (q.z - Z_POCKET)) / GRAVITY) });
-    s.lastDrop = s.t;
   }
 
   function release(k: number) {
     const item = take(k);
     const a0 = pocketAngle(k);
-    s.releasing.push({ id: item.id, kind: item.kind, k, t0: s.t, a0, aGate: a0 + wrapPi(GATE - a0) });
+    s.releasing.push({ id: item.id, kind: item.kind, k, t0: s.t, aGate: a0 + wrapPi(GATE - a0) });
     s.releaseAt = s.t;
   }
 
@@ -472,13 +462,14 @@ export function createCentrifugeSim(o: { seed?: number } = {}): CentrifugeSim {
     const period = BELT.period;
 
     // The queue: arcs end in the mouth, parcels fall to rest (head at the throat, the next on top).
-    s.queue.forEach((q, i) => {
+    for (let i = 0; i < s.queue.length; i++) {
+      const q = s.queue[i]!;
       if (q.arc && now - q.arc.t0 >= q.arc.dur) {
         q.arc = null;
         q.vz = 0;
         q.ready = now + 0.1;
       }
-      if (q.arc) return;
+      if (q.arc) continue;
       const rest = restZ(i);
       if (q.z > rest + 1e-3) {
         q.vz -= GRAVITY * dt;
@@ -491,7 +482,7 @@ export function createCentrifugeSim(o: { seed?: number } = {}): CentrifugeSim {
         q.z = rest;
         q.vz = 0;
       }
-    });
+    }
 
     // Falling packets land in their pocket.
     for (let i = s.falling.length - 1; i >= 0; i--) {

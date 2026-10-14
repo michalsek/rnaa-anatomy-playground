@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import tgpu from 'typegpu';
-import { fillFragment, fillVertex, haloCoverage, marksFragment, marksVertex, spriteFragment, spriteVertex } from '../src/render/shaders.ts';
+import { fillFragment, fillVertex, marksFragment, marksVertex, spriteFragment, spriteVertex } from '../src/render/shaders.ts';
 
 describe('shaders', () => {
   it('resolve the fill and marks stages to WGSL', () => {
