@@ -302,6 +302,7 @@ export function createRenderer(options: RendererOptions): Renderer {
       viewport: d.vec2f(viewport.width, viewport.height),
       // Line widths scale with zoom like a pinch-zoomed SVG: 1 CSS px at the fit zoom.
       pxPerCss: (viewport.dpr * camera.zoom) / refZoom,
+      pxPerUnit: viewport.dpr * camera.zoom,
       debug,
       paper: d.vec4f(...clear),
     });

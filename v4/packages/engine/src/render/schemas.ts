@@ -99,6 +99,8 @@ export const Frame = d.struct({
   viewport: d.vec2f,
   /** Device px per CSS px of line width: dpr × zoom / fit zoom. */
   pxPerCss: d.f32,
+  /** Device px per world unit. */
+  pxPerUnit: d.f32,
   /** 0 = normal, 1 = line classes on paper, 2 = lines off. */
   debug: d.u32,
   /** The page paper (debug view 1 fills every face with it). */

@@ -21,7 +21,6 @@ import {
   edgeCoverage,
   edgeMode,
   flagBit,
-  overlap,
   tickCoverage,
   wire,
 } from '../shading/lines.ts';
@@ -112,6 +111,7 @@ export const fillVertex = tgpu.vertexFn({
     extraB: d.interpolate('flat', d.vec3f),
     extraModes: d.interpolate('flat', d.vec2u),
     tangent: d.vec3f,
+    facingGrad: d.interpolate('flat', d.f32),
   },
 })((input) => {
   'use gpu';
@@ -210,6 +210,21 @@ export const fillVertex = tgpu.vertexFn({
   }
   const visible = (inst.flags & INSTANCE.visible) !== 0;
   const tangent = std.select(std.select(v0.tangent, v1.tangent, is1), v2.tangent, is2);
+  // Screen gradient of the facing (n · toward) over this triangle, for the smooth-contour
+  // distance. Computed here rather than with dpdx/dpdy: near a fan apex (a lathe pole) the
+  // triangles are thinner than a pixel and the derivatives extrapolate wildly.
+  const f0 = std.dot(std.normalize(std.mul(inst.model, d.vec4f(v0.normal, 0)).xyz), frame.toward);
+  const f1 = std.dot(std.normalize(std.mul(inst.model, d.vec4f(v1.normal, 0)).xyz), frame.toward);
+  const f2 = std.dot(std.normalize(std.mul(inst.model, d.vec4f(v2.normal, 0)).xyz), frame.toward);
+  const g1 = std.sub(p1, p0);
+  const g2 = std.sub(p2, p0);
+  const det = g1.x * g2.y - g1.y * g2.x;
+  const facingGrad = std.length(
+    std.div(
+      std.add(std.mul(d.vec2f(g2.y, -g2.x), f1 - f0), std.mul(d.vec2f(-g1.y, g1.x), f2 - f0)),
+      std.select(det, d.f32(1e-6), std.abs(det) < 1e-6),
+    ),
+  );
 
   return {
     clip: std.select(HIDDEN, clip, visible),
@@ -225,6 +240,7 @@ export const fillVertex = tgpu.vertexFn({
     extraB,
     extraModes,
     tangent: std.mul(inst.model, d.vec4f(tangent, 0)).xyz,
+    facingGrad,
   };
 });
 
@@ -260,6 +276,7 @@ export const fillFragment = tgpu.fragmentFn({
     extraB: d.interpolate('flat', d.vec3f),
     extraModes: d.interpolate('flat', d.vec2u),
     tangent: d.vec3f,
+    facingGrad: d.interpolate('flat', d.f32),
   },
   out: d.vec4f,
 })((input) => {
@@ -286,7 +303,6 @@ export const fillFragment = tgpu.fragmentFn({
   const fwS = std.fwidth(sAcross);
   const tw = std.dot(across, d.vec2f(TUBE_LIGHT[0], TUBE_LIGHT[1]));
   const facing = std.dot(n, frame.toward);
-  const facingGrad = std.length(d.vec2f(std.dpdx(facing), std.dpdy(facing)));
   const set = (input.flags >>> FLAG.lineSetShift) & FLAG.lineSetMask;
   const lineSet = L.$.lineSets[std.select(set, d.u32(1), set === 0) - 1];
   const x = input.uv.x * lineSet.count - lineSet.phase;
@@ -388,7 +404,8 @@ export const fillFragment = tgpu.fragmentFn({
       ),
     );
     // Smooth contour: on curved faces the limb is where n · toward reaches 0, which can fall
-    // inside a facet (or on a sliver), so measure it per pixel from the interpolated normal.
+    // inside a facet (or on a sliver), so measure it per pixel from the interpolated normal
+    // and the triangle's facing gradient (from the vertex stage).
     // Near a limb the facing grows like √distance (the surface turns away quadratically), so
     // the first-order estimate f / |∇f| is twice the true distance: halve it. Where the facing
     // instead crosses zero linearly (a saddle, e.g. the inner side of a tube bend), the
@@ -396,7 +413,7 @@ export const fillFragment = tgpu.fragmentFn({
     // the faint streaks noted in M1.
     let contour = d.f32(0);
     if (flagBit(input.flags, FLAG.smoothBit) === 1) {
-      contour = edgeCoverage((0.5 * facing) / std.max(facingGrad, 1e-6), line.x, line.y);
+      contour = edgeCoverage((0.5 * facing) / std.max(input.facingGrad, 1e-6), line.x, line.y);
     }
 
     color = std.mix(
@@ -481,17 +498,30 @@ export const marksVertex = tgpu.vertexFn({
   const perp = d.vec2f(-dir.y, dir.x);
   const k = cornerOf(input.vid);
   const atEnd = k.x > 0.5;
-  const end = std.select(pa, pb, atEnd);
-  const pos = std.add(
-    std.add(end, std.mul(dir, std.select(-extent, extent, atEnd))),
-    std.mul(perp, k.y * extent),
-  );
-  const z = std.select(ca.z / ca.w, cb.z / cb.w, atEnd);
+  // The corner's offset from its end point, in device px (y down) and in world units.
+  const off = std.add(std.mul(dir, std.select(-extent, extent, atEnd)), std.mul(perp, k.y * extent));
+  const dx = off.x / frame.pxPerUnit;
+  const dy = -off.y / frame.pxPerUnit;
 
   // Facing: marks with a normal hide on back sides and fade toward the limbs.
   const hasNormal = std.dot(mark.normal, mark.normal) > 0;
   const wn = std.mul(inst.model, d.vec4f(mark.normal, 0)).xyz;
-  const facing = std.dot(std.div(wn, std.max(std.length(wn), 1e-9)), frame.toward);
+  const nw = std.div(wn, std.max(std.length(wn), 1e-9));
+  const facing = std.dot(nw, frame.toward);
+
+  // The corner sits on the mark's tangent plane, so the quad keeps the depth of the surface
+  // it is drawn on (a flat quad would sink into a sloped face). Without a normal (contact
+  // lines), the quad is pulled toward the viewer by its own size instead.
+  let lift = std.max(dx * dx + dy * dy, 0);
+  lift = std.sqrt(lift);
+  if (hasNormal && std.abs(facing) > 0.1) {
+    lift = -(std.dot(nw, frame.right) * dx + std.dot(nw, frame.up) * dy) / facing;
+  }
+  const endWorld = std.select(wa, wb, atEnd);
+  const corner = std.add(
+    std.add(endWorld, std.add(std.mul(frame.right, dx), std.mul(frame.up, dy))),
+    std.mul(frame.toward, lift),
+  );
   let alpha = std.select(line.y, dotOpacity(mark.slot), isDot);
   if (hasNormal) {
     alpha = alpha * std.select(std.smoothstep(mark.fade.x, mark.fade.y, facing), 0, facing <= 0);
@@ -503,12 +533,7 @@ export const marksVertex = tgpu.vertexFn({
   if (frame.debug === 1) {
     color = d.vec4f(CYAN);
   }
-  const clip = d.vec4f(
-    (pos.x / frame.viewport.x) * 2 - 1,
-    1 - (pos.y / frame.viewport.y) * 2,
-    z,
-    1,
-  );
+  const clip = std.mul(frame.viewProjection, d.vec4f(corner, 1));
   return {
     clip: std.select(HIDDEN, clip, visible),
     pa,
@@ -538,14 +563,15 @@ export const marksFragment = tgpu.fragmentFn({
   if (input.kind === MARK.dot) {
     cover = std.clamp(input.size + 0.5 - std.length(std.sub(p, input.pa)), 0, 1);
   } else {
-    // Butt ends, box-filtered along the segment too, so chained segments join without beads.
+    // Round caps (distance to the segment), so chained segments along a curve (contact lines)
+    // join without wedges.
     const span = std.sub(input.pb, input.pa);
     const len = std.length(span);
     const dir = std.div(span, std.max(len, 1e-6));
     const q = std.sub(p, input.pa);
-    const along = std.dot(q, dir);
-    const across = std.abs(q.x * dir.y - q.y * dir.x);
-    cover = tickCoverage(across, input.size, d.f32(1)) * overlap(along, d.f32(0), len);
+    const along = std.clamp(std.dot(q, dir), 0, len);
+    const dist = std.length(std.sub(q, std.mul(dir, along)));
+    cover = tickCoverage(dist, input.size, d.f32(1));
   }
   return d.vec4f(input.color.xyz, cover * input.alpha);
 });

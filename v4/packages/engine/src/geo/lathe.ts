@@ -83,6 +83,9 @@ function refineProfile(profile: readonly ProfilePoint[], subdivisions: number) {
     if (k[2] && prev && next) return [(next[0] - prev[0]) / 2, (next[1] - prev[1]) / 2];
     const other = outgoing ? next : prev;
     if (!other) return [0, 0];
+    // A pole (on the axis) closes a curved span smoothly: leave it perpendicular to the axis,
+    // or the surface ends in a small cone tip.
+    if (Math.abs(k[0]) < 1e-9) return [outgoing ? other[0] - k[0] : k[0] - other[0], 0];
     return outgoing ? [other[0] - k[0], other[1] - k[1]] : [k[0] - other[0], k[1] - other[1]];
   };
   const knots: Knot[] = [P[0]!];
