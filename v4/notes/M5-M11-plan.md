@@ -117,7 +117,7 @@ Build: v2 Ph L11–304. Live: L333–447. v2 A sets `walls:"low"`, `controls:tru
 |---|---|---|---|---|
 | case | back plate, low band (4 Box sides + 4 Extrude sector corners), buttons, USB-C recess, floor plates, 6 standoffs, 4 bosses | Extrude; Box | F plate outlines, D | – |
 | display | OLED slab (graphite), cover glass, dark screen gradient, React logo (3 ellipses + nucleus), glow, island, home indicator, ripple, 4-cell meter | Extrude rounded rect; gradient tone; **Marks ellipses on a `moves` group**; sprites | – | logo turns slowly; glow; ripple on a burst; cells fill per scanner read |
-| dispenser | plate, drop pipe, collars, glass sight tube with beads, star-valve with sight glass and rotor, gearmotor, knurled nozzle (React) | Lathe; Box | U knurl | bursts of 2–3 beads every 2.6–3.6 s; one released per 0.9–1.25 s; the bead falls 260 onto belt A |
+| dispenser | plate, drop pipe, collars, glass sight tube with beads, star-valve with sight glass and rotor, gearmotor, knurled nozzle (React) | Lathe; Box | U knurl | bursts of 2–3 beads every 2.6–3.6 s; one released per 0.9–1.25 s; the bead falls 205 onto belt A (corrected in M10; was 260) |
 
 ### 1.9 New engine and blocks capabilities
 
@@ -150,7 +150,7 @@ Not needed:
 |---|---|---|---|
 | case | [0,0,0] | w 360, d 760, r 44, depth 280, lip 36 | – |
 | display | shift [−80,−24], underside z 560 | – | – |
-| dispenser | [20,−190] under the display | – | `fluff` [20,−190,493], v [0,0,−150] |
+| dispenser | [20,−190] under the display | – | `fluff` [20,−190,437] (corrected in M10; was 493), v = the fall's own speed |
 | beltA | [−4,−190,0] | axis x, dir +1, L 61, top 232, w 20, inAt 24 | out [57,−190,232] |
 | packer | [100,−190,0] | `stand:false` | in [72,−190,232]; out [100,−163,200] |
 | beltB | [100,−158,0] | axis y, dir +1, L 177.8, top 192, inAt 2, `hold` | out at the funnel |
@@ -457,3 +457,6 @@ Not needed:
 - **Triangle budget (§2.4), user, 2026-10-14:** ignore the 200k triangle limit, and don't cut detail or add LOD/instancing pre-emptively.
   - Keep reporting triangles, cold build and fps per milestone.
   - Only if fps starts dropping: run an agent that finds where the problem lives (profile first), then report to the user, who decides what to do.
+- **Full-bleed (user, 2026-10-14):** eventually the card frame and text chrome go away, so the canvas animation fills the whole screen.
+  - M10 adds a `bare` mode (`__v4.setBare`, a chip) that is off by default, and uses it for the recordings.
+  - M11 decides whether bare becomes the default.

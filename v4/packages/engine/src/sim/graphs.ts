@@ -18,7 +18,7 @@ import { CF, type Centrifuge, type SpinController, createCentrifuge } from './ce
 import { CR, type Crusher, createCrusher } from './crusher.ts';
 import { type Elevator, createElevator, elevatorGeometry } from './elevator.ts';
 import { type Speaker, createSpeaker, speakerGeometry } from './speaker.ts';
-import { type Packer, createPacker } from './packer.ts';
+import { PK, type Packer, createPacker } from './packer.ts';
 import { fallTime } from './fall.ts';
 import { type Loop, createLoop, loopGeometry, syncToLoop } from './loop.ts';
 import { SCANNER_OUT, type Scanner, createScanner, scannerReadAt } from './scanner.ts';
@@ -130,13 +130,16 @@ function outputAt(beltDHead: V3, o: { lift?: number; reach?: number; height?: nu
   return { elevator, lift, reach, speaker: [elevator[0] + spout[0] - back, elevator[1] + spout[1], 0], height };
 }
 
-/** Belt A's surface and width (v2 A), and its length: its head drum 43 short of the packer's lane axis. */
-const TOP_A = 232;
-const BELT_A_SHORT = 43;
+/**
+ * Belt A's surface and its head (v2 A: top 232): beads are handed on over its head drum, at the
+ * packer's in port (the transfer plate's start), so the belt ends there.
+ */
+const TOP_A = PK.ports.in[2];
+const BELT_A_SHORT = -PK.ports.in[0];
 
 /**
  * The input path for a packer at `packer` (world): belt A along +x on its gutter line from x =
- * `originX`, its head drum 43 short of the packer's lane axis (v2 A: clear of the deck), beads
+ * `originX`, its head drum at the packer's in port (43 short of the lane axis; v2 A: clear of the deck), beads
  * landing at world x `inX` (v2 A: under the dispenser).
  */
 export function inputAt(packer: V3, originX: number, inX: number): InputLayout {
@@ -146,15 +149,15 @@ export function inputAt(packer: V3, originX: number, inX: number): InputLayout {
 
 /** The final layout (§2.1): world positions, from v2 A's own derivations. */
 export const LINE_LAYOUT: LineLayout = (() => {
+  const packer: V3 = [100, -190, 0];
   const centri: V3 = [100, 120 - 51.2, 0];
-  const beltBOrigin: V3 = [100, -190 + 32, 0];
+  const beltBOrigin: V3 = [packer[0], packer[1] + PK.beltB, 0];
   const out = add(centri, HAND);
   const audioHead = -90;
   const beltC: V3 = [audioHead, out[1] - 22, 0];
   const lengthC = 110;
   const scanner: V3 = [30, out[1] - 38, 0];
   const beltD = beltDUnder(scanner, -175);
-  const packer: V3 = [100, -190, 0];
   return {
     centrifuge: centri,
     // v2 A: belt A from x −4 to the packer's gutter, beads dropped at the dispenser's x 20.
@@ -314,7 +317,7 @@ export function createPackerPage(o: { seed?: number } = {}): PackerPageGraph {
   const factory = createFactory();
   const { clock, ledger } = factory;
   const { beadSource, beltA, packer } = inputPath(factory, inputAt([0, 0, 0], -104, -80), o.seed ?? 0);
-  const bOrigin: V3 = [0, 32, 0];
+  const bOrigin: V3 = [0, PK.beltB, 0];
   const beltB = factory.add(createConveyor(clock, { id: 'beltB', origin: bOrigin, axis: 'y', dir: 1, length: 60, top: TOP_B, width: 18, inAt: 2 }));
   const sink = factory.add(createSink(clock, ledger, { id: 'sink', origin: bOrigin, floorZ: PACKER_FLOOR }));
   factory.link(packer, 'out', beltB);

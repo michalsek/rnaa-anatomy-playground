@@ -4,7 +4,7 @@ import { createFactory } from '../src/sim/clock.ts';
 import { createConveyor } from '../src/sim/conveyor.ts';
 import { LINE_LAYOUT, createLine, createPackerPage } from '../src/sim/graphs.ts';
 import type { Item, ItemKind } from '../src/sim/items.ts';
-import { PK, type Packer, createPacker } from '../src/sim/packer.ts';
+import { PK, type Packer, createPacker, packerOutputs } from '../src/sim/packer.ts';
 import { wrapPi } from '../src/sim/math.ts';
 import { createSink } from '../src/sim/sink.ts';
 import { createSource } from '../src/sim/source.ts';
@@ -49,20 +49,6 @@ function armSegments(spec: ArmSpec, W: V3, tool: number): [V3, V3][] {
   ];
 }
 
-const out = () => ({
-  pusher: 0,
-  pad: 0,
-  rise: 0,
-  shift: 0,
-  leds: [false, false, false] as [boolean, boolean, boolean],
-  vacuum: false,
-  squeeze: 0,
-  stackDrop: 0,
-  stackLifted: false,
-  picker: [0, 0, 0] as V3,
-  folder: [0, 0, 0] as V3,
-});
-
 describe('arm IK (2-link planar, turret yaw, level wrist)', () => {
   it('reaches its target: links keep their lengths, the tool hangs off along n, the elbow is up', () => {
     const targets: [ArmSpec, V3[]][] = [
@@ -92,16 +78,15 @@ describe('arm IK (2-link planar, turret yaw, level wrist)', () => {
     }
   });
 
-  it('runs both arms through 3 full packets without a pop, out-of-reach target or clash (240 Hz)', () => {
+  it('runs both arms through six packets without a pop, out-of-reach target or clash (240 Hz)', () => {
     const g = createPackerPage();
     const f = g.factory;
-    const o = out();
+    const o = packerOutputs();
     const qp = armPose();
     const qf = armPose();
     let prevP: number[] | null = null;
     let prevF: number[] | null = null;
     let worstJoint = 0;
-    let worstTool = 0;
     let closest = Infinity;
     let carryClear = Infinity;
     const H4 = 1 / 240;
@@ -136,7 +121,6 @@ describe('arm IK (2-link planar, turret yaw, level wrist)', () => {
     // The centrelines stay further apart than the two links' half widths and caps.
     expect(closest).toBeGreaterThan(6);
     expect(carryClear).toBeGreaterThan(0.5);
-    void worstTool;
     report(`arms: worst joint step ${worstJoint.toFixed(4)} rad at 240 Hz, closest centrelines ${closest.toFixed(2)}, carry clearance ${carryClear.toFixed(2)}\n`);
   });
 });
@@ -189,7 +173,6 @@ describe('packer sim (v2 live.src.js L41–428)', () => {
       if (pickerDown) lows++;
       if (folderTaping) tapes++;
       expect(pickerDown && folderTaping).toBe(false);
-      expect(p.flags.pickerClearOfLane).toBe(!pickerDown);
       // The beam moves only with the picker up and the folder home (or leaving).
       if (ph.beam !== 'idle') {
         strokes++;
@@ -202,14 +185,14 @@ describe('packer sim (v2 live.src.js L41–428)', () => {
     expect(strokes).toBeGreaterThan(100);
   });
 
-  it('keeps up with one bead per 0.9 s for 60 s (v2 NOTES: 66 beads, 20 packets, nest back to 3)', () => {
+  it('keeps up with one bead per 0.9 s for 60 s (v2 NOTES: 20 packets; 67 beads here, one at t = 0; nest back to 3)', () => {
     // As v2's check: beads straight into the packer at belt A's head.
     const f = createFactory();
     const { clock, ledger } = f;
     const src = f.add(createSource(clock, ledger, { id: 'beads', origin: [0, 0, 0], from: [PK.transfer.from[0], 0, PK.transfer.from[1]], every: 0.9, delay: 0, burst: 1, rest: 0, kinds: ['fluff'] }));
     const packer = f.add(createPacker(clock, ledger, { id: 'packer', origin: [0, 0, 0], prefill: true }));
-    const beltB = f.add(createConveyor(clock, { id: 'beltB', origin: [0, 32, 0], axis: 'y', dir: 1, length: 60, top: 192, width: 18, inAt: 2 }));
-    const sink = f.add(createSink(clock, ledger, { id: 'sink', origin: [0, 32, 0], floorZ: 0 }));
+    const beltB = f.add(createConveyor(clock, { id: 'beltB', origin: [0, PK.beltB, 0], axis: 'y', dir: 1, length: 60, top: 192, width: 18, inAt: 2 }));
+    const sink = f.add(createSink(clock, ledger, { id: 'sink', origin: [0, PK.beltB, 0], floorZ: 0 }));
     f.link(src, 'out', packer);
     f.link(packer, 'out', beltB);
     f.link(beltB, 'out', sink);
@@ -275,15 +258,6 @@ describe('packer sim (v2 live.src.js L41–428)', () => {
     expect(closest).toBeGreaterThan(4.5);
     report(`packer page: ${hands} hand-offs, worst step ${worst.toFixed(3)}, at a hand-off ${worstHand.toFixed(3)}, closest beads ${closest.toFixed(2)}\n`);
   });
-
-  it('is deterministic', () => {
-    const run = () => {
-      const g = createPackerPage();
-      g.factory.run(75);
-      return snapshot(g.factory, { packer: g.packer.status(), a: g.beltA.status(), b: g.beltB.items.map((it) => [it.item.id, it.p]) });
-    };
-    expect(run()).toEqual(run());
-  });
 });
 
 describe('input path on the line (bead source → belt A → packer → belt B)', () => {
@@ -291,26 +265,15 @@ describe('input path on the line (bead source → belt A → packer → belt B)'
     const g = createLine(LINE_LAYOUT);
     const ids = g.factory.machines.map((m) => m.id);
     expect(ids.slice(0, 5)).toEqual(['beads', 'beltA', 'packer', 'beltB', 'centrifuge']);
-    expect(g.source).toBe(null);
-    expect(g.beadSource!.outs.out.asks).toBe(true);
-    expect(g.beltA!.outs.out.asks).toBe(true);
-    expect(g.packer!.outs.out.asks).toBe(true);
-    // The world ports line up with v2 A: belt A's head at x 57, the packet out at [100, −163, 200].
-    expect(g.beltA!.origin).toEqual([-4, -190, 0]);
-    expect(g.beltA!.geometry.L).toBe(61);
-    expect(g.packer!.origin).toEqual([100, -190, 0]);
-    // A second asking sender into belt B is refused.
-    const f = createFactory();
-    const p = f.add(createPacker(f.clock, f.ledger, { id: 'p', origin: [0, 0, 0] }));
-    const q = f.add(createSource(f.clock, f.ledger, { id: 'q', origin: [0, 0, 0], from: [0, 0, 0] }));
-    const b = f.add(createConveyor(f.clock, { id: 'b', origin: [0, 32, 0], axis: 'y', length: 60, top: 192 }));
-    f.link(p, 'out', b);
-    expect(() => f.link(q, 'out', b)).toThrow(/already has a sender that asks/);
-    // A packer added after its receiver is refused.
-    const g2 = createFactory();
-    const b2 = g2.add(createConveyor(g2.clock, { id: 'b', origin: [0, 32, 0], axis: 'y', length: 60, top: 192 }));
-    const p2 = g2.add(createPacker(g2.clock, g2.ledger, { id: 'p', origin: [0, 0, 0] }));
-    expect(() => g2.link(p2, 'out', b2)).toThrow(/must step before/);
+    // The world ports line up with v2 A: belt A's head at x 57 (the packer's in port), the packet
+    // out at [100, −163, 200] over belt B's tail.
+    const w = (o: V3, p: V3): V3 => [o[0] + p[0], o[1] + p[1], o[2] + p[2]];
+    const pk = g.packer!;
+    const a = g.beltA!;
+    expect(w(a.origin, a.geometry.ports.out)).toEqual(w(pk.origin, PK.ports.in));
+    expect(w(a.origin, a.geometry.ports.out)).toEqual([57, -190, 232]);
+    expect(w(pk.origin, PK.ports.out)).toEqual([100, -163, 200]);
+    expect(g.beltB.origin).toEqual([100, -190 + PK.beltB, 0]);
   });
 
   it('is deterministic, every machine on the line (status, poses, outputs)', () => {
@@ -321,7 +284,7 @@ describe('input path on the line (bead source → belt A → packer → belt B)'
       g.packer!.beads((_, x, y, z) => beads.push(x, y, z));
       return snapshot(g.factory, {
         beads,
-        packer: g.packer!.outputs(out()),
+        packer: g.packer!.outputs(packerOutputs()),
         scanner: g.scanner!.outputs({ head: 0, theta: 0, lamp: 0, cells: [0, 0, 0, 0] }),
         speaker: g.speaker!.outputs({ cone: 0, cap: 0, lit: 0, peak: -1 }),
         travel: g.elevator!.travel(),

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { LINE_LAYOUT, createLine, createScannerPage } from '../src/sim/graphs.ts';
 import { PACKET_SIZE } from '../src/sim/items.ts';
 import { SC, type ScannerOutputs } from '../src/sim/scanner.ts';
-import { report, snapshot } from './rig.ts';
+import { report } from './rig.ts';
 
 const H = 1 / 120;
 const outputs = (): ScannerOutputs => ({ head: 0, theta: 0, lamp: 0, cells: [0, 0, 0, 0] });

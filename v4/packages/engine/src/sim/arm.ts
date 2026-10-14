@@ -47,7 +47,7 @@ export function armPose(): ArmPose {
   return { yaw: 0, a1: 0, a2: 0, reach: 0, clamped: false, dir: [1, 0, 0], n: [0, 1, 0], E: [0, 0, 0], Wp: [0, 0, 0], W: [0, 0, 0] };
 }
 
-/** Reach margin below L1 + L2 (v2: 0.05). */
+/** Reach margin below L1 + L2 and above |L1 − L2| (v2: 0.05). */
 const MARGIN = 0.05;
 
 /** Solve for the tool point W (writes and returns `out`). */
@@ -56,12 +56,15 @@ export function solveArm(spec: ArmSpec, wx: number, wy: number, wz: number, out:
   const dx = wx - S[0];
   const dy = wy - S[1];
   const flat = Math.hypot(dx, dy);
+  // Inside the offset circle the plane can't pass `off` beside the target: r is floored (clamped).
+  const inside = flat * flat - spec.off * spec.off < 1e-6;
   const r = Math.sqrt(Math.max(1e-6, flat * flat - spec.off * spec.off));
   const side = spec.side;
   const yaw = Math.atan2(dy, dx) - side * Math.atan2(spec.off, r);
   const h = wz - S[2];
   const full = Math.hypot(r, h);
-  const D = Math.min(spec.L1 + spec.L2 - MARGIN, full);
+  // Reach between the folded and the stretched arm (with a margin either side).
+  const D = Math.max(Math.abs(spec.L1 - spec.L2) + MARGIN, Math.min(spec.L1 + spec.L2 - MARGIN, full));
   const phi = Math.atan2(h, r);
   const cb = (spec.L1 * spec.L1 + D * D - spec.L2 * spec.L2) / (2 * spec.L1 * D);
   const beta = Math.acos(Math.max(-1, Math.min(1, cb)));
@@ -71,7 +74,7 @@ export function solveArm(spec: ArmSpec, wx: number, wy: number, wz: number, out:
   out.yaw = yaw;
   out.a1 = a1;
   out.reach = full;
-  out.clamped = full > D + 1e-9;
+  out.clamped = inside || Math.abs(full - D) > 1e-9;
   out.dir[0] = c;
   out.dir[1] = s;
   out.dir[2] = 0;

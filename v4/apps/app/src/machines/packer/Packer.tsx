@@ -57,6 +57,8 @@ const LAMPS = [...LED_IDS, `picker.${ARM_GROUPS[4]}.${VACUUM_LAMP}`, CAB_LAMP];
 const { w: CW, d: CD, wall: WALL, flap: FLAP } = CARTON;
 const ZT = (c: CartonView) => c.z + c.H - FLAP;
 
+declare const __DEV__: boolean;
+
 /** Set an arm's five groups from its pose. */
 function poseArm(gs: readonly GroupHandle[], q: ArmPose) {
   gs[0]!.spin('z', q.yaw);
@@ -76,34 +78,46 @@ function Frame({ live, sim }: PackerProps) {
   const plate = useNode<GroupHandle>('plate');
   const beadPool = useNode<PoolHandle>('beads');
   const packets = usePacketPoses('packets', sim);
-  // The writers, made once per mount (no closure per frame).
+  // The writers, made once per mount (no closure per frame, no array per carton).
   const [w] = useState(() => {
     const o: PackerOutputs = packerOutputs();
     const qp = armPose();
     const qf = armPose();
-    let cp: readonly PoolHandle[] = [];
+    // The pools this frame (set in `write`); counts written so far.
+    let floor: PoolHandle, wx: PoolHandle, wy: PoolHandle, minor: PoolHandle, major: PoolHandle, tape: PoolHandle;
+    let st: PoolHandle, bp: PoolHandle;
+    let nCarton = 0;
     let nTape = 0;
-    let st: PoolHandle | null = null;
+    let nStack = 0;
+    let nBead = 0;
     let lifted = false;
     let drop = 0;
-    let bp: PoolHandle | null = null;
-    const carton = (i: number, c: CartonView) => {
-      const [floor, wx, wy, minor, major, tape] = cp as [PoolHandle, PoolHandle, PoolHandle, PoolHandle, PoolHandle, PoolHandle];
+    const warned = new Set<string>();
+    /** A sim that outgrows a pool costs a missing part, not the frame (one DEV warning per pool). */
+    const over = (what: string) => {
+      if (__DEV__ && !warned.has(what)) {
+        warned.add(what);
+        console.warn(`[pool] packer ${what}: more than the pool holds; skipped`);
+      }
+    };
+    const wall = (pool: PoolHandle, a: number, x: number, y: number, z: number, k: number, h: number) => {
+      pool.pose(a, x, y, z);
+      pool.style(a, k);
+      pool.scale(a, 1, 1, h);
+    };
+    const carton = (_i: number, c: CartonView) => {
+      // Two instances per carton in the wall and flap pools (capacity 2 × cartons).
+      if (nCarton >= floor.capacity) return over('cartons');
+      const i = nCarton++;
       const k = packetStyle(c.kind);
       const h = Math.max(0.05, c.H - FLAP);
       const zt = ZT(c);
       floor.pose(i, c.x, c.y, c.z);
       floor.style(i, k);
-      for (const [pool, a, x, y] of [
-        [wx, 2 * i, c.x - (CW - WALL) / 2, c.y],
-        [wx, 2 * i + 1, c.x + (CW - WALL) / 2, c.y],
-        [wy, 2 * i, c.x, c.y - (CD - WALL) / 2],
-        [wy, 2 * i + 1, c.x, c.y + (CD - WALL) / 2],
-      ] as const) {
-        pool.pose(a, x, y, c.z);
-        pool.style(a, k);
-        pool.scale(a, 1, 1, h);
-      }
+      wall(wx, 2 * i, c.x - (CW - WALL) / 2, c.y, c.z, k, h);
+      wall(wx, 2 * i + 1, c.x + (CW - WALL) / 2, c.y, c.z, k, h);
+      wall(wy, 2 * i, c.x, c.y - (CD - WALL) / 2, c.z, k, h);
+      wall(wy, 2 * i + 1, c.x, c.y + (CD - WALL) / 2, c.z, k, h);
       // Flaps on their hinges: yaw turns the flap's x inward, pitch −angle lifts it.
       minor.pose(2 * i, c.x - CW / 2, c.y, zt, 0, -c.flaps[0]!, 0);
       minor.pose(2 * i + 1, c.x + CW / 2, c.y, zt, Math.PI, -c.flaps[1]!, 0);
@@ -114,35 +128,58 @@ function Frame({ live, sim }: PackerProps) {
         major.style(2 * i + j, k);
       }
       if (c.tape > 0.001) {
+        if (nTape >= tape.capacity) return over('tape');
         const t = nTape++;
         tape.pose(t, c.x + CW / 2, c.y, c.z + c.H);
         tape.scale(t, CW * c.tape, 1, 1);
       }
     };
-    const stack = (i: number, kind: ItemKind) => {
-      st!.pose(i, PK.magazine.x, PK.magazine.y, PK.magazine.z + i + (lifted ? 1 : drop));
-      st!.style(i, packetStyle(kind));
+    const stack = (_i: number, kind: ItemKind) => {
+      if (nStack >= st.capacity) return over('stack');
+      const i = nStack++;
+      st.pose(i, PK.magazine.x, PK.magazine.y, PK.magazine.z + i + (lifted ? 1 : drop));
+      st.style(i, packetStyle(kind));
     };
-    const bead = (i: number, x: number, y: number, z: number) => bp!.pose(i, x, y, z);
+    const bead = (_i: number, x: number, y: number, z: number) => {
+      if (nBead >= bp.capacity) return over('beads');
+      bp.pose(nBead++, x, y, z);
+    };
+    const clamped = (arm: string) => {
+      if (__DEV__ && !warned.has(arm)) {
+        warned.add(arm);
+        console.warn(`[packer] ${arm} target out of reach (clamped)`);
+      }
+    };
     return {
       o,
       write(pk: PackerSim, cps: readonly PoolHandle[], lps: readonly PoolHandle[], beads: PoolHandle) {
         pk.outputs(o);
-        cp = cps;
+        floor = cps[0]!;
+        wx = cps[1]!;
+        wy = cps[2]!;
+        minor = cps[3]!;
+        major = cps[4]!;
+        tape = cps[5]!;
+        nCarton = 0;
         nTape = 0;
-        const n = pk.cartons(carton);
-        cps[0]!.count = n;
-        for (let j = 1; j < 5; j++) cps[j]!.count = 2 * n;
-        cps[5]!.count = nTape;
-        const [stk, fingers, padRod, pusherRod] = lps as [PoolHandle, PoolHandle, PoolHandle, PoolHandle];
-        st = stk;
+        pk.cartons(carton);
+        floor.count = nCarton;
+        for (let j = 1; j < 5; j++) cps[j]!.count = 2 * nCarton;
+        tape.count = nTape;
+        st = lps[0]!;
+        const fingers = lps[1]!;
+        const padRod = lps[2]!;
+        const pusherRod = lps[3]!;
         lifted = o.stackLifted;
         drop = o.stackDrop;
-        stk.count = pk.stack(stack);
+        nStack = 0;
+        pk.stack(stack);
+        st.count = nStack;
         // Beam fingers rise out of the bed's slot (hidden inside it at rest).
         let f = 0;
-        for (const y0 of PK.lane.stations) {
-          const y = y0 - 4.6 + o.shift;
+        const stations = PK.lane.stations;
+        for (let s = 0; s < stations.length; s++) {
+          const y = stations[s]! - 4.6 + o.shift;
           if (y > PK.lane.y1 - 1.4) continue;
           fingers.pose(f++, PK.lane.x, y, PK.lane.z - 3 * (1 - o.rise));
         }
@@ -154,9 +191,11 @@ function Frame({ live, sim }: PackerProps) {
         pusherRod.scale(0, 1, 1, Math.max(0.05, o.pusher - 0.6 - PK.pusher.glandY));
         pusherRod.count = 1;
         bp = beads;
-        beads.count = pk.beads(bead);
-        solveArm(PK.picker.arm, o.picker[0], o.picker[1], o.picker[2], qp);
-        solveArm(PK.folder.arm, o.folder[0], o.folder[1], o.folder[2], qf);
+        nBead = 0;
+        pk.beads(bead);
+        beads.count = nBead;
+        if (solveArm(PK.picker.arm, o.picker[0], o.picker[1], o.picker[2], qp).clamped) clamped('picker');
+        if (solveArm(PK.folder.arm, o.folder[0], o.folder[1], o.folder[2], qf).clamped) clamped('folder');
       },
       qp,
       qf,

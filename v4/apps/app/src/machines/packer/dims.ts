@@ -69,8 +69,15 @@ export function standAt(floor: number) {
   return { legs: [[73, -147], [127, -147], [73, -107], [127, -107]] as const, floor, legTop, lowZ, highZ, shelfZ: lowZ + 4, tall: highZ - lowZ > 30 };
 }
 
-/** Gutter (plan): x 74.6..92 at y −118, floor top 228; pockets (the far one first). */
-export const GT = { x0: 74.6, x1: 92, y: -118, z: 228, pockets: [88.8, 84, 79.2] as const };
+/** Gutter (plan, from the sim's `PK.gutter`): x 74.6..92 at y −118, floor top 228; pockets (the far one first). */
+const toPlanX = (x: number) => x + 100;
+export const GT = {
+  x0: toPlanX(PK.gutter.x0),
+  x1: toPlanX(PK.gutter.x1),
+  y: PK.gutter.y - 118,
+  z: PK.gutter.z,
+  pockets: PK.gutter.pockets.map(toPlanX),
+};
 
 /** A pedestal: plan base, yoke height, foot, column and turret radii. */
 export interface PedestalSpec {
@@ -80,10 +87,15 @@ export interface PedestalSpec {
   col: number;
   tr: number;
 }
-export const PEDESTALS: Record<'picker' | 'folder', PedestalSpec> = {
-  picker: { base: [78, -103.5], yokeZ: 224.5, foot: 5.4, col: 2.9, tr: 4.6 },
-  folder: { base: [121, -99.5], yokeZ: 206, foot: 5.4, col: 2.9, tr: 4.6 },
-};
+/** The pedestals stand under the arms' shoulders (the sim's `PK.*.arm`: S, yokeZ, yokeR). */
+const pedestal = (arm: (typeof PK)['picker' | 'folder']['arm']): PedestalSpec => ({
+  base: [toPlanX(arm.S[0]), arm.S[1] - 118],
+  yokeZ: arm.yokeZ,
+  foot: 5.4,
+  col: 2.9,
+  tr: arm.yokeR,
+});
+export const PEDESTALS: Record<'picker' | 'folder', PedestalSpec> = { picker: pedestal(PK.picker.arm), folder: pedestal(PK.folder.arm) };
 
 /** v2 `stadium(len, r)`: a slot from p = 0 to len with round ends (in the link's (a, v) plane). */
 export function stadium(len: number, r: number, steps = 10): { polygon: [number, number][]; smooth: boolean[] } {

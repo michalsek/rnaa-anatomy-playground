@@ -25,32 +25,38 @@
  */
 import { type ArmSpec } from './arm.ts';
 import type { Clock, Machine } from './clock.ts';
-import type { Item, ItemKind, Ledger, PoseSource } from './items.ts';
+import { type Item, type ItemKind, type Ledger, PACKET_SIZE, type PoseSource, sizeOf } from './items.ts';
 import { clamp01, smoother } from './math.ts';
 import { type Located, type OutPort, type Receiver, type V3, createOut } from './ports.ts';
 import { RATES } from './rates.ts';
 
 /** The three stations along the lane (y), S0 erect, S1 fill, S2 fold + tape. */
 const ST = [-6, 5, 16] as const;
+/** The walking beam's stroke (the station pitch). */
+const PITCH = 11;
 const LANE_Z = 200;
-/** Carton: length (x), depth (y), wall and flap thickness, the open flap angle, the closed height. */
-const CW = 10;
-const CD = 8;
+/**
+ * Carton: length (x), depth (y) and closed height are the packet's (taped, it becomes one: the
+ * swap must not pop), wall and flap thickness, the open flap angle.
+ */
+const CW = PACKET_SIZE.w;
+const CD = PACKET_SIZE.d;
+const CH = PACKET_SIZE.h;
 const WALL = 0.5;
 const FLAP = 0.4;
 const OPEN = 1.95;
-const CH = 7;
 /** Carton top when erected. */
 const TOP = LANE_Z + CH;
-/** Bead radius (v2: 2.4, one radius everywhere). */
-const BEAD = 2.4;
+/** The erector's pad clears the major flaps' arc this far above the carton top (then they swing). */
+const FLAP_ARC = 3.9;
+/** Bead radius (half the fluff item's size: one radius everywhere). */
+const BEAD = sizeOf('fluff').w / 2;
+/** The transfer plate's start: over belt A's head drum, where beads are handed on (local x, z). */
+const FROM = [-43, 232] as const;
 
 /** v2 packer constants in the local frame (plan − [100, −118, 0]). */
 export const PK = {
-  deck: { x0: -30, x1: 30, y0: -32, y1: 14, z: 176, top: 182, tab: { TX: -12, TY: 20.5, RX: 12, RY: 24.5 } },
-  /** Stand legs (plan [73|127, −147|−107]). */
-  legs: [[-27, -29], [27, -29], [-27, 11], [27, 11]] as const,
-  lane: { x: 0, x0: -7, x1: 7, y0: -22, y1: 22.7, z: LANE_Z, stations: ST, pitch: 11, slot: [-13.6, 22] as const },
+  lane: { x: 0, x0: -7, x1: 7, y0: -22, y1: 22.7, z: LANE_Z, stations: ST, pitch: PITCH },
   /** Gutter (x0..x1 at y, floor top z); pockets fill from the far end (+x); the queue slots behind. */
   gutter: { x0: -25.4, x1: -8, y: 0, z: 228, pockets: [-11.2, -16, -20.8] as const, pitch: 4.8 },
   /**
@@ -58,10 +64,10 @@ export const PK = {
    * 0.34 s): its lip over the drum and its end at the gutter's floor; beads roll over it easing to
    * `speed`.
    */
-  transfer: { lip: [-41, 231.6] as const, end: [-25.4, 228] as const, from: [-43, 232] as const, speed: 30, tau: 0.3 },
+  transfer: { lip: [-41, 231.6] as const, end: [-25.4, 228] as const, from: FROM, speed: 30, tau: 0.3 },
   /** Beads the packer takes in at once (three pockets, two waiting). */
   nestMax: 5,
-  magazine: { x: 0, y: -17, z: LANE_Z, hopperZ: 207, gateZ: 201.4 },
+  magazine: { x: 0, y: -17, z: LANE_Z, hopperZ: 207 },
   pusher: { glandY: -22.4, z: 200.5, rest: -21, out: -10 },
   erector: { x: 0, y: ST[0], glandZ: 213.3, rest: 212 },
   carton: { w: CW, d: CD, wall: WALL, flap: FLAP, open: OPEN, h: CH, top: TOP },
@@ -83,8 +89,16 @@ export const PK = {
     tool: 9,
     home: [12, 17, 228] as V3,
   },
-  /** Ports: beads arrive at belt A's head; packets leave at the end of the stroke (bottom centre). */
-  ports: { in: [-28, 0, 232] as V3, out: [0, ST[2] + 11, LANE_Z] as V3 },
+  /**
+   * Ports: beads are handed on at belt A's head (the transfer plate's start, on the gutter line);
+   * packets leave at the end of the beam's stroke past S2 (bottom centre, at rest).
+   */
+  ports: { in: [FROM[0], 0, FROM[1]] as V3, out: [0, ST[2] + PITCH, LANE_Z] as V3 },
+  /**
+   * Belt B's tail (its origin, local y on the lane axis): its rails start clear of the deck's
+   * front tab (v2 A: PACKER + [0, 32]). The packet drops from `ports.out` onto its in point.
+   */
+  beltB: 32,
 } as const;
 
 const KINDS: readonly ItemKind[] = ['control', 'graph', 'data'];
@@ -161,9 +175,8 @@ export interface PackerOutputs {
   shift: number;
   /** Pocket LEDs (photo-eyes see a settled bead). */
   leds: [boolean, boolean, boolean];
-  /** The picker's vacuum holds (the bar's lamp and the cabinet lamp), the cups' squeeze 0..1. */
+  /** The picker's vacuum holds (the bar's lamp and the cabinet lamp). */
   vacuum: boolean;
-  squeeze: number;
   /** The magazine stack's drop (0..1: the stack settles one blank after a push). */
   stackDrop: number;
   stackLifted: boolean;
@@ -205,7 +218,7 @@ export interface Packer extends Machine, Located, Receiver, PoseSource {
 }
 
 export function packerOutputs(): PackerOutputs {
-  return { pusher: PK.pusher.rest, pad: PK.erector.rest, rise: 0, shift: 0, leds: [false, false, false], vacuum: false, squeeze: 0, stackDrop: 0, stackLifted: false, picker: [0, 0, 0], folder: [0, 0, 0] };
+  return { pusher: PK.pusher.rest, pad: PK.erector.rest, rise: 0, shift: 0, leds: [false, false, false], vacuum: false, stackDrop: 0, stackLifted: false, picker: [0, 0, 0], folder: [0, 0, 0] };
 }
 
 const set3 = (o: V3, x: number, y: number, z: number) => {
@@ -221,6 +234,8 @@ const mixTo = (o: V3, A: readonly number[], B: readonly number[], t: number) => 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 export function createPacker(clock: Readonly<Clock>, ledger: Ledger, o: PackerOptions): Packer {
+  // The erector's 'up' phase ends once the flaps have swung, and they swing only above FLAP_ARC.
+  if (!(PK.erector.rest > TOP + FLAP_ARC)) throw new Error(`packer: erector.rest ${PK.erector.rest} must clear the flaps' arc (> ${TOP + FLAP_ARC})`);
   const GT = PK.gutter;
   const TR = PK.transfer;
   const N = PK.nestMax;
@@ -374,7 +389,7 @@ export function createPacker(clock: Readonly<Clock>, ledger: Ledger, o: PackerOp
       const t = erector.el / 0.3;
       erector.pad = lerp(TOP, E.rest, smoother(t));
       // The flaps swing only once the pad is clear of the major flaps' arc.
-      if (erector.pad > TOP + 3.9) {
+      if (erector.pad > TOP + FLAP_ARC) {
         if (erector.flaps < 0) erector.flaps = 0;
         erector.flaps += dt;
         const moving = springFlaps(c!, dt, erector.flaps);
@@ -403,8 +418,9 @@ export function createPacker(clock: Readonly<Clock>, ledger: Ledger, o: PackerOp
         feeder.phase !== 'push' &&
         folder.free &&
         picker.clearOfLane &&
-        // The taped packet leaves at the end of this stroke: ask belt B now (one sender).
-        (!s2 || out.ready(0.12 + 0.55));
+        // The taped packet leaves at the end of this stroke: ask belt B now (one sender), with the
+        // lead in sim seconds (the stroke runs on the tempo clock).
+        (!s2 || out.ready((0.12 + 0.55) / tempo()));
       if (ready) {
         for (const c of cartons) c.home = c.y;
         go(beam, 'rise');
@@ -468,7 +484,6 @@ export function createPacker(clock: Readonly<Clock>, ledger: Ledger, o: PackerOp
     W: [...PHOME] as V3,
     dW: [0, 0, 0] as V3,
     carried: [] as Item[],
-    squeeze: 0,
     vacuum: false,
     clearOfLane: true,
   };
@@ -494,7 +509,6 @@ export function createPacker(clock: Readonly<Clock>, ledger: Ledger, o: PackerOp
         break;
       case 'grip': {
         const t = p.el / 0.18;
-        p.squeeze = smoother(t);
         p.vacuum = t > 0.3;
         if (t >= 1) {
           p.carried = nest.splice(0, 3).map((b) => b.item);
@@ -518,7 +532,6 @@ export function createPacker(clock: Readonly<Clock>, ledger: Ledger, o: PackerOp
       case 'release': {
         const t = p.el / 0.1;
         p.vacuum = false;
-        p.squeeze = 1 - smoother(t);
         if (t >= 1) {
           const c = at0(ST[1]);
           if (!c) throw new Error('packer: no carton at S1 to fill');
@@ -604,12 +617,13 @@ export function createPacker(clock: Readonly<Clock>, ledger: Ledger, o: PackerOp
         cc.tape = e;
         if (t >= 1) {
           tape(cc);
+          // The return starts where the tape stroke ended (the carton may move on under it).
+          set3(from3, X0 + 2.4, cc.y, TOP + FT);
           go(f, 'return');
         }
       } else {
         // Return with a small hop (v2 `hop`, lift 3).
         const t = f.el / 0.42;
-        set3(from3, X0 + 2.4, cc.y, TOP + FT);
         mixTo(f.W, from3, FHOME, t);
         f.W[2] += 3 * Math.sin(Math.PI * clamp01(t));
         if (t >= 1) {
@@ -672,12 +686,15 @@ export function createPacker(clock: Readonly<Clock>, ledger: Ledger, o: PackerOp
 
   // ---- the machine --------------------------------------------------------------------------------
   const out = createOut(o, 'out', { asks: true });
+  const pools = { beads: N + 3 + 6, cartons: 5, stack: 9, packets: 2 } as const;
+  /** The blocks' view of a carton (one scratch object: the sim's cartons are never touched). */
+  const view = { kind: 'control' as ItemKind, x: 0, y: 0, z: 0, H: 0, flaps: [0, 0, 0, 0], tape: 0, stage: 'blank' as CartonStage };
   const packer: Packer = {
     id: o.id,
     origin: o.origin,
     outs: { out },
     // Beads: the nest, three carried, three each in S1 and S2; cartons: blank + S0..S2 + one more.
-    pools: { beads: N + 3 + 6, cartons: 5, stack: 9, packets: 2 },
+    pools,
     stats,
     phases: {
       get picker() {
@@ -773,15 +790,20 @@ export function createPacker(clock: Readonly<Clock>, ledger: Ledger, o: PackerOp
       let n = 0;
       for (const c of cartons) {
         if (c.item) continue;
-        const y = c.y;
-        c.y = y + c.dy * k;
-        cb(n++, c);
-        c.y = y;
+        view.kind = c.kind;
+        view.x = c.x;
+        view.y = c.y + c.dy * k;
+        view.z = c.z;
+        view.H = c.H;
+        for (let i = 0; i < 4; i++) view.flaps[i] = c.flaps[i]!;
+        view.tape = c.tape;
+        view.stage = c.stage;
+        cb(n++, view);
       }
       return n;
     },
     stack(cb) {
-      const n = Math.min(stack.length, 9);
+      const n = Math.min(stack.length, pools.stack);
       for (let i = 0; i < n; i++) cb(i, stack[i]!);
       return n;
     },
@@ -793,7 +815,6 @@ export function createPacker(clock: Readonly<Clock>, ledger: Ledger, o: PackerOp
       r.shift = beam.shift;
       for (let i = 0; i < 3; i++) r.leds[i] = settledAt(i);
       r.vacuum = picker.vacuum;
-      r.squeeze = picker.squeeze;
       r.stackDrop = stackDrop;
       r.stackLifted = feeder.phase === 'push' || feeder.phase === 'back';
       set3(r.picker, picker.W[0] + picker.dW[0] * k, picker.W[1] + picker.dW[1] * k, picker.W[2] + picker.dW[2] * k);

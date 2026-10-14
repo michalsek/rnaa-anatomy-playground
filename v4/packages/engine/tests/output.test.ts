@@ -8,8 +8,7 @@ import { verticalStadium } from '../src/sim/path.ts';
 import type { V3 } from '../src/sim/ports.ts';
 import { RATES } from '../src/sim/rates.ts';
 import { SPK, type SpeakerOutputs, createSpeaker } from '../src/sim/speaker.ts';
-import { createSource } from '../src/sim/source.ts';
-import { report, snapshot } from './rig.ts';
+import { report } from './rig.ts';
 
 const H = 1 / 120;
 const spk = (): SpeakerOutputs => ({ cone: 0, cap: 0, lit: 0, peak: -1 });
