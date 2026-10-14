@@ -101,7 +101,8 @@ export function createLine(layout: LineLayout = LINE_LAYOUT, o: { seed?: number 
     return { factory, source, beltB, centrifuge, audio, beltC: null, crusher: null, sink };
   }
   const c = gb.beltC;
-  const beltC = factory.add(createConveyor(clock, { id: 'beltC', origin: c.origin, axis: 'y', dir: 1, length: c.length, top: TOP_C, inAt: c.inAt, tip: false }));
+  // Belt C holds so the crusher takes one packet at a time (its hopper's `canAccept`).
+  const beltC = factory.add(createConveyor(clock, { id: 'beltC', origin: c.origin, axis: 'y', dir: 1, length: c.length, top: TOP_C, inAt: c.inAt, tip: false, hold: true }));
   const crusher = factory.add(createCrusher(clock, ledger, { id: 'crusher', origin: gb.crusher }));
   factory.link(audio, 'drop', beltC);
   factory.link(beltC, 'out', crusher);
@@ -170,7 +171,7 @@ export function createCrusherPage(o: { seed?: number } = {}): CrusherPageGraph {
   const source = factory.add(
     createSource(clock, ledger, { id: 'source', origin: cOrigin, from: [0, 8, TOP_C + 24], every: RATES.crusherFeed, delay: 0.6, burst: 1, rest: 0, kinds: ['garbage'], seed: o.seed ?? 0 }),
   );
-  const beltC = factory.add(createConveyor(clock, { id: 'beltC', origin: cOrigin, axis: 'y', dir: 1, length, top: TOP_C, inAt: 8, tip: false }));
+  const beltC = factory.add(createConveyor(clock, { id: 'beltC', origin: cOrigin, axis: 'y', dir: 1, length, top: TOP_C, inAt: 8, tip: false, hold: true }));
   const crusher = factory.add(createCrusher(clock, ledger, { id: 'crusher', origin: [0, 0, 0] }));
   factory.link(source, 'out', beltC);
   factory.link(beltC, 'out', crusher);

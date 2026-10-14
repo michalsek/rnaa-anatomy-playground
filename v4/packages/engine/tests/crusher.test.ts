@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { type BinMode, CR, type CrusherOutputs } from '../src/sim/crusher.ts';
-import { createCrusherPage } from '../src/sim/graphs.ts';
+import { CRUSH_GAP } from '../src/sim/crusher.ts';
+import { LINE_LAYOUT, createCrusherPage, createLine } from '../src/sim/graphs.ts';
 import { RATES } from '../src/sim/rates.ts';
 import { snapshot } from './rig.ts';
 
 const H = 1 / 120;
-const out = (): CrusherOutputs => ({ phase: 0, belt: 0, spin: 0, kick: 0, lamp: 0, needle: 0, gate: 0, bin: 0, pile: 0 });
+const out = (): CrusherOutputs => ({ phase: 0, belt: 0, spin: 0, kick: 0, lamp: 0, needle: 0, gate: 0, bin: 0, pile: 0, fill: 0 });
 
 describe('crusher (v2 crusher page: source → belt C → crusher)', () => {
   it('conserves packets and keeps its lanes apart (180 s)', () => {
@@ -108,5 +109,27 @@ describe('crusher (v2 crusher page: source → belt C → crusher)', () => {
       return snapshot(g.factory, { stats: g.crusher.stats(), fl });
     };
     expect(run()).toEqual(run());
+  });
+
+  it('on the line, takes garbage bursts one packet at a time (belt C holds)', () => {
+    const g = createLine(LINE_LAYOUT);
+    const c = g.crusher!;
+    const accepted: number[] = [];
+    const accept = c.accept.bind(c);
+    c.accept = (item, from, v) => {
+      accepted.push(g.factory.clock.t);
+      accept(item, from, v);
+    };
+    g.beltC!.outs.out.connect(c);
+    let held = 0;
+    for (let i = 0; i < 150 * 120; i++) {
+      g.factory.run(H);
+      if (g.beltC!.held()) held++;
+      expect(g.factory.ledger.created).toBe(g.factory.alive() + g.factory.ledger.consumed);
+    }
+    expect(accepted.length).toBeGreaterThan(10);
+    for (let k = 1; k < accepted.length; k++) expect(accepted[k]! - accepted[k - 1]!).toBeGreaterThanOrEqual(CRUSH_GAP - 1e-6);
+    // The loop drops a burst one per quantum (0.57 s): belt C queues them.
+    expect(held).toBeGreaterThan(0);
   });
 });

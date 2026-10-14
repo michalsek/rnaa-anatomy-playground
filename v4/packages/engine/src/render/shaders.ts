@@ -369,7 +369,8 @@ export const fillFragment = tgpu.fragmentFn({
   const facing = std.dot(n, frame.toward);
   const set = (input.flags >>> FLAG.lineSetShift) & FLAG.lineSetMask;
   const lineSet = L.$.lineSets[std.select(set, d.u32(1), set === 0) - 1];
-  const x = input.uv.x * lineSet.count - lineSet.phase;
+  // E6 stripes slant across v (slant is 0 for the other kinds).
+  const x = input.uv.x * lineSet.count - lineSet.phase + input.uv.y * lineSet.slant;
   const xGrad = std.length(d.vec2f(std.dpdx(x), std.dpdy(x)));
 
   let color = toneMix(m, m2, k, SLOT.s0);
@@ -435,7 +436,7 @@ export const fillFragment = tgpu.fragmentFn({
       }
     }
     // UV tick lines.
-    if (set > 0 && !inside && lineSet.kind === LINE_KIND.lines) {
+    if (set > 0 && !inside && (lineSet.kind === LINE_KIND.lines || lineSet.kind === LINE_KIND.stripes)) {
       const nearest = std.round(x);
       const dist = std.abs(x - nearest) / std.max(xGrad, 1e-6);
       const count = d.i32(lineSet.count);

@@ -1,5 +1,6 @@
 import { extrude } from './extrude.ts';
 import type { Mesh } from './mesh.ts';
+import type { LineSetSpec } from './spec.ts';
 
 export interface BoxSpec {
   /** Centre of the box (model space). */
@@ -10,11 +11,14 @@ export interface BoxSpec {
   r?: number;
   /** Heights (model z) of seam rings around the sides. */
   seams?: readonly number[];
+  /** A UV line set on the sides (tagged 1). */
+  lines?: LineSetSpec;
 }
 
 /** Axis-aligned box: an extruded rectangle (flat normals, CCW seen from outside). */
-export function box({ center = [0, 0, 0], size, r = 0, seams = [] }: BoxSpec): Mesh {
+export function box({ center = [0, 0, 0], size, r = 0, seams = [], lines }: BoxSpec): Mesh {
   return extrude({
+    sideTag: lines ? 1 : 0,
     plan: { rect: [size[0], size[1]], r },
     z: center[2] - size[2] / 2,
     height: size[2],

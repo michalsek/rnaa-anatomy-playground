@@ -27,6 +27,7 @@ import {
   type Transform,
   type Vec3,
   geoKey,
+  lodSteps,
   stableKey,
 } from '@anatomy/engine';
 import { SceneContext, joinId, useScene } from './context.ts';
@@ -128,25 +129,30 @@ export const Machine = Group;
 
 // ---- solids ----------------------------------------------------------------------------------
 
-export function Box(props: PartProps & { size: Vec3; center?: Vec3; r?: number; seams?: number[] }) {
-  const { size, center, r, seams } = props;
+/** `lines`: a UV line set on the sides (u = perimeter fraction, v = model z; E6 `stripes`). */
+export function Box(props: PartProps & { size: Vec3; center?: Vec3; r?: number; seams?: number[]; lines?: LineSetSpec }) {
+  const { size, center, r, seams, lines } = props;
   return usePart(props, {
     kind: 'box',
     size,
     ...(center && { center }),
     ...(r !== undefined && { r }),
     ...(seams && { seams }),
+    ...(lines && { lines }),
   });
 }
 
-export function Extrude(props: PartProps & { plan: Plan; z?: number; height: number; seams?: number[] }) {
-  const { plan, z, height, seams } = props;
+export function Extrude(props: PartProps & { plan: Plan; z?: number; height: number; seams?: number[]; lines?: LineSetSpec }) {
+  const { z, height, seams, lines } = props;
+  // E9: a circle's segments by radius (an explicit count is capped by the LOD too).
+  const plan: Plan = 'circle' in props.plan ? { ...props.plan, steps: lodSteps(props.plan.circle, props.plan.steps) } : props.plan;
   return usePart(props, {
     kind: 'extrude',
     plan,
     height,
     ...(z !== undefined && { z }),
     ...(seams && { seams }),
+    ...(lines && { lines }),
   });
 }
 
@@ -160,11 +166,15 @@ export function Lathe(
     subdivisions?: number;
   },
 ) {
-  const { profile, steps, seams, marks, lineSets, subdivisions } = props;
+  const { profile, seams, marks, lineSets, subdivisions } = props;
+  // E9: segments by radius (an explicit count is capped by the LOD too).
+  let maxR = 0;
+  for (const p of profile) maxR = Math.max(maxR, Math.abs(p[0]));
+  const steps = lodSteps(maxR, props.steps);
   return usePart(props, {
     kind: 'lathe',
     profile,
-    ...(steps !== undefined && { steps }),
+    steps,
     ...(seams && { seams }),
     ...(marks && { marks }),
     ...(lineSets && { lineSets }),

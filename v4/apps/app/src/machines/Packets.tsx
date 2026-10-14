@@ -15,13 +15,15 @@ const MATERIAL: Record<(typeof PACKET_KINDS)[number], Material> = {
   garbage: 'pkGarbage',
 };
 
-export function PacketPool({ id = 'packets', capacity }: { id?: string; capacity: number }) {
+/** `scalable`: the packets take an axis scale (the crusher's squash, E3). */
+export function PacketPool({ id = 'packets', capacity, scalable = false }: { id?: string; capacity: number; scalable?: boolean }) {
   return (
     <Instances
       id={id}
       geo={{ kind: 'box', size: [PACKET_SIZE.w, PACKET_SIZE.d, H], r: 0.6, center: [0, 0, H / 2], seams: [H * 0.55] }}
       styles={PACKET_KINDS.map((k) => ({ material: MATERIAL[k], outline: 'hi' as const }))}
       capacity={capacity}
+      scalable={scalable}
       marks={{
         material: 'pkControl',
         segments: [

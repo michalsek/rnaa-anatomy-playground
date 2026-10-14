@@ -92,9 +92,11 @@ export const LineSet = d.struct({
   kind: d.u32,
   duty: d.f32,
   fill: d.u32,
+  /** `stripes`: line periods per unit of v (0 for the other kinds). */
+  slant: d.f32,
 });
 
-export const LINE_KIND = { lines: 0, sectors: 1 } as const;
+export const LINE_KIND = { lines: 0, sectors: 1, stripes: 2 } as const;
 
 /**
  * Mark kinds. A contact is a segment on a crossing curve: its normal is the bigger part's face

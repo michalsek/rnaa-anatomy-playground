@@ -33,16 +33,20 @@ export interface LineSetSpec {
   fade: readonly [number, number];
   /**
    * `sectors`: instead of lines, fill the first `duty` (0..1) of each period with the FX colour
-   * `fill` (AA'd edges; `first`..`last` still pick the drawn periods). Default `lines`.
+   * `fill` (AA'd edges; `first`..`last` still pick the drawn periods). `stripes` (E6): lines
+   * slanted across v, x = u·count − phase + v·slant (a hazard band). Default `lines`.
    */
-  kind?: 'lines' | 'sectors';
+  kind?: 'lines' | 'sectors' | 'stripes';
   duty?: number;
   fill?: FxName;
+  /** `stripes`: line periods per unit of v (v = model z on an extrude's sides). */
+  slant?: number;
 }
 
 export type GeoSpec =
-  | { kind: 'box'; size: Vec3; center?: Vec3; r?: number; seams?: number[] }
-  | { kind: 'extrude'; plan: Plan; z?: number; height: number; seams?: number[] }
+  /** `lines`: a UV line set on the sides (u = perimeter fraction, v = model z). */
+  | { kind: 'box'; size: Vec3; center?: Vec3; r?: number; seams?: number[]; lines?: LineSetSpec }
+  | { kind: 'extrude'; plan: Plan; z?: number; height: number; seams?: number[]; lines?: LineSetSpec }
   | {
       kind: 'lathe';
       profile: readonly ProfilePoint[];
@@ -99,9 +103,9 @@ export const geoKey = (spec: GeoSpec) => stableKey(spec);
 export function buildMesh(spec: GeoSpec): { mesh: Mesh; lineSets: LineSetSpec[] } {
   switch (spec.kind) {
     case 'box':
-      return { mesh: box(spec), lineSets: [] };
+      return { mesh: box(spec), lineSets: spec.lines ? [spec.lines] : [] };
     case 'extrude':
-      return { mesh: extrude(spec), lineSets: [] };
+      return { mesh: extrude({ ...spec, sideTag: spec.lines ? 1 : 0 }), lineSets: spec.lines ? [spec.lines] : [] };
     case 'lathe': {
       const sets = spec.lineSets ?? [];
       const mesh = lathe({

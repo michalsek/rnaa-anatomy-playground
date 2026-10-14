@@ -34,6 +34,8 @@ export const CR = {
   DIAL: { x: -32, y: 11.6, z: 26.5, r: 3.6, face: 0.9 },
   LAMP: { x: -32, y: 5, z: 32 },
   PILE_MAX: 5.4,
+  /** The pile slab starts this far under the mat (only chips show the first flakes). */
+  PILE_SINK: 1.0,
   /** Flakes per packet, lanes on the chute. */
   PER: 7,
   LANES: 7,
@@ -47,6 +49,11 @@ export const CRUSH_T = { TA: 0.5, TB: 0.5, TT: 0.45, TC: 1.0 } as const;
 const { TA, TB, TT, TC } = CRUSH_T;
 const T_NIP = TA + TB + TT;
 const T_END = T_NIP + TC;
+/**
+ * The hopper takes the next packet once the last is off the lip (TA + TB) and will have left the
+ * nip (TC) by the time the next reaches it: packets never overlap. Belt C holds for it (`hold`).
+ */
+export const CRUSH_GAP = Math.max(TA + TB, TC);
 
 export type BinMode = 'home' | 'full' | 'out' | 'dump' | 'back';
 
@@ -67,8 +74,10 @@ export interface CrusherOutputs {
   gate: number;
   /** Drawer travel along +y, units. */
   bin: number;
-  /** Pile height in the bin, units. */
+  /** Pile height above the bin's mat, units (0 until the first ~15% of the fill). */
   pile: number;
+  /** Bin fill 0..1 (the pile also grows in plan with it). */
+  fill: number;
 }
 
 export interface Flake {
@@ -179,7 +188,8 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
   let laneNext = 0;
   let nextRelease = 0;
 
-  const pileH = () => fill * CR.PILE_MAX;
+  /** The pile's height above the mat (the slab rises out of it, so the first flakes are chips). */
+  const pileH = () => Math.max(0, fill * (CR.PILE_MAX + CR.PILE_SINK) - CR.PILE_SINK);
   const laneTail = (lane: number) => {
     let m = Infinity;
     for (const f of flakes) if (f.mode === 'slide' && f.lane === lane) m = Math.min(m, f.y);
@@ -271,7 +281,11 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
     id: o.id,
     origin: o.origin,
     pilePlan,
-    canAccept: () => true,
+    // Advice, not strict: a belt that doesn't ask still hands on (and its packets may overlap).
+    canAccept() {
+      for (const it of items) if (clock.t - it.t0 < CRUSH_GAP - 1e-9) return false;
+      return true;
+    },
     accept(item, from) {
       // Lie square across the feed (the box is symmetric).
       item.yaw = Math.round(item.yaw / Math.PI) * Math.PI;
@@ -392,6 +406,7 @@ export function createCrusher(clock: Readonly<Clock>, ledger: Ledger, o: Crusher
       r.gate = Math.max(0, gate.x) * 2.9;
       r.bin = bin.pos * B.travel;
       r.pile = pileH();
+      r.fill = fill;
       return r;
     },
     poses(cb) {

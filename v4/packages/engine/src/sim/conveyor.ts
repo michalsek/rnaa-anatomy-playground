@@ -244,9 +244,12 @@ export function createConveyor(clock: Readonly<Clock>, o: TopOptions): Conveyor 
         } else if (it.phase === 'ride') {
           it.bounce += h;
           it.v += (speed - it.v) * (1 - Math.exp(-h * 5));
+          const was = it.s;
           it.s += dir * it.v * h;
           if (it.s * dir > it.lim) {
-            it.s = it.lim * dir;
+            // Stop at the queue limit, but never move back: items dropped closer than the queue
+            // spacing (a sender that doesn't ask) stay where they are until the queue moves on.
+            it.s = dir * Math.max(it.lim, was * dir);
             it.v = 0;
           }
           relaxYaw(it.item, h);

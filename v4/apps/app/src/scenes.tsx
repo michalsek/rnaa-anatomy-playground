@@ -3,10 +3,11 @@ import type { ViewPreset } from '@anatomy/engine';
 import { Gallery } from './gallery/Gallery.tsx';
 import { M1Row } from './gallery/M1Row.tsx';
 import { GALLERY_VIEWS, M1_VIEWS } from './gallery/views.ts';
-import { CentrifugeScene, ConveyorScene, LineScene } from './factory/Scenes.tsx';
-import { centrifugeLive, conveyorLive, lineLive } from './factory/live.ts';
+import { CentrifugeScene, ConveyorScene, CrusherScene, LineScene } from './factory/Scenes.tsx';
+import { centrifugeLive, conveyorLive, crusherLive, lineLive } from './factory/live.ts';
 import { CONVEYOR_CARD, CONVEYOR_VIEWS, LINE_CARD, LINE_VIEWS } from './factory/views.ts';
 import { CENTRIFUGE_CARD, CENTRIFUGE_VIEWS } from './machines/centrifuge/views.ts';
+import { CRUSHER_CARD, CRUSHER_VIEWS } from './machines/crusher/views.ts';
 import type { ReadoutSource } from './overlay/readout.ts';
 
 export interface CardText {
@@ -44,6 +45,13 @@ export const SCENES: SceneEntry[] = [
     Content: CentrifugeScene,
     card: { ...CENTRIFUGE_CARD, readout: centrifugeLive.readout },
     dev: centrifugeLive.dev,
+  },
+  {
+    name: 'crusher',
+    views: CRUSHER_VIEWS,
+    Content: CrusherScene,
+    card: { ...CRUSHER_CARD, readout: crusherLive.readout },
+    dev: crusherLive.dev,
   },
   {
     name: 'conveyor',

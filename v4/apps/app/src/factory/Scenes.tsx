@@ -2,20 +2,23 @@
  * Scenes built from machine blocks over one live graph each (`live.ts`):
  * - `CentrifugeScene`: the centrifuge between a short belt B (fed by a source in a hopper) and a
  *   short audio loop (its garbage drops into a bin);
- * - `LineScene`: source → belt B → centrifuge → audio loop → bin, at the final layout (§2.1).
- * Stand-ins: the hopper hides where the source makes packets; the bin hides where the sink takes
- * them (M6 replaces it with belt C and the crusher).
+ * - `LineScene`: source → belt B → centrifuge → audio loop → belt C → crusher, at the final
+ *   layout (§2.1);
+ * - `ConveyorScene`: v2's conveyor page; `CrusherScene`: v2's crusher page (a source over a short
+ *   belt C).
+ * Stand-ins: the hopper hides where a source makes packets; a crate hides where a sink takes them.
  */
-import type { ConveyorPageGraph, LineGraph, Sink, Source } from '@anatomy/engine';
+import type { ConveyorPageGraph, CrusherPageGraph, LineGraph, Sink, Source } from '@anatomy/engine';
 import { Box, Group, Lathe, useFrame } from '../blocks/blocks.tsx';
 import { PacketPool } from '../machines/Packets.tsx';
 import { Centrifuge } from '../machines/centrifuge/Centrifuge.tsx';
+import { Crusher } from '../machines/crusher/Crusher.tsx';
 import { Loop } from '../machines/conveyor/Loop.tsx';
 import { Top } from '../machines/conveyor/Top.tsx';
 import { rod } from '../machines/conveyor/dims.ts';
 import { corners } from '../machines/kit.ts';
 import { usePacketPoses } from '../machines/poses.ts';
-import { type Live, type LiveHandle, centrifugeLive, conveyorLive, lineLive } from './live.ts';
+import { type Live, type LiveHandle, centrifugeLive, conveyorLive, crusherLive, lineLive } from './live.ts';
 
 /** A closed hopper over the source's point (v2 conveyor page's demo hopper), on two posts. */
 function Hopper({ source, legs }: { source: Source; legs: boolean }) {
@@ -69,15 +72,18 @@ function SinkBin({
 
 function LineOf({ live }: { live: Live<LineGraph> }) {
   const g = live.graph();
-  // The garbage leaves the head drum moving +x (the bottom run): the crate catches it there.
-  const [dx, , ] = g.audio.geometry.ports.drop;
+  // Without the garbage path, the garbage leaves the head drum moving +x (the bottom run): a
+  // crate catches it there.
+  const [dx] = g.audio.geometry.ports.drop;
   return (
     <>
       <Top id="beltB" live={live} sim={() => live.graph().beltB} />
       <Hopper source={g.source} legs />
       <Centrifuge live={live} sim={() => live.graph().centrifuge} />
       <Loop id="audio" live={live} sim={() => live.graph().audio} />
-      <SinkBin live={live} sim={() => live.graph().sink} crate={[[dx + 1, -9, 0], [dx + 21, 9, 12]]} />
+      {g.beltC && <Top id="beltC" live={live} sim={() => live.graph().beltC!} />}
+      {g.crusher && <Crusher live={live} sim={() => live.graph().crusher!} />}
+      {g.sink && <SinkBin live={live} sim={() => live.graph().sink!} crate={[[dx + 1, -9, 0], [dx + 21, 9, 12]]} />}
     </>
   );
 }
@@ -103,6 +109,19 @@ export function ConveyorScene() {
       <Loop id="audio" live={live} sim={() => live.graph().audio} />
       <Top id="beltC" live={live} sim={() => live.graph().beltC} />
       <SinkBin live={live} sim={() => live.graph().sink} crate={[[ox - 11, oy - 8, 0], [ox + 11, oy + 13, 9]]} />
+    </>
+  );
+}
+
+/** v2's crusher page: a spent packet every 2.4 s from a hopper onto a short belt C. */
+export function CrusherScene() {
+  const live: Live<CrusherPageGraph> = crusherLive;
+  const g = live.graph();
+  return (
+    <>
+      <Hopper source={g.source} legs />
+      <Top id="beltC" live={live} sim={() => live.graph().beltC} />
+      <Crusher live={live} sim={() => live.graph().crusher} />
     </>
   );
 }

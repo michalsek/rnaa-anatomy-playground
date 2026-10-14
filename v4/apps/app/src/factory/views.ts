@@ -14,13 +14,17 @@ export const LINE_VIEWS: ViewPreset[] = [
   at('release', [[76, 100, 88], [118, 138, 128]]),
   at('read', [[12, 108, 42], [48, 132, 82]]),
   at('head', [[-118, 98, 25], [-62, 142, 112]]),
+  /** v2 `z-audio-C`: the loop's head drum over belt C, where garbage drops. */
+  at('audio-C', [[-125, 92, 0], [-55, 160, 112]]),
+  /** v2 `z-C-crusher`: belt C's end and the crusher. */
+  at('C-crusher', [[-130, 180, 0], [-50, 300, 45]]),
 ];
 
 export const LINE_CARD = {
   fig: 'Line',
-  title: 'Centrifuge → render loop',
-  hint: 'packets → rings → one per quantum → render loop',
-  label: 'Packets ride belt B into the centrifuge, which drains them one per render quantum onto the audio belt.',
+  title: 'Centrifuge → render loop → disposer',
+  hint: 'packets → rings → one per quantum → render loop → crusher',
+  label: 'Packets ride belt B into the centrifuge, which drains them one per render quantum onto the audio belt; spent ones ride belt C to the crusher.',
 } as const;
 
 export const CONVEYOR_VIEWS: ViewPreset[] = [

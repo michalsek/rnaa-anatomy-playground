@@ -10,13 +10,20 @@
  */
 import {
   type Centrifuge,
+  type Conveyor,
   type ConveyorPageGraph,
+  type Crusher,
+  type CrusherPageGraph,
   type Factory,
   type FrameInfo,
   type LineGraph,
+  type Loop,
+  type Sink,
+  type Source,
   CENTRIFUGE_LAYOUT,
   LINE_LAYOUT,
   createConveyorPage,
+  createCrusherPage,
   createLine,
 } from '@anatomy/engine';
 import { type Readout, createReadout } from '../overlay/readout.ts';
@@ -36,7 +43,19 @@ export interface Live<G> extends LiveHandle {
 
 interface Graph {
   factory: Factory;
-  centrifuge?: Centrifuge;
+  centrifuge?: Centrifuge | null;
+}
+
+/** Any scene graph: the machines it may have (by id), for `status(id)`. */
+interface AnyGraph {
+  factory: Factory;
+  source?: Source;
+  beltB?: Conveyor;
+  beltC?: Conveyor | null;
+  centrifuge?: Centrifuge | null;
+  audio?: Loop;
+  sink?: Sink | null;
+  crusher?: Crusher | null;
 }
 
 function createLive<G extends Graph>(
@@ -74,7 +93,7 @@ function createLive<G extends Graph>(
         if (!(t >= 0 && t <= 3600)) throw new Error(`seek ${t}: use 0–3600 s`);
         restart(t);
         ctl.paused = true;
-        return describe(g, g.centrifuge ? 'centrifuge' : 'audio');
+        return describe(g, mainOf(g));
       },
       pause() {
         ctl.paused = true;
@@ -92,8 +111,8 @@ function createLive<G extends Graph>(
         seed = n;
         restart(0);
       },
-      /** A machine's state summary (default: the centrifuge); ids: `machines()`. */
-      status: (id = g.centrifuge ? 'centrifuge' : 'audio') => describe(g, id),
+      /** A machine's state summary (default: the scene's main machine); ids: `machines()`. */
+      status: (id = mainOf(g)) => describe(g, id),
       machines: () => g.factory.machines.map((m) => m.id),
       t: () => g.factory.clock.t,
       log: () => g.centrifuge?.state.log.map((x) => `${x.t.toFixed(2)} ${x.phase}`).join('\n') ?? '',
@@ -108,8 +127,13 @@ function createLive<G extends Graph>(
   };
 }
 
-function describeAny(g: Partial<LineGraph & ConveyorPageGraph> & { factory: Factory }, id: string): unknown {
+const mainOf = (g: Graph & { crusher?: Crusher | null }) => (g.centrifuge ? 'centrifuge' : g.crusher ? 'crusher' : 'audio');
+
+function describeAny(g: AnyGraph, id: string): unknown {
   switch (id) {
+    case 'crusher':
+      if (g.crusher) return { t: g.factory.clock.t, ...g.crusher.stats(), items: g.crusher.alive() };
+      break;
     case 'centrifuge':
       if (g.centrifuge) return g.centrifuge.status();
       break;
@@ -136,6 +160,11 @@ function describeAny(g: Partial<LineGraph & ConveyorPageGraph> & { factory: Fact
   throw new Error(`unknown machine ${JSON.stringify(id)}; known: ${g.factory.machines.map((m) => m.id).join(', ')}`);
 }
 
+const disposed = (c: Crusher) => {
+  const s = c.stats();
+  return `${s.count} disposed · bin ${Math.round(s.fill * 100)}%${s.bin === 'home' ? '' : ' · emptying'}`;
+};
+
 const centrifugeText = (g: LineGraph) => {
   const s = g.centrifuge;
   const rpm = (Math.max(0, s.controller.w) * 60) / (2 * Math.PI);
@@ -150,7 +179,8 @@ export const lineLive = createLive(
   (seed) => createLine(LINE_LAYOUT, { seed }),
   (g) => {
     const q = g.audio.quanta();
-    return `held ${g.centrifuge.tray.held()}/10 · ${g.centrifuge.controller.phase} · q ${q.count} · ${(1 / q.period).toFixed(2)}/s · ${g.audio.stats.dropped} out`;
+    const out = g.crusher ? disposed(g.crusher) : `${g.audio.stats.dropped} out`;
+    return `held ${g.centrifuge.tray.held()}/10 · ${g.centrifuge.controller.phase} · q ${q.count} · ${(1 / q.period).toFixed(2)}/s · ${out}`;
   },
   describeAny,
 );
@@ -171,4 +201,12 @@ export const conveyorLive = createLive(
   },
   describeAny,
   () => 'running',
+);
+
+/** v2's crusher page: the readout as v2's (`disposed 0 · bin 0%`). */
+export const crusherLive = createLive(
+  (seed) => createCrusherPage({ seed }),
+  (g: CrusherPageGraph) => disposed(g.crusher),
+  describeAny,
+  (g) => g.crusher.stats().bin,
 );

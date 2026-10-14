@@ -131,6 +131,7 @@ function lineSetData(s: LineSetSpec) {
     kind: LINE_KIND[s.kind ?? 'lines'],
     duty: s.duty ?? 0.5,
     fill: FX[s.fill ?? 'strobe'],
+    slant: s.kind === 'stripes' ? (s.slant ?? 1) : 0,
   };
 }
 

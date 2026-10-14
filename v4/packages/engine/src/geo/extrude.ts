@@ -27,6 +27,8 @@ export interface ExtrudeSpec {
   seams?: readonly number[];
   /** Plan offset in xy (used by the box wrapper). */
   offset?: V2;
+  /** Line-set tag of the side faces (1-based; 0 = none). */
+  sideTag?: number;
 }
 
 /** One side edge of the outline: endpoints with their vertex normals (counter-clockwise). */
@@ -39,8 +41,16 @@ interface Edge {
 }
 
 const DEG = Math.PI / 180;
-/** Default segments of a full circle: about 8 per unit of radius, within [32, 128]. */
-export const circleSteps = (r: number) => Math.min(128, Math.max(32, Math.round(8 * r)));
+/**
+ * E9 LOD: segments of a full circle of radius r, so a chord sags at most LOD_SAG units from the
+ * circle (a fraction of a pixel at the fit zoom, under one in the machine close-ups); 12..128.
+ * Was 8 per unit of radius within [32, 128].
+ */
+export const LOD_SAG = 0.02;
+export const circleSteps = (r: number) =>
+  Math.min(128, Math.max(12, Math.ceil(Math.PI / Math.acos(1 - Math.min(1, LOD_SAG / Math.max(r, 1e-6))))));
+/** Segments for a requested count, capped by the LOD (a hex nut's 6 stays 6): the blocks' rule. */
+export const lodSteps = (r: number, requested?: number) => (requested === undefined ? circleSteps(r) : Math.min(requested, circleSteps(r)));
 const polar = (r: number, a: number): V2 => [r * Math.cos(a), r * Math.sin(a)];
 const flatNormal = (a: V2, b: V2): V2 => {
   const dx = b[0] - a[0];
@@ -180,7 +190,7 @@ function earClip(p: readonly V2[]): [number, number, number][] {
   return out;
 }
 
-export function extrude({ plan, z = 0, height, seams = [], offset = [0, 0] }: ExtrudeSpec): Mesh {
+export function extrude({ plan, z = 0, height, seams = [], offset = [0, 0], sideTag = 0 }: ExtrudeSpec): Mesh {
   if (!(height > 0)) throw new Error('extrude: height must be positive');
   const outline = outlineOf(plan);
   const edges = outline.edges.map((e) => ({
@@ -193,6 +203,7 @@ export function extrude({ plan, z = 0, height, seams = [], offset = [0, 0] }: Ex
   const levels = [z, ...[...seams].filter((s) => s > z + 1e-9 && s < top - 1e-9).sort((p, q) => p - q), top];
 
   // ---- sides -----------------------------------------------------------------------------
+  b.tag(sideTag);
   const lengths = edges.map((e) => Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]));
   const perimeter = lengths.reduce((sum, l) => sum + l, 0) || 1;
   let along = 0;
@@ -213,6 +224,7 @@ export function extrude({ plan, z = 0, height, seams = [], offset = [0, 0] }: Ex
     }
   });
   b.smooth(false);
+  b.tag(0);
 
   // ---- caps ------------------------------------------------------------------------------
   const ring = edges.map((e) => e.a);

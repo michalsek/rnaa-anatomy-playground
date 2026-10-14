@@ -136,8 +136,7 @@ export function lathe({
 }: LatheSpec): Mesh {
   const seamed = insertSeams(original, seams);
   const input = seamed.profile;
-  const steps =
-    requestedSteps ?? circleSteps(Math.max(...original.map(([r]) => Math.abs(r))));
+  const steps = requestedSteps ?? circleSteps(Math.max(...original.map(([r]) => Math.abs(r))));
   const { knots: profile, segments, knotIndex } = refineProfile(input, subdivisions);
   const lineSets = inputSets.flatMap(({ segment, set }) => {
     const seg = seamed.segmentsOf[segment];
