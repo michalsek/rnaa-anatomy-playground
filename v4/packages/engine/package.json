@@ -1,0 +1,31 @@
+{
+  "name": "@anatomy/engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#platform/*": {
+      "types": "./src/platform/contract/*",
+      "default": "./src/platform/node/*"
+    }
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "types": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "typegpu": "0.12.4",
+    "wgpu-matrix": "3.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "@webgpu/types": "0.1.74",
+    "typescript": "6.0.3",
+    "unplugin-typegpu": "0.12.3",
+    "vitest": "4.1.11"
+  }
+}

@@ -1,0 +1,39 @@
+# deps & caches
+node_modules/
+.pnpm-store/
+.expo/
+.metro-cache/
+*.tsbuildinfo
+.turbo/
+
+# build outputs
+dist/
+web-build/
+build/
+apps/*/ios/
+apps/*/android/
+*.ipa
+*.apk
+*.aab
+
+# artifacts: screenshots, recordings, scratch
+shots/
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.mp4
+*.mov
+*.gif
+tmp/
+scratch/
+*.log
+
+# env / os / editor
+.env*.local
+.DS_Store
+.vscode/
+.idea/
+
+# app icons/splash are source, not artifacts
+!apps/*/assets/**

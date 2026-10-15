@@ -1,0 +1,34 @@
+{
+  "name": "@anatomy/app",
+  "version": "0.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "web": "expo start --web --port 8090",
+    "start": "expo start --port 8090",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "prebuild": "expo prebuild --clean",
+    "types": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anatomy/engine": "workspace:*",
+    "@expo/metro-runtime": "57.0.16",
+    "expo": "57.0.19",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "5.7.0",
+    "react-native-web": "0.21.4",
+    "react-native-webgpu": "0.6.4",
+    "typegpu": "0.12.4"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@types/react": "19.2.18",
+    "@webgpu/types": "0.1.74",
+    "babel-preset-expo": "57.0.15",
+    "typescript": "6.0.3",
+    "unplugin-typegpu": "0.12.3"
+  }
+}
