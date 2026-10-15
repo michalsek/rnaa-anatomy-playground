@@ -166,5 +166,5 @@ if j < n_c2:
 # The app's last moving frame (the logo stops at `done`): later the recorder only shows the codec's
 # key-frame flicker (under 100 px), so count real motion only.
 moving = [n for n, i in enumerate(kept) if changed[i] > 100]
-json.dump({'tgo': tgo, 'last_moving_kept': moving[-1], 'colour_fit': fit, 'n_c2': n_c2, 'zoom_from': z0, 'xfade_from': x0f, 'S': S, 'mask_r': mask_r}, open(f'{D}/tail.json', 'w'), indent=1)
+json.dump({'tgo': tgo, 'kept': kept, 'last_moving_kept': moving[-1], 'colour_fit': fit, 'n_c2': n_c2, 'zoom_from': z0, 'xfade_from': x0f, 'S': S, 'mask_r': mask_r, 'mask_inset': MASK_INSET}, open(f'{D}/tail.json', 'w'))
 print('tail.mkv done')
